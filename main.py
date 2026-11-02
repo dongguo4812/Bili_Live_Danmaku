@@ -1064,8 +1064,12 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
 
 
 def _music_cookie_provider() -> dict[str, str]:
-    valid, _, cookies = _login_status()
-    return cookies if valid and isinstance(cookies, dict) else {}
+    """只向已认证连接的歌曲模块提供当前连接凭据，不重复验证或改变主连接状态。"""
+    with BILIBILI_STATE_LOCK:
+        if not BILIBILI_STATE["connected"]:
+            return {}
+        cookies = dict(getattr(LIVE_CLIENT, "credential_data", {}) or {})
+    return cookies
 
 
 LIVE2D_MODULE = Live2DModule()
