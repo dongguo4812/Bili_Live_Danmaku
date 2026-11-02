@@ -353,7 +353,8 @@ class LiveRoomClient:
                 room = LiveDanmaku(
                     room_display_id=self.room_id,
                     credential=credential,
-                    should_reconnect=False,
+                    max_retry=0,
+                    retry_after=1,
                 )
                 self.room = room
 
