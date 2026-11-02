@@ -25,6 +25,22 @@
   const ttsTestButton = document.getElementById("tts-test-button");
   const ttsSaveButton = document.getElementById("tts-save-button");
   const ttsStatus = document.getElementById("tts-status");
+  const idleTipsEnabled = document.getElementById("idle-tips-enabled");
+  const idleTipsInterval = document.getElementById("idle-tips-interval");
+  const idleTipsMessages = document.getElementById("idle-tips-messages");
+  const idleTipsSaveButton = document.getElementById("idle-tips-save-button");
+  const idleTipsStatus = document.getElementById("idle-tips-status");
+  const idleTimeFields = {
+    early_morning: document.getElementById("idle-time-early-morning"),
+    morning: document.getElementById("idle-time-morning"),
+    lunch: document.getElementById("idle-time-lunch"),
+    after_lunch: document.getElementById("idle-time-after-lunch"),
+    afternoon: document.getElementById("idle-time-afternoon"),
+    evening: document.getElementById("idle-time-evening"),
+    night: document.getElementById("idle-time-night"),
+    late_night: document.getElementById("idle-time-late-night"),
+    midnight: document.getElementById("idle-time-midnight")
+  };
   if (!canvas) return;
 
   const ids = [
@@ -58,6 +74,11 @@
   let audioPlaying = false;
   let currentAnalyser = null;
   let mouthAnimationFrame = 0;
+  let idleTipSettings = null;
+  let idleConnected = false;
+  let idleTimer = null;
+  let idleTipElement = null;
+  let lastIdleTipText = "";
 
 
   function setTtsStatus(message, isError = false) {
@@ -295,12 +316,185 @@
     }
   }
 
+
+  function setIdleTipsStatus(message, isError = false) {
+    if (!idleTipsStatus) return;
+    idleTipsStatus.textContent = message;
+    idleTipsStatus.classList.toggle("error", isError);
+  }
+
+  function linesToMessages(value) {
+    return String(value || "").split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+  }
+
+  function messagesToLines(value) {
+    return Array.isArray(value) ? value.join("\\n") : "";
+  }
+
+  async function loadIdleTipSettings() {
+    const response = await fetch("/api/idle-tips/settings", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "无法读取空闲提示设置。");
+    const p = data.preferences || {};
+    idleTipSettings = p;
+    if (idleTipsEnabled) idleTipsEnabled.checked = p.enabled !== false;
+    if (idleTipsInterval) idleTipsInterval.value = String(p.interval_seconds ?? 60);
+    if (idleTipsMessages) idleTipsMessages.value = messagesToLines(p.messages);
+    for (const [key, field] of Object.entries(idleTimeFields)) {
+      if (field) field.value = messagesToLines((p.time_messages || {})[key]);
+    }
+    syncIdleTipTimer(true);
+  }
+
+  function currentIdleTipPreferences() {
+    const time_messages = {};
+    for (const [key, field] of Object.entries(idleTimeFields)) {
+      time_messages[key] = linesToMessages(field ? field.value : "");
+    }
+    return {
+      enabled: Boolean(idleTipsEnabled && idleTipsEnabled.checked),
+      interval_seconds: Number(idleTipsInterval ? idleTipsInterval.value : 60),
+      messages: linesToMessages(idleTipsMessages ? idleTipsMessages.value : ""),
+      time_messages
+    };
+  }
+
+  async function saveIdleTipSettings() {
+    if (idleTipsSaveButton) idleTipsSaveButton.disabled = true;
+    setIdleTipsStatus("正在保存空闲提示设置…");
+    try {
+      const response = await fetch("/api/idle-tips/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentIdleTipPreferences())
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "保存空闲提示设置失败。");
+      idleTipSettings = data.preferences;
+      if (idleTipsInterval) idleTipsInterval.value = String(idleTipSettings.interval_seconds);
+      if (idleTipsMessages) idleTipsMessages.value = messagesToLines(idleTipSettings.messages);
+      for (const [key, field] of Object.entries(idleTimeFields)) {
+        if (field) field.value = messagesToLines(idleTipSettings.time_messages[key]);
+      }
+      syncIdleTipTimer(true);
+      setIdleTipsStatus("空闲提示设置已保存，并已立即生效。");
+    } catch (error) {
+      setIdleTipsStatus("保存失败：" + error.message, true);
+    } finally {
+      if (idleTipsSaveButton) idleTipsSaveButton.disabled = false;
+    }
+  }
+
+  function removeIdleTip() {
+    if (idleTipElement) {
+      idleTipElement.remove();
+      idleTipElement = null;
+    }
+    if (bubble && !bubble.children.length) bubble.hidden = true;
+  }
+
+  function currentTimeMessageKey() {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 9) return "early_morning";
+    if (hour >= 9 && hour < 12) return "morning";
+    if (hour >= 12 && hour < 13) return "lunch";
+    if (hour >= 13 && hour < 14) return "after_lunch";
+    if (hour >= 14 && hour < 18) return "afternoon";
+    if (hour >= 18 && hour < 19) return "evening";
+    if (hour >= 19 && hour < 21) return "night";
+    if (hour >= 21 && hour < 23) return "late_night";
+    return "midnight";
+  }
+
+  function pickIdleTip() {
+    if (!idleTipSettings) return "";
+    const ordinary = Array.isArray(idleTipSettings.messages) ? idleTipSettings.messages : [];
+    const timeMessages = idleTipSettings.time_messages || {};
+    const timed = Array.isArray(timeMessages[currentTimeMessageKey()])
+      ? timeMessages[currentTimeMessageKey()] : [];
+    const pool = [...ordinary, ...timed].filter(value => typeof value === "string" && value.trim());
+    if (!pool.length) return "";
+    const candidates = pool.length > 1 && lastIdleTipText
+      ? pool.filter(value => value !== lastIdleTipText) : pool;
+    const selected = candidates[Math.floor(Math.random() * candidates.length)] || pool[0];
+    lastIdleTipText = selected;
+    return selected;
+  }
+
+  function showIdleTip() {
+    if (!bubble || !idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
+    const message = pickIdleTip();
+    if (!message) return;
+    removeIdleTip();
+    const wrapper = document.createElement("div");
+    wrapper.className = "danmaku-entry idle-tip-entry";
+    const text = document.createElement("span");
+    text.className = "danmaku-text";
+    text.textContent = message;
+    wrapper.appendChild(text);
+    bubble.appendChild(wrapper);
+    bubble.hidden = false;
+    const p = currentPreferences();
+    wrapper.style.fontSize = p.bubble_font_size + "px";
+    wrapper.style.lineHeight = Math.round(p.bubble_font_size * 1.1) + "px";
+    while (bubble.children.length > p.bubble_max_items) {
+      const oldest = bubble.firstElementChild;
+      if (!oldest) break;
+      const oldId = oldest.dataset.entryId;
+      if (oldId) {
+        const timer = activeItems.get(oldId);
+        if (timer) clearTimeout(timer);
+        activeItems.delete(oldId);
+      }
+      if (oldest === idleTipElement) idleTipElement = null;
+      oldest.remove();
+    }
+    idleTipElement = wrapper;
+    window.setTimeout(() => {
+      if (idleTipElement === wrapper) idleTipElement = null;
+      wrapper.remove();
+      if (!bubble.children.length) bubble.hidden = true;
+    }, p.bubble_duration * 1000);
+  }
+
+  function syncIdleTipTimer(reset = false) {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) {
+      removeIdleTip();
+      return;
+    }
+    if (!reset) return;
+    const interval = Math.max(10, Number(idleTipSettings.interval_seconds) || 60) * 1000;
+    idleTimer = window.setTimeout(() => {
+      idleTimer = null;
+      if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
+      showIdleTip();
+      syncIdleTipTimer(true);
+    }, interval);
+  }
+
+  function setIdleConnectionState(connected) {
+    const next = Boolean(connected);
+    if (next === idleConnected) return;
+    idleConnected = next;
+    syncIdleTipTimer(true);
+  }
+
+  function onIncomingLiveEvent() {
+    removeIdleTip();
+    syncIdleTipTimer(true);
+  }
+
   async function checkLiveConnectionForAudio() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       const connected = Boolean(data.bilibili && data.bilibili.connected);
+      setIdleConnectionState(connected);
       if (connected !== lastConnectionState) {
         lastConnectionState = connected;
         if (connected) {
@@ -737,7 +931,9 @@
       const response = await fetch("/api/danmaku?after=" + lastDanmakuId, { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      for (const item of data.items || []) {
+      const incomingItems = data.items || [];
+      if (incomingItems.length) onIncomingLiveEvent();
+      for (const item of incomingItems) {
         lastDanmakuId = Math.max(lastDanmakuId, Number(item.id) || 0);
         // 弹幕显示与 TTS 完全独立；语音处理异常不得中断后续弹幕显示。
         try {
@@ -866,6 +1062,7 @@
   if (ttsQueueLimit) ttsQueueLimit.addEventListener("input", updateTtsLabels);
   if (ttsSaveButton) ttsSaveButton.addEventListener("click", saveTtsSettings);
   if (ttsTestButton) ttsTestButton.addEventListener("click", testSpeech);
+  if (idleTipsSaveButton) idleTipsSaveButton.addEventListener("click", saveIdleTipSettings);
 
   if (toggle) toggle.addEventListener("click", () => setPanelOpen(panel.hidden));
   if (closeButton) closeButton.addEventListener("click", () => setPanelOpen(false));
@@ -912,6 +1109,11 @@
   start();
 
   // TTS 设置独立加载；无论接口慢、失败还是语音不可用，都不阻塞弹幕显示。
+  loadIdleTipSettings().catch(idleError => {
+    console.warn("Unable to load idle tip settings:", idleError);
+    setIdleTipsStatus("读取空闲提示设置失败：" + idleError.message, true);
+  });
+
   loadTtsSettings().catch(ttsError => {
     console.warn("Unable to load TTS settings:", ttsError);
     setTtsStatus("读取语音设置失败：" + ttsError.message, true);
@@ -927,6 +1129,7 @@
 
   window.addEventListener("resize", applyBubblePreferences, { passive: true });
   window.addEventListener("beforeunload", () => {
+    if (idleTimer) clearTimeout(idleTimer);
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
     if (connectionTimer) clearInterval(connectionTimer);
