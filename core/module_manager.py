@@ -170,7 +170,10 @@ class ModuleManager:
             if not should_resume:
                 continue
             try:
-                await self._operate(name, "resume", "running", manual=False)
+                await self._operate(
+                    name, "resume", "running", manual=False,
+                    expected_generation=generation,
+                )
             except Exception:
                 logger.exception("直播重连后恢复模块失败：%s", name)
         with self._lock:
