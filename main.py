@@ -56,16 +56,28 @@ def _safe_model_dir(model_id: str) -> Path | None:
     return directory if directory.is_dir() else None
 
 
+def _model_config_path(directory: Path, model_id: str) -> Path | None:
+    """查找模型配置：优先 model.json，其次 <模型目录名>.model.json。"""
+    for filename in ("model.json", f"{model_id}.model.json"):
+        candidate = directory / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _read_model_config(model_id: str) -> tuple[Path, dict[str, Any]]:
     directory = _safe_model_dir(model_id)
     if directory is None:
         raise FileNotFoundError(f"模型目录不存在：{model_id}")
-    config_path = directory / "model.json"
-    if not config_path.is_file():
-        raise FileNotFoundError(f"模型配置不存在：models/{model_id}/model.json")
+    config_path = _model_config_path(directory, model_id)
+    if config_path is None:
+        raise FileNotFoundError(
+            f"模型配置不存在：models/{model_id}/model.json 或 "
+            f"models/{model_id}/{model_id}.model.json"
+        )
     data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
-        raise ValueError("model.json 必须是 JSON 对象")
+        raise ValueError(f"{config_path.name} 必须是 JSON 对象")
     return directory, data
 
 
@@ -131,8 +143,8 @@ def _available_models() -> list[dict[str, str]]:
     for directory in sorted(MODEL_ROOT.iterdir(), key=lambda item: item.name.casefold()):
         if not directory.is_dir() or _safe_model_dir(directory.name) is None:
             continue
-        config_path = directory / "model.json"
-        if not config_path.is_file():
+        config_path = _model_config_path(directory, directory.name)
+        if config_path is None:
             continue
         try:
             data = json.loads(config_path.read_text(encoding="utf-8-sig"))
@@ -190,7 +202,7 @@ def model_status() -> dict[str, Any]:
     settings = _load_user_settings()
     model_id = settings["model"]
     directory = _safe_model_dir(model_id)
-    model_config = directory / "model.json" if directory else MODEL_ROOT / model_id / "model.json"
+    model_config = _model_config_path(directory, model_id) if directory else None
     runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"
     assets_ok, missing, _ = _model_assets(model_id)
     with RUNTIME_STATE_LOCK:
@@ -199,7 +211,7 @@ def model_status() -> dict[str, Any]:
         "format": CONFIG.get("live2d", {}).get("format", "MOC2"),
         "name": model_id,
         "directory_exists": bool(directory),
-        "config_exists": model_config.is_file(),
+        "config_exists": bool(model_config and model_config.is_file()),
         "runtime_file_exists": runtime_file.is_file(),
         "assets_ready": assets_ok,
         "missing_assets": missing,
