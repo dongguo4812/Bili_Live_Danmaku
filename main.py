@@ -1020,7 +1020,10 @@ def _append_danmaku(item: dict[str, Any]) -> None:
 
 
 def _dispatch_live_event(item: dict[str, Any]) -> None:
-    """先更新主项目弹幕缓存，再投递给统一事件总线。"""
+    """只接收真实 WebSocket 认证连接期间的新事件，再投递给统一事件总线。"""
+    with BILIBILI_STATE_LOCK:
+        if not BILIBILI_STATE["connected"]:
+            return
     _append_danmaku(item)
     APPLICATION_RUNTIME.publish_event(item)
 
@@ -1032,6 +1035,9 @@ def _set_bilibili_connection_state(state: str, message: str) -> None:
         BILIBILI_STATE["connected"] = state == "connected"
         BILIBILI_STATE["message"] = message
     if previous_state == "connected" and state != "connected":
+        # 清空断线前尚未被页面读取的缓存，防止重连后补发旧弹幕。
+        with DANMAKU_LOCK:
+            DANMAKU_ITEMS.clear()
         APPLICATION_RUNTIME.connection_lost()
     elif previous_state != "connected" and state == "connected":
         APPLICATION_RUNTIME.connection_restored()
