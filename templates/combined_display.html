@@ -85,6 +85,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",video:"视频点播",danmaku:"直播弹幕"};
   let layout = {version:1,widgets:[]};
   let danmakuAfter = 0;
+  let danmakuCursorReady = false;
+  let refreshInFlight = false;
   let dragState = null;
   let latestData = {};
 
@@ -295,6 +297,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   async function refreshData(){
+    if(refreshInFlight) return;
+    refreshInFlight=true;
     try{
       const [music,video,voice,modules]=await Promise.all([
         api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
@@ -303,15 +307,30 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       latestData.video=video;
       latestData.voice=voice;
       latestData.voice.module_state=(modules.modules.voice||{}).state||"stopped";
-      const danmaku=await api("/api/danmaku?after=0");
-      latestData.danmaku=danmaku.items||[];
-      danmakuAfter=danmaku.latest_id||danmakuAfter;
+
+      // 首次只读取当前最新事件游标，不回放断线前缓存的旧弹幕；之后只取游标之后的新事件。
+      if(!danmakuCursorReady){
+        const cursor=await api("/api/danmaku?latest=1");
+        danmakuAfter=Number(cursor.latest_id)||0;
+        danmakuCursorReady=true;
+        latestData.danmaku=[];
+      }else{
+        const danmaku=await api("/api/danmaku?after="+encodeURIComponent(danmakuAfter));
+        latestData.danmaku=Array.isArray(danmaku.items)?danmaku.items:[];
+        for(const item of latestData.danmaku){
+          const id=Number(item.id)||0;
+          if(id>danmakuAfter) danmakuAfter=id;
+        }
+      }
+
       layout.widgets.forEach(item=>{
         const node=stage.querySelector('[data-widget="'+item.type+'"] .widget-body');
         if(node && item.type!=="live2d") renderWidgetContent(node,item.type);
       });
     }catch(error){
       if(displayMode) console.debug("综合展示数据刷新失败",error);
+    }finally{
+      refreshInFlight=false;
     }
   }
 
@@ -324,7 +343,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   if(openOutput) openOutput.addEventListener("click",()=>window.open("/display/combined","_blank","noopener"));
 
   loadLayout().then(refreshData);
-  refreshData();
   setInterval(refreshData,2000);
 })();
 </script>
