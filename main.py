@@ -1466,7 +1466,12 @@ def api_music_queue():
 
 @app.get("/api/video/queue")
 def api_video_queue():
-    return jsonify(VIDEO_MODULE.queue_snapshot())
+    try:
+        snapshot = APPLICATION_RUNTIME.async_runtime.submit(VIDEO_MODULE.queue_snapshot()).result(timeout=5)
+        return jsonify(snapshot)
+    except Exception as exc:
+        logger.exception("读取视频队列快照失败。")
+        return jsonify({"ok": False, "error": f"读取视频队列失败：{type(exc).__name__}"}), 503
 
 
 @app.post("/api/video/action")
