@@ -3,17 +3,42 @@
 
   const canvas = document.getElementById("live2d-canvas");
   const placeholder = document.getElementById("display-placeholder");
+  const panel = document.getElementById("display-settings-panel");
+  const toggle = document.getElementById("display-settings-toggle");
+  const closeButton = document.getElementById("display-settings-close");
+  const modelSelect = document.getElementById("model-select");
+  const scaleSlider = document.getElementById("scale-slider");
+  const xSlider = document.getElementById("x-slider");
+  const ySlider = document.getElementById("y-slider");
+  const scaleValue = document.getElementById("scale-value");
+  const xValue = document.getElementById("x-value");
+  const yValue = document.getElementById("y-value");
+  const saveStatus = document.getElementById("settings-save-status");
   if (!canvas) return;
 
-  const MODEL_URL = "/models/live_uu/model.json";
   const MAX_DPR = 2;
   let gl = null;
   let resizeObserver = null;
   let resizePending = false;
   let statusSent = false;
+  let currentModel = "live_uu";
+  let saveTimer = null;
+  let isSaving = false;
 
   function showMessage(message) {
     if (placeholder) placeholder.textContent = message;
+  }
+
+  function setSaveStatus(message, isError = false) {
+    if (!saveStatus) return;
+    saveStatus.textContent = message;
+    saveStatus.classList.toggle("error", isError);
+  }
+
+  function setPanelOpen(open) {
+    if (!panel || !toggle) return;
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
   }
 
   async function reportState(state, message) {
@@ -29,21 +54,16 @@
   }
 
   function setCanvasResolution() {
-    // Use the untransformed CSS layout size. The canvas is visually scaled
-    // with CSS, but its drawing buffer must remain full resolution.
     const widthCss = canvas.clientWidth;
     const heightCss = canvas.clientHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     const width = Math.max(1, Math.round(widthCss * dpr));
     const height = Math.max(1, Math.round(heightCss * dpr));
-
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
     }
-    if (gl) {
-      gl.viewport(0, 0, canvas.width, canvas.height);
-    }
+    if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
   }
 
   function collectModelFiles(config) {
@@ -70,40 +90,105 @@
     return [...new Set(files)];
   }
 
-  async function verifyAssets() {
-    const response = await fetch(MODEL_URL, { cache: "no-store" });
+  async function verifyAssets(modelUrl) {
+    const response = await fetch(modelUrl, { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("无法读取模型配置：" + MODEL_URL + "（HTTP " + response.status + "）");
+      throw new Error("无法读取模型配置：" + modelUrl + "（HTTP " + response.status + "）");
     }
     const config = await response.json();
     if (!config.model || !Array.isArray(config.textures) || config.textures.length === 0) {
       throw new Error("model.json 缺少 model 或 textures 配置。");
     }
-
-    const base = MODEL_URL.slice(0, MODEL_URL.lastIndexOf("/") + 1);
+    const base = modelUrl.slice(0, modelUrl.lastIndexOf("/") + 1);
     const files = collectModelFiles(config);
-    const checks = await Promise.all(files.map(async relative => {
+    await Promise.all(files.map(async relative => {
       const url = new URL(relative, window.location.origin + base);
       const result = await fetch(url.href, { method: "HEAD", cache: "no-store" });
       if (!result.ok) throw new Error("模型资源缺失：" + relative + "（HTTP " + result.status + "）");
     }));
-    return { config, fileCount: checks.length };
+    return config;
+  }
+
+  function updateSliderLabels() {
+    if (scaleValue) scaleValue.textContent = scaleSlider.value + "%";
+    if (xValue) xValue.textContent = (Number(xSlider.value) / 100).toFixed(2);
+    if (yValue) yValue.textContent = (Number(ySlider.value) / 100).toFixed(2);
+  }
+
+  function currentPreferences() {
+    return {
+      model: modelSelect.value,
+      scale: Number(scaleSlider.value) / 100,
+      x: Number(xSlider.value) / 100,
+      y: Number(ySlider.value) / 100
+    };
+  }
+
+  async function saveSettingsAndReload() {
+    if (isSaving) return;
+    isSaving = true;
+    setSaveStatus("正在保存设置…");
+    try {
+      const response = await fetch("/api/display/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentPreferences())
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "保存失败。");
+      setSaveStatus("已保存，正在应用…");
+      window.location.reload();
+    } catch (error) {
+      isSaving = false;
+      setSaveStatus("保存失败：" + error.message, true);
+    }
+  }
+
+  function scheduleSave() {
+    updateSliderLabels();
+    window.clearTimeout(saveTimer);
+    setSaveStatus("有未保存的更改…");
+    saveTimer = window.setTimeout(saveSettingsAndReload, 500);
+  }
+
+  async function loadDisplaySettings() {
+    const response = await fetch("/api/display/settings", { cache: "no-store" });
+    if (!response.ok) throw new Error("无法读取展示设置（HTTP " + response.status + "）。");
+    const data = await response.json();
+    if (!data.ok || !Array.isArray(data.models) || data.models.length === 0) {
+      throw new Error("models 目录下没有找到包含有效 model.json 的模型。");
+    }
+    modelSelect.replaceChildren();
+    for (const model of data.models) {
+      const option = document.createElement("option");
+      option.value = model.id;
+      option.textContent = model.name === model.id ? model.name : model.name + "（" + model.id + "）";
+      modelSelect.appendChild(option);
+    }
+    currentModel = data.model;
+    modelSelect.value = data.model;
+    if (!modelSelect.value) {
+      modelSelect.value = data.models[0].id;
+      currentModel = modelSelect.value;
+    }
+    const preferences = data.preferences || {};
+    scaleSlider.value = String(Math.round((Number(preferences.scale) || 1) * 100));
+    xSlider.value = String(Math.round((Number(preferences.x) || 0) * 100));
+    ySlider.value = String(Math.round((Number(preferences.y) || 0) * 100));
+    updateSliderLabels();
+    return currentModel;
   }
 
   function waitForRenderedPixels() {
     return new Promise((resolve, reject) => {
       const startedAt = performance.now();
       let frames = 0;
-
       function inspect() {
         frames += 1;
         if (!gl || gl.isContextLost()) {
           reject(new Error("WebGL 上下文丢失。"));
           return;
         }
-
-        // The bundled loader starts its render loop before returning. Reading
-        // pixels in this animation frame checks that the model produced output.
         if (frames >= 3) {
           try {
             const pixels = new Uint8Array(canvas.width * canvas.height * 4);
@@ -121,7 +206,6 @@
             return;
           }
         }
-
         if (performance.now() - startedAt > 15000) {
           reject(new Error("运行库已启动，但 15 秒内没有检测到模型绘制像素。请检查浏览器控制台和模型资源。"));
           return;
@@ -134,9 +218,13 @@
 
   async function start() {
     try {
-      showMessage("正在检查 MOC2 模型资源…");
-      await reportState("loading", "正在检查模型配置和资源文件。");
-      await verifyAssets();
+      showMessage("正在读取展示设置…");
+      const modelId = await loadDisplaySettings();
+      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+
+      showMessage("正在检查 " + modelId + " 模型资源…");
+      await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
+      await verifyAssets(modelUrl);
 
       if (typeof window.loadlive2d !== "function" ||
           typeof window.Live2DModelWebGL === "undefined" ||
@@ -144,12 +232,9 @@
         throw new Error("live2d.min.js 未提供预期的 Cubism 2 运行时接口（loadlive2d / Live2DModelWebGL）。");
       }
 
-      // Set the drawing buffer before the runtime creates its WebGL context.
       setCanvasResolution();
-      showMessage("模型资源检查通过，正在加载 live_uu…");
-
-      // This legacy runtime owns WebGL context creation and the render loop.
-      window.loadlive2d(canvas.id, MODEL_URL);
+      showMessage("模型资源检查通过，正在加载 " + modelId + "…");
+      window.loadlive2d(canvas.id, modelUrl);
 
       gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
       if (!gl) throw new Error("当前浏览器无法创建 WebGL 上下文。");
@@ -169,16 +254,24 @@
       statusSent = true;
       showMessage("");
       if (placeholder) placeholder.style.display = "none";
-      await reportState("loaded", "live_uu 已由 Cubism 2 WebGL 运行时加载并检测到实际绘制内容。");
+      await reportState("loaded", modelId + " 已由 Cubism 2 WebGL 运行时加载并检测到实际绘制内容。");
     } catch (error) {
       console.error("Live2D initialization failed:", error);
       showMessage("Live2D 加载失败：" + error.message);
       await reportState("error", error.message);
+      setSaveStatus(error.message, true);
     }
   }
 
-  start();
+  if (toggle) toggle.addEventListener("click", () => setPanelOpen(panel.hidden));
+  if (closeButton) closeButton.addEventListener("click", () => setPanelOpen(false));
+  if (modelSelect) modelSelect.addEventListener("change", scheduleSave);
+  for (const slider of [scaleSlider, xSlider, ySlider]) {
+    if (slider) slider.addEventListener("input", updateSliderLabels);
+    if (slider) slider.addEventListener("change", scheduleSave);
+  }
 
+  start();
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
     if (!statusSent) reportState("error", "OBS 展示页面在模型初始化完成前关闭。");
