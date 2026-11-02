@@ -1167,6 +1167,11 @@ def music_control_page():
     return render_template("music_queue.html")
 
 
+@app.get("/music/settings")
+def music_settings_page():
+    return render_template("music_settings.html")
+
+
 @app.get("/music/display")
 def music_display_page():
     return render_template("music_display.html")
@@ -1175,6 +1180,11 @@ def music_display_page():
 @app.get("/video")
 def video_control_page():
     return render_template("video_queue.html")
+
+
+@app.get("/video/settings")
+def video_settings_page():
+    return render_template("video_settings.html")
 
 
 @app.get("/video/display")
