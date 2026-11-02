@@ -9,7 +9,9 @@ import threading
 from pathlib import Path
 from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+from core.paths import get_base_dir
+
+BASE_DIR = get_base_dir()
 CREDENTIAL_DIR = BASE_DIR / "credentials"
 _LOCK = threading.RLock()
 
