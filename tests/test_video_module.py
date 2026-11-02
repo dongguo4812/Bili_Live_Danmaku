@@ -62,7 +62,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.driver = object()
         video_service.video_queue.append("BV1yy411c7mE")
 
-        with patch.object(video_service, "configure_video_module"), \\
+        with patch.object(video_service, "configure_video_module"), \
              patch.object(video_service, "execute_script_sync", return_value=True):
             await self.module.pause()
             self.assertTrue(video_service.module_paused)
