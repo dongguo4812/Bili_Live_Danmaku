@@ -27,6 +27,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.video_queue.clear()
         video_service.playback_monitor_task = None
         self.module = object.__new__(video_service.VideoModuleFacade)
+        self.module.config = {}
+        self.module.cookie_provider = lambda: {}
         self.module.room_id = 123
 
     def tearDown(self):
@@ -60,7 +62,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.driver = object()
         video_service.video_queue.append("BV1yy411c7mE")
 
-        with patch.object(video_service, "execute_script_sync", return_value=True):
+        with patch.object(video_service, "configure_video_module"), \\
+             patch.object(video_service, "execute_script_sync", return_value=True):
             await self.module.pause()
             self.assertTrue(video_service.module_paused)
             self.assertEqual(video_service.current_bv, "BV1xx411c7mD")
