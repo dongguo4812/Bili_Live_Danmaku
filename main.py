@@ -1516,6 +1516,130 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
     return {"version": 1, "widgets": widgets}
 
 
+@app.get("/api/settings/music")
+def get_music_settings():
+    config = ConfigManager().load("music", {})
+    lx = config.get("lx_music", {})
+    search = config.get("search", {})
+    requests_config = config.get("requests", {})
+    return jsonify({
+        "ok": True,
+        "lx_music": {
+            "base_url": lx.get("base_url", "http://127.0.0.1:23330"),
+            "timeout_seconds": lx.get("timeout_seconds", 5),
+        },
+        "search": {"max_results_per_platform": search.get("max_results_per_platform", 20)},
+        "requests": {
+            "cooldown_seconds": requests_config.get("cooldown_seconds", 10),
+            "queue_limit": requests_config.get("queue_limit", 100),
+            "require_fans_medal": requests_config.get("require_fans_medal", 0),
+        },
+        "module_state": APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state", "stopped"),
+    })
+
+
+@app.post("/api/settings/music")
+def save_music_settings():
+    if APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state") != "stopped":
+        return jsonify({"ok": False, "error": "请先关闭歌曲模块，再修改配置。"}), 409
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        config = ConfigManager().load("music", {})
+        lx = config.setdefault("lx_music", {})
+        search = config.setdefault("search", {})
+        req = config.setdefault("requests", {})
+        base_url = str(payload.get("base_url", lx.get("base_url", ""))).strip().rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            raise ValueError("洛雪 API 地址必须以 http:// 或 https:// 开头。")
+        timeout = int(payload.get("timeout_seconds", lx.get("timeout_seconds", 5)))
+        max_results = int(payload.get("max_results_per_platform", search.get("max_results_per_platform", 20)))
+        cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
+        queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
+        require_medal = int(payload.get("require_fans_medal", req.get("require_fans_medal", 0)))
+        if not 2 <= timeout <= 30 or not 1 <= max_results <= 50:
+            raise ValueError("接口超时应为 2–30 秒，单平台搜索数量应为 1–50。")
+        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000 or require_medal not in {0, 1}:
+            raise ValueError("冷却时间、队列上限或粉丝牌选项无效。")
+        lx.update({"base_url": base_url, "timeout_seconds": timeout})
+        search["max_results_per_platform"] = max_results
+        req.update({
+            "cooldown_seconds": cooldown,
+            "queue_limit": queue_limit,
+            "require_fans_medal": require_medal,
+        })
+        ConfigManager().save("music", config)
+        MUSIC_MODULE.reload_config(config)
+        return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
+
+
+@app.get("/api/settings/video")
+def get_video_settings():
+    config = ConfigManager().load("video", {})
+    chrome = config.get("chrome", {})
+    req = config.get("requests", {})
+    return jsonify({
+        "ok": True,
+        "chrome": {
+            "binary_path": chrome.get("binary_path", ""),
+            "profile_dir": chrome.get("profile_dir", "data/video/chrome_profile"),
+            "page_load_timeout_seconds": chrome.get("page_load_timeout_seconds", 45),
+        },
+        "requests": {
+            "cooldown_seconds": req.get("cooldown_seconds", 60),
+            "queue_limit": req.get("queue_limit", 30),
+            "max_video_duration_seconds": req.get("max_video_duration_seconds", 300),
+            "require_fan_medal": bool(req.get("require_fan_medal", True)),
+        },
+        "module_state": APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state", "stopped"),
+    })
+
+
+@app.post("/api/settings/video")
+def save_video_settings():
+    if APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state") != "stopped":
+        return jsonify({"ok": False, "error": "请先关闭视频模块，再修改配置。"}), 409
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        config = ConfigManager().load("video", {})
+        chrome = config.setdefault("chrome", {})
+        req = config.setdefault("requests", {})
+        binary_path = str(payload.get("binary_path", chrome.get("binary_path", ""))).strip()
+        profile_dir = str(payload.get("profile_dir", chrome.get("profile_dir", "data/video/chrome_profile"))).strip()
+        if "\n" in binary_path or "\r" in binary_path or not profile_dir or "\n" in profile_dir or "\r" in profile_dir:
+            raise ValueError("Chrome 路径或 Profile 目录无效。")
+        timeout = int(payload.get("page_load_timeout_seconds", chrome.get("page_load_timeout_seconds", 45)))
+        cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 60)))
+        queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 30)))
+        max_duration = int(payload.get("max_video_duration_seconds", req.get("max_video_duration_seconds", 300)))
+        require_medal = bool(payload.get("require_fan_medal", req.get("require_fan_medal", True)))
+        if not 10 <= timeout <= 180 or not 0 <= cooldown <= 3600:
+            raise ValueError("页面加载超时应为 10–180 秒，冷却时间应为 0–3600 秒。")
+        if not 1 <= queue_limit <= 1000 or not 1 <= max_duration <= 3600:
+            raise ValueError("视频队列上限或视频时长限制无效。")
+        chrome.update({
+            "binary_path": binary_path,
+            "profile_dir": profile_dir,
+            "page_load_timeout_seconds": timeout,
+        })
+        req.update({
+            "cooldown_seconds": cooldown,
+            "queue_limit": queue_limit,
+            "max_video_duration_seconds": max_duration,
+            "require_fan_medal": require_medal,
+        })
+        ConfigManager().save("video", config)
+        VIDEO_MODULE.reload_config(config)
+        return jsonify({"ok": True, "message": "视频模块配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "视频配置保存失败。"}), 400
+
+
 @app.get("/api/settings/obs")
 def get_obs_settings():
     config = ConfigManager().load("obs", {})
