@@ -19,7 +19,7 @@ class MusicMatchingTests(unittest.TestCase):
         ]
         exact, fallback = match_candidates(candidates, "晴天", "周杰伦")
         self.assertEqual(exact[0]["artist"], "周杰伦")
-        self.assertEqual(fallback[0]["artist"], "周杰伦、合唱团")
+        self.assertEqual(fallback[0]["artist"], "周杰伦、乐队")
 
     def test_bad_versions_are_filtered(self):
         candidates = [
