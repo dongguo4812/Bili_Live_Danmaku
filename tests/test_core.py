@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from core.config_manager import ConfigError, ConfigManager
+from core.credential_store import CredentialStore
 from core.module_manager import ModuleManager
 
 
@@ -46,6 +47,18 @@ class ConfigManagerTests(unittest.TestCase):
             manager = ConfigManager(Path(directory))
             manager.save("live", {"room_id": 123456, "reconnect": True})
             self.assertEqual(manager.load("live")["room_id"], 123456)
+
+
+class CredentialStoreTests(unittest.TestCase):
+    def test_round_trip_and_status_never_returns_secret_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            store.save("obs", {"password": "test-password"})
+            self.assertEqual(store.load("obs"), {"password": "test-password"})
+            self.assertEqual(
+                store.status("obs"),
+                {"configured": True, "file": "obs.json"},
+            )
 
 
 class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
