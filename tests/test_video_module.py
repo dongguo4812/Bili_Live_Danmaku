@@ -27,6 +27,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "max_queue": video_service.MAX_QUEUE_SIZE,
             "session_generation": video_service.video_session_generation,
             "request_generation": video_service.video_request_generation,
+            "operation_messages": list(video_service.operation_messages),
         }
         video_service.module_enabled = False
         video_service.module_paused = False
@@ -38,6 +39,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.last_order_time.clear()
         video_service.pending_video_uids.clear()
         video_service.pending_video_bvs.clear()
+        video_service.operation_messages.clear()
         video_service.REQUIRE_FAN_MEDAL = False
         video_service.COOLDOWN_SEC = 60
         self.module = object.__new__(video_service.VideoModuleFacade)
@@ -65,6 +67,38 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.MAX_QUEUE_SIZE = self.old_state["max_queue"]
         video_service.video_session_generation = self.old_state["session_generation"]
         video_service.video_request_generation = self.old_state["request_generation"]
+        video_service.operation_messages.clear()
+        video_service.operation_messages.extend(self.old_state["operation_messages"])
+
+    async def _wait_for_info_started(self, task, entered):
+        import asyncio
+        waiter = asyncio.create_task(entered.wait())
+        done, _ = await asyncio.wait(
+            {task, waiter},
+            timeout=3,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if entered.is_set():
+            waiter.cancel()
+            return
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
+        state = {
+            "module_enabled": video_service.module_enabled,
+            "module_paused": video_service.module_paused,
+            "require_fan_medal": video_service.REQUIRE_FAN_MEDAL,
+            "cooldown": video_service.COOLDOWN_SEC,
+            "max_queue": video_service.MAX_QUEUE_SIZE,
+            "admin_uids": sorted(video_service.ADMIN_UIDS),
+            "pending_uids": sorted(video_service.pending_video_uids),
+            "pending_bvs": sorted(video_service.pending_video_bvs),
+            "last_order_time": dict(video_service.last_order_time),
+            "operations": list(video_service.operation_messages),
+        }
+        if task in done:
+            task.result()
+            self.fail(f"on_dan_mu 提前结束，未调用 ensure_video_info；state={state}")
+        self.fail(f"on_dan_mu 仍未触发 ensure_video_info；state={state}")
 
     async def test_disabled_module_ignores_danmaku(self):
         await video_service.on_dan_mu({
@@ -138,7 +172,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info) as info:
             first_task = asyncio.create_task(video_service.on_dan_mu(first))
-            await asyncio.wait_for(entered.wait(), timeout=3)
+            await self._wait_for_info_started(first_task, entered)
             await video_service.on_dan_mu(second)
             release.set()
             await asyncio.wait_for(first_task, timeout=5)
@@ -169,7 +203,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info) as info:
             first_task = asyncio.create_task(video_service.on_dan_mu(event_a))
-            await asyncio.wait_for(entered.wait(), timeout=3)
+            await self._wait_for_info_started(task, entered)
             await video_service.on_dan_mu(event_b)
             release.set()
             await asyncio.wait_for(first_task, timeout=5)
