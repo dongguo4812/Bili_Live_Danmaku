@@ -201,11 +201,11 @@ def _load_user_settings() -> dict[str, Any]:
     if "model" not in live2d:
         live2d["model"] = legacy.get("model", default_model)
         changed_live2d = True
-    if not isinstance(live2d.get("models"), dict):
-        live2d["models"] = {}
+    if "models" not in live2d:
+        live2d["models"] = legacy.get("models", {}) if isinstance(legacy.get("models"), dict) else {}
         changed_live2d = True
-    if "models" not in live2d and isinstance(legacy.get("models"), dict):
-        live2d["models"] = legacy["models"]
+    elif not isinstance(live2d.get("models"), dict):
+        live2d["models"] = {}
         changed_live2d = True
     if "idle_tips" not in live2d:
         live2d["idle_tips"] = legacy.get("idle_tips", {})
