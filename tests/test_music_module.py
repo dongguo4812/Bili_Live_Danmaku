@@ -119,6 +119,27 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(module.paused)
             lx_control.assert_not_called()
 
+    async def test_pending_request_does_not_pause_external_lx_song(self):
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        module.current = {"title": "晴天", "artist": "周杰伦"}
+        with patch("modules.music.service._lx_control") as lx_control:
+            await module.pause()
+            await module.resume()
+            lx_control.assert_not_called()
+
+    async def test_close_does_not_pause_external_song_without_confirmed_bot_playback(self):
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        module.current = {"title": "晴天", "artist": "周杰伦"}
+        with patch("modules.music.service._lx_control") as lx_control:
+            await module.close()
+            lx_control.assert_not_called()
+            self.assertIsNone(module.current)
+
+
 
 if __name__ == "__main__":
     unittest.main()
