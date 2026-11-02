@@ -6,6 +6,26 @@ A new, modular Bilibili live-danmaku assistant with an OBS-friendly transparent 
 
 This repository is being built from a clean baseline. The initial scaffold is intentionally small; features will be added in verifiable stages.
 
+## Run on Windows
+
+Requirements: Python 3.10 or newer.
+
+1. Download or clone this repository.
+2. Double-click `start.bat`.
+3. On the first launch, the script creates a local `.venv` virtual environment and installs dependencies.
+4. The management page opens at `http://127.0.0.1:8768/`.
+5. The transparent OBS display page is at `http://127.0.0.1:8768/display`.
+
+Keep the console window open while using the application. Press `Ctrl+C` in that window to stop the server.
+
+Manual startup is also available:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
+```
+
 ## Planned features
 
 - Bilibili QR-code login and secure local credential storage
@@ -45,6 +65,6 @@ MagicalDanmaku is a visual-quality reference only. This project will not copy, p
 - Keep credentials and model assets out of version control.
 - Prefer documented, legally usable MOC2 runtime components.
 
-## Initial setup
+## Current scaffold limitations
 
-Python dependencies and run instructions will be added as the application scaffold is implemented.
+The current version only starts the local Flask management server and serves the placeholder OBS page. Bilibili login, live-room connection, event handling, TTS, and the actual MOC2 renderer are not implemented yet.
