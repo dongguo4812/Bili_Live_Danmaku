@@ -325,24 +325,40 @@
   async function testSpeech() {
     try {
       await unlockSpeechAudio();
+      const saveResponse = await fetch("/api/tts/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentTtsPreferences())
+      });
+      const saved = await saveResponse.json();
+      if (!saveResponse.ok || !saved.ok) throw new Error(saved.error || "保存当前语音参数失败。");
+      ttsSettings = saved.preferences;
       setTtsStatus("正在生成测试语音…");
-      enqueueTestSpeech();
-      setTtsStatus("测试语音已加入播报队列。");
+      if (enqueueTestSpeech()) setTtsStatus("测试语音已加入播报队列。");
     } catch (error) {
       setTtsStatus("无法启动语音：" + error.message, true);
     }
   }
 
   function enqueueTestSpeech() {
-    const entry = {
+    const limit = Math.max(1, Number(ttsSettings && ttsSettings.max_queue_length) || 30);
+    if (speechQueue.length >= limit) {
+      const oldestOrdinary = speechQueue.findIndex(entry => entry.priority === 1);
+      if (oldestOrdinary >= 0) speechQueue.splice(oldestOrdinary, 1);
+      else {
+        setTtsStatus("语音队列已满，且没有可替换的普通弹幕。", true);
+        return false;
+      }
+    }
+    speechQueue.push({
       text: "这是一条 Edge TTS 语音测试。嘴型会根据实际语音音量同步变化。",
       priority: 0,
       sequence: ++speechSequence,
       type: "test"
-    };
-    speechQueue.push(entry);
+    });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
     processSpeechQueue();
+    return true;
   }
 
   function showMessage(message) {
@@ -691,12 +707,6 @@
     try {
       showMessage("正在读取展示设置…");
       const modelId = await loadDisplaySettings();
-      try {
-        await loadTtsSettings();
-      } catch (ttsError) {
-        console.warn("Unable to load TTS settings:", ttsError);
-        setTtsStatus("读取语音设置失败：" + ttsError.message, true);
-      }
       const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
       showMessage("正在检查 " + modelId + " 模型资源…");
       await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
@@ -779,6 +789,12 @@
 
   start();
   async function initializeDanmakuCursor() {
+    try {
+      await loadTtsSettings();
+    } catch (ttsError) {
+      console.warn("Unable to load TTS settings:", ttsError);
+      setTtsStatus("读取语音设置失败：" + ttsError.message, true);
+    }
     try {
       const response = await fetch("/api/danmaku?latest=1", { cache: "no-store" });
       if (response.ok) {
