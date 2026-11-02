@@ -51,6 +51,9 @@
   let speaking = false;
   let audioUnlocked = false;
   let audioContext = null;
+  let connectionTimer = null;
+  let lastConnectionState = null;
+  let audioResumeInProgress = false;
   let currentAudioSource = null;
   let audioPlaying = false;
   let currentAnalyser = null;
@@ -251,13 +254,69 @@
     tick();
   }
 
-  async function unlockSpeechAudio() {
+  async function unlockSpeechAudio(options = {}) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) throw new Error("当前浏览器不支持 Web Audio，无法进行嘴型同步。");
-    if (!audioContext) audioContext = new AudioContextClass();
-    if (audioContext.state !== "running") await audioContext.resume();
+    if (!audioContext) {
+      audioContext = new AudioContextClass();
+      audioContext.onstatechange = () => {
+        audioUnlocked = audioContext.state === "running";
+        if (audioUnlocked) processSpeechQueue();
+      };
+    }
+    if (audioContext.state !== "running") {
+      try {
+        await audioContext.resume();
+      } catch (error) {
+        audioUnlocked = false;
+        if (!options.silent) throw error;
+        return false;
+      }
+    }
     audioUnlocked = audioContext.state === "running";
-    if (!audioUnlocked) throw new Error("浏览器未允许播放语音，请再次点击测试语音。");
+    if (!audioUnlocked && !options.silent) {
+      throw new Error("OBS 浏览器尚未允许自动播放；请检查 OBS 浏览器源的自动播放策略。");
+    }
+    return audioUnlocked;
+  }
+
+  async function initializeAutomaticAudio() {
+    try {
+      const ready = await unlockSpeechAudio({ silent: true });
+      if (ready) {
+        setTtsStatus("Web Audio 已自动启动，等待直播间连接。");
+        processSpeechQueue();
+      } else {
+        setTtsStatus("已尝试自动启动 Web Audio；正在等待 OBS 浏览器允许播放。");
+      }
+    } catch (error) {
+      console.warn("Automatic Web Audio initialization failed:", error);
+      setTtsStatus("Web Audio 自动启动失败：" + error.message, true);
+    }
+  }
+
+  async function checkLiveConnectionForAudio() {
+    try {
+      const response = await fetch("/api/status", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      const connected = Boolean(data.bilibili && data.bilibili.connected);
+      if (connected !== lastConnectionState) {
+        lastConnectionState = connected;
+        if (connected) {
+          setTtsStatus("直播间已连接，正在自动启动语音播报。");
+          await unlockSpeechAudio({ silent: true });
+          processSpeechQueue();
+        } else if (lastConnectionState === false) {
+          setTtsStatus("等待直播间连接；语音将在连接后自动启动。");
+        }
+      } else if (connected && !audioUnlocked) {
+        await unlockSpeechAudio({ silent: true });
+        processSpeechQueue();
+      }
+    } catch (error) {
+      console.debug("Unable to check live connection for TTS:", error);
+    }
   }
 
   async function playSpeechText(text) {
@@ -310,7 +369,10 @@
 
   async function processSpeechQueue() {
     if (speaking || !speechQueue.length) return;
-    if (!audioUnlocked) return;
+    if (!audioUnlocked) {
+      const ready = await unlockSpeechAudio({ silent: true });
+      if (!ready) return;
+    }
     speaking = true;
     while (speechQueue.length) {
       const next = speechQueue.shift();
@@ -319,8 +381,9 @@
       } catch (error) {
         setTtsStatus("语音播放失败：" + error.message, true);
         console.warn("TTS playback failed:", error);
-        if (/允许播放|支持 Web Audio/.test(error.message)) {
+        if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
           speechQueue.unshift(next);
+          audioUnlocked = false;
           break;
         }
       }
@@ -793,6 +856,11 @@
     slider.addEventListener("change", markUnsaved);
   }
 
+  // OBS 浏览器源启动时自动创建并尝试恢复 Web Audio；无需点击测试语音。
+  initializeAutomaticAudio();
+  checkLiveConnectionForAudio();
+  connectionTimer = window.setInterval(checkLiveConnectionForAudio, 3000);
+
   start();
   async function initializeDanmakuCursor() {
     try {
@@ -818,6 +886,7 @@
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
+    if (connectionTimer) clearInterval(connectionTimer);
     reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
   });
 })();
