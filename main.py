@@ -1427,6 +1427,59 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
     return {"version": 1, "widgets": widgets}
 
 
+@app.get("/api/settings/obs")
+def get_obs_settings():
+    config = ConfigManager().load("obs", {})
+    return jsonify({
+        "ok": True,
+        "host": config.get("host", "127.0.0.1"),
+        "port": config.get("port", 4455),
+        "timeout": config.get("timeout", 2.5),
+        "source_name": config.get("source_name", "b站视频播放器"),
+        "password_configured": bool(CredentialStore().status("obs").get("configured")),
+    })
+
+
+@app.post("/api/settings/obs")
+def save_obs_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        host = str(payload.get("host", "")).strip()
+        port = int(payload.get("port", 4455))
+        timeout = max(0.5, min(10.0, float(payload.get("timeout", 2.5))))
+        source_name = str(payload.get("source_name", "")).strip()
+        if not host or not 1 <= port <= 65535 or not source_name:
+            raise ValueError("OBS 地址、有效端口和来源名称不能为空。")
+        config = {"host": host, "port": port, "timeout": timeout,
+                  "source_name": source_name, "password_file": "credentials/obs.json"}
+        ConfigManager().save("obs", config)
+        CONFIG["obs_websocket"] = {
+            "host": host, "port": port, "timeout": timeout,
+            "password_file": "credentials/obs.json",
+        }
+        VIDEO_MODULE.reload_obs_settings()
+        return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "OBS 配置保存失败。"}), 400
+
+
+@app.post("/api/credentials/obs")
+def save_obs_credential():
+    payload = request.get_json(silent=True)
+    password = payload.get("password") if isinstance(payload, dict) else None
+    if not isinstance(password, str) or not password.strip():
+        return jsonify({"ok": False, "error": "OBS WebSocket 密码不能为空。"}), 400
+    try:
+        CredentialStore().save("obs", {"password": password})
+        VIDEO_MODULE.reload_obs_settings()
+        return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
+    except Exception as exc:
+        logger.warning("保存 OBS 凭据失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "OBS 密码保存失败，请检查本机凭据存储权限。"}), 500
+
+
 @app.get("/api/display/layout")
 def get_combined_display_layout():
     try:
