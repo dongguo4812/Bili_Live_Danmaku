@@ -207,3 +207,36 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   max-height: calc(100vh - 70px);
   overflow-y: auto;
 }
+
+
+/* Edge TTS controls */
+.tts-switches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0 16px;
+  color: #e7ebf3;
+  font-size: 13px;
+}
+.tts-switches label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.tts-switches input[type="checkbox"] { accent-color: #8baeff; }
+.setting-field input[type="number"] {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #465166;
+  border-radius: 7px;
+  background: #111722;
+  color: #f2f4f8;
+  font: inherit;
+}
+.tts-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 14px;
+}
+.tts-actions button { min-width: 0; }
