@@ -1066,7 +1066,7 @@ async def monitor_video_end(bv):
                 reached_end = (
                     saw_progress and duration > 10 and current_time >= duration - 1.0
                 )
-                if ended or reached_end:
+                if (ended or reached_end) and not module_paused:
                     logger.info("检测到视频播放结束：%s（%s/%s 秒）", bv, current_time, duration)
                     await set_obs_visibility_async(False)
                     last_obs_visible = False
@@ -1133,10 +1133,13 @@ async def play_next():
             # 暂停可能发生在 driver.get() 正在执行期间；页面加载完成后补充暂停，
             # 并继续创建监控任务，确保恢复后仍能监测当前视频结束。
             if module_paused:
-                await asyncio.to_thread(
-                    execute_script_sync,
-                    "const v=document.querySelector('video'); if(v){v.pause();}",
-                )
+                try:
+                    await asyncio.to_thread(
+                        execute_script_sync,
+                        "const v=document.querySelector('video'); if(v){v.pause();}",
+                    )
+                except Exception as pause_exc:
+                    logger.warning("视频加载期间补充暂停失败：%s", type(pause_exc).__name__)
 
             logger.info("视频页面已打开：%s", bv)
 
@@ -1532,6 +1535,8 @@ class VideoModuleFacade:
         global driver, module_enabled, module_paused
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
+            if module_paused:
+                await self.resume()
             return
         await set_obs_visibility_async(False)
         driver = await asyncio.to_thread(create_browser)
