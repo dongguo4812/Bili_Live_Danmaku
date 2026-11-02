@@ -726,19 +726,61 @@
     activeItems.set(entryId, timer);
   }
 
+  let pollInProgress = false;
+  let danmakuCursorInitialized = false;
+  let cursorInitializationInProgress = false;
+
   async function pollDanmaku() {
+    if (!danmakuCursorInitialized || pollInProgress) return;
+    pollInProgress = true;
     try {
       const response = await fetch("/api/danmaku?after=" + lastDanmakuId, { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       for (const item of data.items || []) {
         lastDanmakuId = Math.max(lastDanmakuId, Number(item.id) || 0);
-        addDanmaku(item);
-        enqueueSpeech(item);
+        // 弹幕显示与 TTS 完全独立；语音处理异常不得中断后续弹幕显示。
+        try {
+          addDanmaku(item);
+        } catch (displayError) {
+          console.warn("Unable to display danmaku:", displayError);
+        }
+        try {
+          enqueueSpeech(item);
+        } catch (speechError) {
+          console.warn("Unable to enqueue danmaku speech:", speechError);
+        }
       }
     } catch (error) {
       console.debug("Danmaku polling temporarily unavailable:", error);
+    } finally {
+      pollInProgress = false;
     }
+  }
+
+  async function initializeDanmakuCursor() {
+    if (danmakuCursorInitialized || cursorInitializationInProgress) return;
+    cursorInitializationInProgress = true;
+    try {
+      const response = await fetch("/api/danmaku?latest=1", { cache: "no-store" });
+      if (!response.ok) throw new Error("无法初始化弹幕游标（HTTP " + response.status + "）。");
+      const data = await response.json();
+      lastDanmakuId = Number(data.latest_id) || 0;
+      danmakuCursorInitialized = true;
+      await pollDanmaku();
+    } catch (error) {
+      console.debug("Unable to initialize danmaku cursor; will retry:", error);
+    } finally {
+      cursorInitializationInProgress = false;
+    }
+  }
+
+  function refreshDanmakuPolling() {
+    if (!danmakuCursorInitialized) {
+      initializeDanmakuCursor();
+      return;
+    }
+    pollDanmaku();
   }
 
   function waitForRenderedPixels() {
@@ -868,26 +910,21 @@
   connectionTimer = window.setInterval(checkLiveConnectionForAudio, 3000);
 
   start();
-  async function initializeDanmakuCursor() {
-    try {
-      await loadTtsSettings();
-    } catch (ttsError) {
-      console.warn("Unable to load TTS settings:", ttsError);
-      setTtsStatus("读取语音设置失败：" + ttsError.message, true);
-    }
-    try {
-      const response = await fetch("/api/danmaku?latest=1", { cache: "no-store" });
-      if (response.ok) {
-        const data = await response.json();
-        lastDanmakuId = Number(data.latest_id) || 0;
-      }
-    } catch (error) {
-      console.debug("Unable to initialize danmaku cursor:", error);
-    }
-    await pollDanmaku();
-    pollTimer = window.setInterval(pollDanmaku, 450);
-  }
+
+  // TTS 设置独立加载；无论接口慢、失败还是语音不可用，都不阻塞弹幕显示。
+  loadTtsSettings().catch(ttsError => {
+    console.warn("Unable to load TTS settings:", ttsError);
+    setTtsStatus("读取语音设置失败：" + ttsError.message, true);
+  });
+
+  // 弹幕游标和轮询独立启动，不依赖 TTS 初始化或设置面板状态。
   initializeDanmakuCursor();
+  pollTimer = window.setInterval(refreshDanmakuPolling, 450);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshDanmakuPolling();
+  });
+  window.addEventListener("focus", refreshDanmakuPolling);
+
   window.addEventListener("resize", applyBubblePreferences, { passive: true });
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
