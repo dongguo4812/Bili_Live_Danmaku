@@ -26,6 +26,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_from_dir
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
 from core.config_manager import ConfigManager
+from core.application import ApplicationRuntime
 
 BASE_DIR = Path(__file__).resolve().parent
 LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
@@ -42,6 +43,7 @@ TTS_VOICES = [
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("bili_live_danmaku")
+APPLICATION_RUNTIME = ApplicationRuntime()
 
 RUNTIME_STATE_LOCK = threading.Lock()
 SETTINGS_LOCK = threading.RLock()
@@ -109,7 +111,7 @@ def _credential_path() -> Path:
 
 QR_LOGIN = QRLogin(_credential_path())
 LIVE_CLIENT = LiveRoomClient(
-    on_event=lambda item: _append_danmaku(item),
+    on_event=lambda item: _dispatch_live_event(item),
     on_state=lambda state, message: _set_bilibili_connection_state(state, message),
     reconnect=bool(CONFIG.get("bilibili", {}).get("reconnect", True)),
     reconnect_interval=int(CONFIG.get("bilibili", {}).get("reconnect_interval_seconds", 5)),
@@ -938,11 +940,22 @@ def _append_danmaku(item: dict[str, Any]) -> None:
         DANMAKU_ITEMS.append(record)
 
 
+def _dispatch_live_event(item: dict[str, Any]) -> None:
+    """先更新主项目弹幕缓存，再投递给统一事件总线。"""
+    _append_danmaku(item)
+    APPLICATION_RUNTIME.publish_event(item)
+
+
 def _set_bilibili_connection_state(state: str, message: str) -> None:
     with BILIBILI_STATE_LOCK:
+        previous_state = BILIBILI_STATE["connection_state"]
         BILIBILI_STATE["connection_state"] = state
         BILIBILI_STATE["connected"] = state == "connected"
         BILIBILI_STATE["message"] = message
+    if previous_state == "connected" and state != "connected":
+        APPLICATION_RUNTIME.connection_lost()
+    elif previous_state != "connected" and state == "connected":
+        APPLICATION_RUNTIME.connection_restored()
     logger.info("B站直播连接状态：%s - %s", state, message)
 
 
@@ -1290,8 +1303,10 @@ if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
+    APPLICATION_RUNTIME.start()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     atexit.register(_shutdown_obs_live2d_sources)
+    atexit.register(APPLICATION_RUNTIME.shutdown)
     _register_windows_console_handler()
     _restore_saved_live_connection()
     threading.Thread(
@@ -1304,3 +1319,4 @@ if __name__ == "__main__":
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
         _shutdown_obs_live2d_sources()
+        APPLICATION_RUNTIME.shutdown()
