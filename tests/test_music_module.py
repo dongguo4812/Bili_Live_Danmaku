@@ -14,7 +14,7 @@ class MusicMatchingTests(unittest.TestCase):
 
     def test_exact_artist_match_precedes_contains_fallback(self):
         candidates = [
-            {"title": "晴天", "artist": "周杰伦、合唱团"},
+            {"title": "晴天", "artist": "周杰伦、乐队"},
             {"title": "晴天", "artist": "周杰伦"},
         ]
         exact, fallback = match_candidates(candidates, "晴天", "周杰伦")
