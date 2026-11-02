@@ -5,7 +5,7 @@ from __future__ import annotations
 
 class VoiceModule:
     def __init__(self) -> None:
-        self.enabled = True
+        self.enabled = False
         self.paused = False
 
     async def start(self) -> None:
