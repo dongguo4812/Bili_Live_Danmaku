@@ -1063,6 +1063,16 @@ def display():
     return render_template("display.html")
 
 
+@app.get("/dashboard")
+def dashboard_page():
+    return render_template("combined_display.html", display_mode=False)
+
+
+@app.get("/display/combined")
+def combined_display_page():
+    return render_template("combined_display.html", display_mode=True)
+
+
 @app.get("/music")
 def music_control_page():
     return render_template("music_queue.html")
