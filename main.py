@@ -1677,7 +1677,11 @@ def save_video_settings():
 
 def _legacy_obs_credential_candidates() -> dict[str, Any]:
     """只探测旧凭据是否存在；绝不向前端返回密码或 Cookie 内容。"""
-    found = {"inline_password": False, "password_file": None}
+    found = {
+        "inline_password": False,
+        "password_file": None,
+        "legacy_bilibili_cookie_file": (BASE_DIR / "bili_cookie.txt").is_file(),
+    }
     try:
         if LEGACY_CONFIG_PATH.is_file():
             legacy = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
@@ -1714,6 +1718,7 @@ def get_credentials_status():
             "obs_inline_password": bool(legacy["inline_password"]),
             "obs_password_file": legacy["password_file"],
             "migration_available": bool(legacy["inline_password"] or legacy["password_file"]),
+            "legacy_bilibili_cookie_file": bool(legacy["legacy_bilibili_cookie_file"]),
         },
     })
 
