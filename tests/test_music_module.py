@@ -108,6 +108,17 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(module.queue), 0)
         self.assertIsNone(module.current)
 
+    async def test_idle_pause_and_resume_do_not_control_external_lx_song(self):
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        with patch("modules.music.service._lx_control") as lx_control:
+            await module.pause()
+            self.assertTrue(module.paused)
+            await module.resume()
+            self.assertFalse(module.paused)
+            lx_control.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
