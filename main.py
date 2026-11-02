@@ -988,7 +988,7 @@ MUSIC_MODULE = MusicModuleFacade(
     event_bus=APPLICATION_RUNTIME.events,
     config=ConfigManager().load("music", {}),
     cookie_provider=_music_cookie_provider,
-    room_id=int(CONFIG.get("bilibili", {}).get("room_id", 0) or 0),
+    room_id=int(_load_user_settings()["bilibili"]["room_id"]),
 )
 APPLICATION_RUNTIME.register_module("music", MUSIC_MODULE)
 
