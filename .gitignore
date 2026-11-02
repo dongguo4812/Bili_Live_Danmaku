@@ -8,3 +8,15 @@ venv/
 credentials/
 !models/.gitkeep
 !models/live_uu/.gitkeep
+
+# Unified runtime data and logs (keep documentation tracked)
+logs/
+data/*
+!data/README.md
+data/music/
+data/video/
+data/cache/
+*.tmp
+
+# Local credentials must never be committed
+credentials/
