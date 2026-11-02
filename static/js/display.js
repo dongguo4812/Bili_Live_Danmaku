@@ -51,8 +51,8 @@
   let speaking = false;
   let audioUnlocked = false;
   let audioContext = null;
-  let currentAudio = null;
   let currentAudioSource = null;
+  let audioPlaying = false;
   let currentAnalyser = null;
   let mouthAnimationFrame = 0;
 
@@ -231,7 +231,7 @@
   function startMouthSync(analyser) {
     const samples = new Uint8Array(analyser.fftSize);
     const tick = () => {
-      if (!currentAudio || currentAudio.paused || currentAudio.ended) {
+      if (!audioPlaying) {
         setLive2DMouth(0);
         mouthAnimationFrame = 0;
         return;
@@ -270,35 +270,41 @@
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "语音生成失败。");
 
-    const audio = new Audio(data.url);
-    audio.preload = "auto";
-    const source = audioContext.createMediaElementSource(audio);
+    const audioResponse = await fetch(data.url, { cache: "no-store" });
+    if (!audioResponse.ok) throw new Error("无法读取生成的语音文件。");
+    const encodedAudio = await audioResponse.arrayBuffer();
+    const decodedAudio = await audioContext.decodeAudioData(encodedAudio);
+    const source = audioContext.createBufferSource();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
+    source.buffer = decodedAudio;
     source.connect(analyser);
     analyser.connect(audioContext.destination);
-    currentAudio = audio;
     currentAudioSource = source;
     currentAnalyser = analyser;
+    audioPlaying = true;
 
     await new Promise((resolve, reject) => {
       let finished = false;
       const finish = error => {
         if (finished) return;
         finished = true;
+        audioPlaying = false;
         stopMouthSync();
-        currentAudio = null;
         currentAudioSource = null;
         currentAnalyser = null;
         try { source.disconnect(); } catch (_) {}
         try { analyser.disconnect(); } catch (_) {}
-        audio.src = "";
         if (error) reject(error);
         else resolve();
       };
-      audio.addEventListener("ended", () => finish(), { once: true });
-      audio.addEventListener("error", () => finish(new Error("音频播放失败。")), { once: true });
-      audio.play().then(() => startMouthSync(analyser)).catch(finish);
+      source.onended = () => finish();
+      try {
+        source.start(0);
+        startMouthSync(analyser);
+      } catch (error) {
+        finish(error);
+      }
     });
   }
 
