@@ -49,6 +49,10 @@ video_titles: dict[str, str] = {}
 video_durations: dict[str, int] = {}
 operation_messages: list[dict[str, Any]] = []
 OPERATION_MESSAGE_LIMIT = 10
+# 弹幕事件由 EventBus 并发分发；在网络校验期间预留 UID/BV/队列名额，
+# 防止同一观众绕过冷却、重复 BV 入队或并发请求突破队列上限。
+pending_video_uids: set[int] = set()
+pending_video_bvs: set[str] = set()
 OBS_CONFIG: dict[str, Any] = {"enabled": False}
 
 
@@ -1363,7 +1367,7 @@ async def on_dan_mu(msg_json):
 
         # 重复视频优先判断：当前正在播放或已在待播队列中，都不重复添加。
         # 此检查放在冷却判断之前，重复点播会明确提示“已经在点播队列中”。
-        if bv == current_bv or bv in video_queue:
+        if bv == current_bv or bv in video_queue or bv in pending_video_bvs:
             message = f"点播失败：{uname}，视频 {bv} 已经在点播队列中"
             logger.info(message)
             add_operation_message(message)
@@ -1371,131 +1375,146 @@ async def on_dan_mu(msg_json):
 
         is_admin = uid in ADMIN_UIDS
 
-        # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 config/video.json 控制。
-        # require_fans_medal=false 时跳过勋章查询，但冷却、时长、队列等其他限制仍然生效。
-        if is_admin:
-            logger.info("管理员点播：跳过粉丝勋章校验（UID: %s）", uid)
-        elif REQUIRE_FAN_MEDAL:
-            # 没有 Cookie、Cookie 无效、查询失败或数据不完整时一律拒绝点播，并记录原因。
-            try:
-                medal_allowed, medal_reason = await verify_fan_medal(uid)
-            except Exception as exc:
-                logger.warning(
-                    "普通观众点播被拒绝：粉丝勋章校验发生异常（UID: %s，%s）",
-                    uid,
-                    type(exc).__name__
-                )
-                add_operation_message(f"{uname} 点播被拒绝：粉丝勋章校验失败")
-                return
+        if not is_admin and uid in pending_video_uids:
+            add_operation_message(f"{uname} 点播失败：上一条点播请求仍在处理中")
+            return
 
-            if not medal_allowed:
+        # 在任何异步网络请求前同步预留，EventBus 的下一条事件即可看到占用状态。
+        pending_video_bvs.add(bv)
+        if not is_admin:
+            pending_video_uids.add(uid)
+
+        try:
+            # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 config/video.json 控制。
+            # require_fans_medal=false 时跳过勋章查询，但冷却、时长、队列等其他限制仍然生效。
+            if is_admin:
+                logger.info("管理员点播：跳过粉丝勋章校验（UID: %s）", uid)
+            elif REQUIRE_FAN_MEDAL:
+                # 没有 Cookie、Cookie 无效、查询失败或数据不完整时一律拒绝点播，并记录原因。
+                try:
+                    medal_allowed, medal_reason = await verify_fan_medal(uid)
+                except Exception as exc:
+                    logger.warning(
+                        "普通观众点播被拒绝：粉丝勋章校验发生异常（UID: %s，%s）",
+                        uid,
+                        type(exc).__name__
+                    )
+                    add_operation_message(f"{uname} 点播被拒绝：粉丝勋章校验失败")
+                    return
+
+                if not medal_allowed:
+                    logger.info(
+                        "普通观众点播被拒绝：%s（UID: %s）",
+                        medal_reason,
+                        uid
+                    )
+                    add_operation_message(f"{uname} 点播被拒绝：{medal_reason}")
+                    return
+
+                # 网络校验期间模块可能已暂停或关闭，不能让过期弹幕在其后重新入队。
+                if not module_enabled or module_paused:
+                    return
+
                 logger.info(
-                    "普通观众点播被拒绝：%s（UID: %s）",
-                    medal_reason,
+                    "粉丝勋章校验通过：用户拥有本直播间主播的粉丝勋章且当前已点亮（UID: %s）",
                     uid
                 )
-                add_operation_message(f"{uname} 点播被拒绝：{medal_reason}")
+            else:
+                logger.info("当前配置不要求粉丝牌，跳过勋章校验（UID: %s）", uid)
+
+            # 管理员 UID 不受每人 60 秒冷却限制；普通观众仍按原规则执行。
+            if not is_admin:
+                now = time.monotonic()
+                previous_time = last_order_time.get(uid, 0)
+                elapsed = now - previous_time
+
+                if elapsed < COOLDOWN_SEC:
+                    remaining = max(1, int(COOLDOWN_SEC - elapsed))
+                    logger.info(
+                        "忽略 %s 的点播请求：冷却中，还需 %s 秒",
+                        uname,
+                        remaining
+                    )
+                    add_operation_message(
+                        f"{uname} 点播冷却中，还需要等待 {remaining} 秒"
+                    )
+                    return
+
+            if len(video_queue) + len(pending_video_bvs) > MAX_QUEUE_SIZE:
+                logger.info("忽略 %s 的点播请求：队列已满", uname)
+                add_operation_message(
+                    f"{uname} 点播失败：队列已满（最多 {MAX_QUEUE_SIZE} 条）"
+                )
                 return
 
-            # 网络校验期间模块可能已暂停或关闭，不能让过期弹幕在其后重新入队。
+            # 先通过 B 站接口核验视频是否存在，并获取时长。
+            try:
+                title, duration = await ensure_video_info(bv)
+            except Exception:
+                message = (
+                    f"点播失败：{uname}，无法获取视频信息，请检查 BV 号是否正确"
+                )
+                logger.info(message)
+                add_operation_message(message)
+                return
+
             if not module_enabled or module_paused:
                 return
 
-            logger.info(
-                "粉丝勋章校验通过：用户拥有本直播间主播的粉丝勋章且当前已点亮（UID: %s）",
-                uid
-            )
-        else:
-            logger.info("当前配置不要求粉丝牌，跳过勋章校验（UID: %s）", uid)
-
-        # 管理员 UID 不受每人 60 秒冷却限制；普通观众仍按原规则执行。
-        if not is_admin:
-            now = time.monotonic()
-            previous_time = last_order_time.get(uid, 0)
-            elapsed = now - previous_time
-
-            if elapsed < COOLDOWN_SEC:
-                remaining = max(1, int(COOLDOWN_SEC - elapsed))
-                logger.info(
-                    "忽略 %s 的点播请求：冷却中，还需 %s 秒",
-                    uname,
-                    remaining
-                )
-                add_operation_message(
-                    f"{uname} 点播冷却中，还需要等待 {remaining} 秒"
-                )
+            if duration <= 0:
+                message = f"点播失败：{uname}，无法确认视频时长（{bv}）"
+                logger.info(message)
+                add_operation_message(message)
                 return
 
-        if len(video_queue) >= MAX_QUEUE_SIZE:
-            logger.info("忽略 %s 的点播请求：队列已满", uname)
+            # 管理员 UID 不受 300 秒视频时长限制；普通观众仍最多 5 分钟。
+            if not is_admin and duration > MAX_VIDEO_DURATION_SEC:
+                minutes, seconds = divmod(duration, 60)
+                message = (
+                    f"点播失败：{uname}，视频时长为 {minutes} 分 {seconds} 秒，"
+                    f"超过 5 分钟限制（{bv}）"
+                )
+                logger.info(message)
+                add_operation_message(message)
+                return
+
+            # 再检查一次，防止在获取视频信息期间状态已发生变化。
+            if bv == current_bv or bv in video_queue:
+                message = f"点播失败：{uname}，视频 {bv} 已经在点播队列中"
+                logger.info(message)
+                add_operation_message(message)
+                return
+
+            if not module_enabled or module_paused:
+                return
+
+            video_queue.append(bv)
+
+            if not is_admin:
+                last_order_time[uid] = time.monotonic()
+
+            logger.info(
+                "点播已加入待播放队列：%s（标题=%s，身份=%s，当前播放=%s，队列待播=%s）",
+                bv,
+                title,
+                "管理员" if is_admin else "观众",
+                current_bv or "无",
+                len(video_queue)
+            )
+
             add_operation_message(
-                f"{uname} 点播失败：队列已满（最多 {MAX_QUEUE_SIZE} 条）"
+                f"已加入点播队列：{title}（{bv}），当前排队：{len(video_queue)} 个"
             )
+
+            if not is_playing:
+                asyncio.create_task(play_next())
+
             return
 
-        # 先通过 B 站接口核验视频是否存在，并获取时长。
-        try:
-            title, duration = await ensure_video_info(bv)
-        except Exception:
-            message = (
-                f"点播失败：{uname}，无法获取视频信息，请检查 BV 号是否正确"
-            )
-            logger.info(message)
-            add_operation_message(message)
-            return
-
-        if not module_enabled or module_paused:
-            return
-
-        if duration <= 0:
-            message = f"点播失败：{uname}，无法确认视频时长（{bv}）"
-            logger.info(message)
-            add_operation_message(message)
-            return
-
-        # 管理员 UID 不受 300 秒视频时长限制；普通观众仍最多 5 分钟。
-        if not is_admin and duration > MAX_VIDEO_DURATION_SEC:
-            minutes, seconds = divmod(duration, 60)
-            message = (
-                f"点播失败：{uname}，视频时长为 {minutes} 分 {seconds} 秒，"
-                f"超过 5 分钟限制（{bv}）"
-            )
-            logger.info(message)
-            add_operation_message(message)
-            return
-
-        # 再检查一次，防止在获取视频信息期间状态已发生变化。
-        if bv == current_bv or bv in video_queue:
-            message = f"点播失败：{uname}，视频 {bv} 已经在点播队列中"
-            logger.info(message)
-            add_operation_message(message)
-            return
-
-        if not module_enabled or module_paused:
-            return
-
-        video_queue.append(bv)
-
-        if not is_admin:
-            last_order_time[uid] = time.monotonic()
-
-        logger.info(
-            "点播已加入待播放队列：%s（标题=%s，身份=%s，当前播放=%s，队列待播=%s）",
-            bv,
-            title,
-            "管理员" if is_admin else "观众",
-            current_bv or "无",
-            len(video_queue)
-        )
-
-        add_operation_message(
-            f"已加入点播队列：{title}（{bv}），当前排队：{len(video_queue)} 个"
-        )
-
-        if not is_playing:
-            asyncio.create_task(play_next())
-
-        return
+        finally:
+            pending_video_bvs.discard(bv)
+            if not is_admin:
+                pending_video_uids.discard(uid)
 
     # ---------- 3. 查看队列 ----------
 
@@ -1628,7 +1647,9 @@ class VideoModuleFacade:
         global OBS_CONFIG
         OBS_CONFIG = load_obs_config()
 
-    def queue_snapshot(self) -> dict[str, Any]:
+    async def queue_snapshot(self) -> dict[str, Any]:
+        # Flask 线程通过 ApplicationRuntime 调用本方法；快照在修改队列的
+        # 同一 asyncio 线程内同步生成，不与弹幕入队/播放出队/面板操作交叉读取。
         snapshot = build_queue_snapshot()
         snapshot.update({"enabled": module_enabled, "paused": module_paused})
         return snapshot
