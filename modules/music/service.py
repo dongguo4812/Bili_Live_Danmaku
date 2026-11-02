@@ -76,7 +76,19 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     COOLDOWN_SECONDS = max(0, int(req.get("cooldown_seconds", 10)))
     QUEUE_LIMIT = max(1, int(req.get("queue_limit", 100)))
     SEARCH_LIMIT = max(1, int(search.get("max_results_per_platform", 20)))
-    ADMIN_UIDS = load_admin_uids(BASE_DIR / str(config.get("admins_file", "uid.txt")))
+    ADMIN_UIDS = set()
+    configured_uids = config.get("admin_uids", [])
+    if isinstance(configured_uids, list):
+        for value in configured_uids:
+            try:
+                parsed_uid = int(value)
+                if parsed_uid > 0:
+                    ADMIN_UIDS.add(parsed_uid)
+            except (TypeError, ValueError):
+                continue
+    admin_file = config.get("admins_file", "data/music/uid.txt")
+    if admin_file:
+        ADMIN_UIDS.update(load_admin_uids(BASE_DIR / str(admin_file)))
     values = cookie_provider() if callable(cookie_provider) else {}
     COOKIE_DICT = {
         "SESSDATA": str(values.get("sessdata", "")),
