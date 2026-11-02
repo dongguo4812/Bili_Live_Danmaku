@@ -14,17 +14,18 @@ from core.config_manager import ConfigManager
 BASE_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = BASE_DIR / "logs"
 
-_SECRET_PATTERNS = (
-    re.compile(r'(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token)(\s*[:=]\s*)(["\']?)([^\s,;}"\']+)', re.IGNORECASE),
-    re.compile(r'(?i)(Cookie\s*:\s*)([^\r\n]+)', re.IGNORECASE),
+_SECRET_VALUE_PATTERN = re.compile(
+    r'(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|password|passwd|api[_-]?key|access[_-]?token|refresh[_-]?token)(\\s*[:=]\\s*)(["\\']?)([^\\s,;}"\\']+)',
+    re.IGNORECASE,
 )
+_COOKIE_HEADER_PATTERN = re.compile(r'(?i)(Cookie\\s*:\\s*)([^\\r\\n]+)', re.IGNORECASE)
 
 
 def _redact(message: str) -> str:
-    result = str(message)
-    for pattern in _SECRET_PATTERNS:
-        result = pattern.sub(lambda match: match.group(1) + (match.group(2) if match.lastindex and match.lastindex >= 2 else "") + "***", result)
-    return result
+    result = _SECRET_VALUE_PATTERN.sub(
+        lambda match: match.group(1) + match.group(2) + "***", str(message)
+    )
+    return _COOKIE_HEADER_PATTERN.sub(lambda match: match.group(1) + "***", result)
 
 
 class SecretRedactionFilter(logging.Filter):
