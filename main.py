@@ -293,11 +293,15 @@ def _set_bilibili_connection_state(state: str, message: str) -> None:
 
 def _login_status() -> tuple[bool, str, dict[str, str] | None]:
     valid, message, cookies = validate_cookie_file(_credential_path())
+    should_stop = False
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["logged_in"] = valid
-        if not valid and BILIBILI_STATE["connected"]:
+        if not valid and BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting"}:
+            should_stop = True
             BILIBILI_STATE["connected"] = False
             BILIBILI_STATE["connection_state"] = "disconnected"
+    if should_stop:
+        LIVE_CLIENT.stop()
     return valid, message, cookies
 
 
