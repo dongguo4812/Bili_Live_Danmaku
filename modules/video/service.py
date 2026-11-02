@@ -1583,6 +1583,10 @@ class VideoModuleFacade:
         _streamer_uid_cache = None
         _streamer_uid_cache_at = 0.0
 
+    def reload_obs_settings(self) -> None:
+        global OBS_CONFIG
+        OBS_CONFIG = load_obs_config()
+
     def queue_snapshot(self) -> dict[str, Any]:
         snapshot = build_queue_snapshot()
         snapshot.update({"enabled": module_enabled, "paused": module_paused})
