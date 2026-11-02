@@ -58,6 +58,20 @@ class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.list_status()["video"]["state"], "stopped")
         self.assertEqual(video.calls, [])
 
+    async def test_manual_pause_during_disconnect_overrides_auto_resume(self):
+        manager = ModuleManager()
+        music = FakeModule()
+        manager.register("music", music)
+        await manager.start("music")
+        await manager.on_connection_lost()
+        self.assertEqual(manager.list_status()["music"]["state"], "paused")
+
+        # 模块已因断线暂停；用户再次点击暂停，应阻止重连自动恢复。
+        await manager.pause("music")
+        await manager.on_connection_restored()
+        self.assertEqual(manager.list_status()["music"]["state"], "paused")
+        self.assertNotIn("resume", music.calls)
+
     async def test_reconnect_restores_only_unchanged_running_modules(self):
         manager = ModuleManager()
         music = FakeModule()
