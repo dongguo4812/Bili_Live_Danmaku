@@ -74,7 +74,10 @@
       <input id="bubble-duration-slider" type="range" min="2" max="60" step="1" value="10">
     </label>
 
-    <p id="settings-save-status" class="settings-save-status" role="status">位置和大小会自动保存；弹幕框底边固定并向上扩展。</p>
+    <div class="settings-footer">
+      <p id="settings-save-status" class="settings-save-status" role="status">调整完成后点击保存；保存时会尝试刷新 OBS 浏览器源。</p>
+      <button id="settings-save-button" class="settings-save-button" type="button">保存设置</button>
+    </div>
   </section>
 
   <div id="display-placeholder" role="status">正在初始化 Live2D 模型…</div>
