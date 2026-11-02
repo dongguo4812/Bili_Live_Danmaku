@@ -1723,6 +1723,7 @@ def migrate_legacy_credentials():
         return jsonify({"ok": False, "error": "OBS 凭据库中已有密码；为避免覆盖，未执行迁移。"}), 409
     password = ""
     password_file_path = None
+    credential_saved = False
     try:
         legacy_data = {}
         if LEGACY_CONFIG_PATH.is_file():
@@ -1745,6 +1746,7 @@ def migrate_legacy_credentials():
             return jsonify({"ok": False, "error": "未发现可自动迁移的旧 OBS 明文密码。"}), 404
 
         store.save("obs", {"password": password})
+        credential_saved = True
         password = ""
         if isinstance(legacy_data.get("obs_websocket"), dict):
             clean_obs = dict(legacy_data["obs_websocket"])
@@ -1761,6 +1763,12 @@ def migrate_legacy_credentials():
         return jsonify({"ok": True, "message": "旧 OBS 密码已迁移到本机凭据库，并清理旧明文配置。"})
     except Exception as exc:
         logger.warning("迁移旧 OBS 凭据失败：%s", type(exc).__name__)
+        if credential_saved:
+            return jsonify({
+                "ok": True,
+                "message": "OBS 密码已安全保存，但旧明文配置未能全部清理；请根据凭据管理页提示手动清理旧文件。",
+                "cleanup_incomplete": True,
+            })
         return jsonify({"ok": False, "error": "旧 OBS 凭据迁移失败；请检查旧配置文件权限和格式。"}), 500
     finally:
         password = ""
