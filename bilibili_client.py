@@ -51,6 +51,39 @@ def _cookie_values(session: requests.Session) -> dict[str, str]:
     }
 
 
+def _dpapi_transform(data: bytes, protect: bool) -> bytes:
+    """Use Windows DPAPI so the credential file is decryptable only by this user."""
+    if os.name != "nt":
+        raise BilibiliClientError("Windows DPAPI 只能在 Windows 系统上使用。")
+    import ctypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [
+            ("cbData", ctypes.c_uint32),
+            ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
+        ]
+
+    source_buffer = ctypes.create_string_buffer(data)
+    source = DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
+    output = DataBlob()
+    crypt32 = ctypes.windll.crypt32
+    kernel32 = ctypes.windll.kernel32
+    if protect:
+        ok = crypt32.CryptProtectData(
+            ctypes.byref(source), None, None, None, None, 0x1, ctypes.byref(output)
+        )
+    else:
+        ok = crypt32.CryptUnprotectData(
+            ctypes.byref(source), None, None, None, None, 0x1, ctypes.byref(output)
+        )
+    if not ok:
+        raise ctypes.WinError()
+    try:
+        return ctypes.string_at(output.pbData, output.cbData)
+    finally:
+        kernel32.LocalFree(output.pbData)
+
+
 def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
     if not path.is_file():
         return False, "尚未登录，请使用 B 站二维码登录。", None
@@ -58,6 +91,9 @@ def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("凭据文件格式错误")
+        if data.get("format") == "dpapi-v1":
+            encrypted = base64.b64decode(data.get("payload", ""), validate=True)
+            data = json.loads(_dpapi_transform(encrypted, protect=False).decode("utf-8"))
         cookies = data.get("cookies", data)
         if not isinstance(cookies, dict) or not cookies.get("sessdata"):
             return False, "本地登录凭据不完整，请重新扫码。", None
@@ -216,8 +252,18 @@ class QRLogin:
     def _save(self, cookies: dict[str, str]) -> None:
         self.credential_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"cookies": cookies, "saved_at": int(time.time())}
+        if os.name == "nt":
+            encrypted = _dpapi_transform(
+                json.dumps(payload, ensure_ascii=False).encode("utf-8"), protect=True
+            )
+            stored = {
+                "format": "dpapi-v1",
+                "payload": base64.b64encode(encrypted).decode("ascii"),
+            }
+        else:
+            stored = payload
         temporary = self.credential_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, self.credential_path)
         # Restrict permissions on platforms that implement POSIX mode bits.
         try:
