@@ -1460,6 +1460,10 @@ class MusicModuleFacade:
         await self.bot.pause()
 
     async def resume(self):
+        # 断线重连或手动恢复时重新读取主程序当前有效 Cookie，避免继续使用过期登录态。
+        configure_music_module(self.config, self.cookie_provider, self.room_id)
+        self.bot.admin_uids = set(ADMIN_UIDS)
+        self.bot._medal_enabled = REQUIRE_FANS_MEDAL == "0"
         await self.bot.resume()
 
     async def close(self):
