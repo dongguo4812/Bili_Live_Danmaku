@@ -444,7 +444,15 @@ def start_qr_login():
 
 @app.get("/api/bilibili/qr")
 def poll_qr_login():
-    return jsonify(QR_LOGIN.poll())
+    result = QR_LOGIN.poll()
+    if result.get("state") == "success":
+        with BILIBILI_STATE_LOCK:
+            BILIBILI_STATE["logged_in"] = True
+            BILIBILI_STATE["message"] = result.get("message", "B 站登录成功。")
+    elif result.get("state") in {"expired", "error"}:
+        with BILIBILI_STATE_LOCK:
+            BILIBILI_STATE["logged_in"] = False
+    return jsonify(result)
 
 
 @app.get("/api/bilibili/room")
@@ -512,14 +520,11 @@ def get_danmaku():
 @app.get("/api/status")
 def api_status():
     live2d = model_status()
-    valid, login_message, _ = _login_status()
     with BILIBILI_STATE_LOCK:
         bili = dict(BILIBILI_STATE)
     with SETTINGS_LOCK:
         settings = _load_user_settings()
-    bili["logged_in"] = valid
     bili["room_id"] = settings["bilibili"]["room_id"]
-    bili["message"] = bili["message"] if bili["connected"] else login_message + " " + bili["message"]
     return jsonify({
         "application": "Bili Live Danmaku",
         "web_server": "running",
