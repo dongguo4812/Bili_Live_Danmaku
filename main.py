@@ -186,6 +186,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
         "bubble_max_height": integer("bubble_max_height", 320, 100, 700),
         "bubble_max_items": integer("bubble_max_items", 5, 1, 12),
         "bubble_duration": integer("bubble_duration", 10, 2, 60),
+        "bubble_font_size": integer("bubble_font_size", 20, 12, 40),
     }
 
 
@@ -530,6 +531,7 @@ def save_display_settings():
             "bubble_max_height": bounded_integer("bubble_max_height", 320, 100, 700),
             "bubble_max_items": bounded_integer("bubble_max_items", 5, 1, 12),
             "bubble_duration": bounded_integer("bubble_duration", 10, 2, 60),
+            "bubble_font_size": bounded_integer("bubble_font_size", 20, 12, 40),
         }
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
