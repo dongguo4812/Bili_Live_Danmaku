@@ -46,7 +46,20 @@ The \`/display\` page polls the local event queue and displays incoming danmaku 
 - Older entries are removed when the configured item limit is exceeded.
 - Each Live2D model stores its own model transform and speech-bubble settings in local \`user_settings.json\`.
 
-Use the settings button at the upper-left of the display page. The sliders preview changes immediately and save them locally. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
+Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
+
+If OBS WebSocket uses a non-default address, port, or password, add an optional section to the local `config.json`:
+
+```json
+"obs_websocket": {
+  "host": "127.0.0.1",
+  "port": 4455,
+  "password": "你的 OBS WebSocket 密码",
+  "timeout": 2.5
+}
+```
+
+Merge this section into the existing top-level JSON object; do not replace the rest of `config.json`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**. The close (×) control is centered independently of the global button styles. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
 
 ## Default Live2D model
 
