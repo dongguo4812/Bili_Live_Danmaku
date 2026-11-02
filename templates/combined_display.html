@@ -49,6 +49,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 @media(max-width:800px){.editor-sidebar{position:relative;width:100%;height:auto;bottom:auto;padding:10px 12px}.editor-sidebar .brand{margin:0 0 8px}.editor-sidebar nav{flex-direction:row;overflow-x:auto}.editor-sidebar a{white-space:nowrap;padding:8px 10px}.editor-mode .toolbar{left:0;top:96px}.editor-mode #stage{left:0;top:160px}}
 @media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
 </style>
+<link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
 </head>
 <body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}">
 {% if not display_mode %}
@@ -77,6 +78,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   <span id="layout-message">拖动模块标题栏移动，拖动右下角调整大小。</span>
 </div>
 <div id="stage"></div>
+<script src="{{ url_for('static', filename='display_media.js') }}"></script>
 <script>
 (() => {
   const displayMode = document.body.dataset.displayMode === "1";
@@ -162,43 +164,12 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderMusic(body){
-    const data=latestData.music||{};
-    const current=data.current;
-    body.appendChild(make("div","muted","当前播放"));
-    body.appendChild(make("div","primary-line",current?(current.title+(current.artist?" - "+current.artist:"")):"暂无歌曲"));
-    body.appendChild(make("div","muted",current&&current.uname?"点歌人："+current.uname:""));
-    body.appendChild(make("div","row", "接下来播放"));
-    const queue=data.queue||[];
-    if(!queue.length) body.appendChild(make("div","empty","暂无待播歌曲"));
-    queue.slice(0,8).forEach((item,i)=>{
-      body.appendChild(make("div","queue-item",(i+1)+". "+item.title+(item.artist?" - "+item.artist:"")));
-    });
-    (data.events||[]).slice(-3).forEach(event=>{
-      body.appendChild(make("div","notice"+(event.kind==="failure"?" error":""),event.message||""));
-    });
+    MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
   }
 
   function renderVideo(body){
-    const data=latestData.video||{};
-    const current=data.current;
-    body.appendChild(make("div","muted","当前播放"));
-    body.appendChild(make("div","primary-line",current?current.title:"暂无视频"));
-    if(current&&current.bvid) body.appendChild(make("div","muted",current.bvid));
-    const queue=data.queue||[];
-    const next=queue[0]||null;
-    body.appendChild(make("div","row","接下来播放"));
-    body.appendChild(make("div",next?"primary-line":"empty",next?next.title:"暂无下一条视频"));
-    if(next&&next.bvid) body.appendChild(make("div","muted",next.bvid));
-
-    body.appendChild(make("div","row","播放队列"));
-    const waiting=queue.slice(1,9);
-    if(!waiting.length) body.appendChild(make("div","empty",queue.length?"暂无其他排队视频":"暂无待播视频"));
-    waiting.forEach((item,i)=>{
-      body.appendChild(make("div","queue-item",(i+1)+". "+item.title+"  "+item.bvid));
-    });
-    (data.operations||[]).slice(-3).forEach(item=>{
-      body.appendChild(make("div","notice",item.message||""));
-    });
+    // 综合展示仅呈现视频信息，不加载或嵌入实际视频画面。
+    MediaDisplay.render(body,"video",latestData.video||{},{compact:true,showInstruction:false});
   }
 
   function renderVoice(body){
