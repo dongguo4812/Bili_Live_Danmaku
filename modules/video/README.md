@@ -26,4 +26,5 @@
 配置与管理员：
 - 普通设置：`config/video.json`。
 - 管理员 UID 文件：`data/video/uid.txt`，每行一个 UID；该目录属于本地运行数据，不提交到 Git。
+- 从旧独立视频项目迁移时，请将旧项目根目录的 `uid.txt` 手动复制到整合项目的 `data/video/uid.txt`；管理员列表不会从旧公开仓库自动下载或提交。
 - OBS 密码由 `CredentialStore` 从 `credentials/obs.json` 读取；普通 OBS 地址、端口和来源名称来自 `config/obs.json`。
