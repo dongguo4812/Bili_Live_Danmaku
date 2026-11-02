@@ -30,7 +30,8 @@ uid.txt
 *.key
 chrome_profile/
 
-# Legacy per-user settings are migrated into config/*.json at runtime
+# Legacy local configuration is migrated once into config/*.json at runtime
+config.json
 user_settings.json
 
 # PyInstaller build output
