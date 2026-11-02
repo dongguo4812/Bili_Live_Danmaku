@@ -13,6 +13,7 @@ class DisplayModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_live2d_and_voice_lifecycle_are_independent(self):
         live2d = Live2DModule()
         voice = VoiceModule()
+        await live2d.start()
         await live2d.pause()
         self.assertTrue(live2d.paused)
         self.assertFalse(voice.paused)
