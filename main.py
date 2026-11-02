@@ -1470,6 +1470,7 @@ def save_obs_settings():
             "password_file": "credentials/obs.json",
         }
         VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "OBS 配置保存失败。"}), 400
@@ -1484,6 +1485,7 @@ def save_obs_credential():
     try:
         CredentialStore().save("obs", {"password": password})
         VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
     except Exception as exc:
         logger.warning("保存 OBS 凭据失败：%s", type(exc).__name__)
