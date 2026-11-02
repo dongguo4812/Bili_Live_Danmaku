@@ -32,7 +32,7 @@ BILIBILI_STATE_LOCK = threading.RLock()
 DANMAKU_LOCK = threading.Lock()
 RUNTIME_STATE: dict[str, str] = {
     "state": "not_started",
-    "message": "OBS display has not initialized the Live2D runtime.",
+    "message": "等待 OBS 展示页面加载 Live2D 模型。",
 }
 BILIBILI_STATE: dict[str, Any] = {
     "logged_in": False,
@@ -309,6 +309,41 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
     return valid, message, cookies
 
 
+def _connect_saved_room(source: str) -> tuple[bool, str]:
+    """使用已保存的有效 Cookie 连接已保存的直播间；绝不匿名连接。"""
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    room_id = int(settings["bilibili"]["room_id"])
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["room_id"] = room_id
+        current_state = BILIBILI_STATE["connection_state"]
+
+    if room_id <= 0:
+        return False, "尚未设置直播间房间号，登录已保留，请先设置房间号。"
+    if current_state in {"connected", "connecting", "reconnecting"}:
+        return True, "直播间连接任务已经启动。"
+
+    valid, message, cookies = _login_status()
+    if not valid or not cookies:
+        return False, message
+    try:
+        LIVE_CLIENT.start(room_id, cookies)
+    except BilibiliClientError as exc:
+        return False, str(exc)
+
+    logger.info("已根据%s自动启动直播间连接：room_id=%s", source, room_id)
+    return True, f"已启动直播间 {room_id} 连接，等待 B 站 WebSocket 认证。"
+
+
+def _restore_saved_live_connection() -> None:
+    """程序启动时恢复有效登录，并自动连接已保存的直播间。"""
+    connected, message = _connect_saved_room("程序启动恢复")
+    if connected:
+        logger.info("启动恢复：%s", message)
+    else:
+        logger.info("启动恢复未连接直播间：%s", message)
+
+
 @app.get("/")
 def index():
     return render_template("index.html")
@@ -429,7 +464,7 @@ def update_live2d_status():
     payload = request.get_json(silent=True) or {}
     state = payload.get("state")
     message = payload.get("message", "")
-    if state not in {"loading", "loaded", "error"}:
+    if state not in {"not_started", "loading", "loaded", "error"}:
         return jsonify({"ok": False, "error": "Invalid Live2D state."}), 400
     if not isinstance(message, str):
         message = str(message)
@@ -457,6 +492,11 @@ def poll_qr_login():
         with BILIBILI_STATE_LOCK:
             BILIBILI_STATE["logged_in"] = True
             BILIBILI_STATE["message"] = result.get("message", "B 站登录成功。")
+        auto_connected, auto_message = _connect_saved_room("二维码登录成功")
+        result["auto_connect"] = auto_connected
+        result["auto_connect_message"] = auto_message
+        with BILIBILI_STATE_LOCK:
+            BILIBILI_STATE["message"] = auto_message
     elif result.get("state") in {"expired", "error"}:
         with BILIBILI_STATE_LOCK:
             BILIBILI_STATE["logged_in"] = False
@@ -575,5 +615,6 @@ if __name__ == "__main__":
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
+    _restore_saved_live_connection()
     logger.info("Starting local management server at http://%s:%s", host, port)
     app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
