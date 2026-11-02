@@ -1045,6 +1045,16 @@ def display():
     return render_template("display.html")
 
 
+@app.get("/music")
+def music_control_page():
+    return render_template("music_queue.html")
+
+
+@app.get("/music/display")
+def music_display_page():
+    return render_template("music_display.html")
+
+
 @app.get("/api/display/settings")
 def get_display_settings():
     with SETTINGS_LOCK:
