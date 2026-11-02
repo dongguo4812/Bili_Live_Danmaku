@@ -552,6 +552,19 @@ driver = None
 
 
 @selenium_locked
+def _pause_video_for_close_sync():
+    if driver is None:
+        return False
+    try:
+        driver.execute_script(
+            "const v=document.querySelector('video'); if(v){try{v.pause();}catch(e){}} window.stop();"
+        )
+        return True
+    except Exception:
+        return False
+
+
+@selenium_locked
 def _quit_browser_sync(browser):
     if browser is not None:
         browser.quit()
@@ -1536,7 +1549,7 @@ class VideoModuleFacade:
                 logger.debug("关闭视频监控任务时发生异常。", exc_info=True)
         if driver is not None:
             try:
-                await asyncio.to_thread(stop_current_page_sync)
+                await asyncio.to_thread(_pause_video_for_close_sync)
             except Exception as exc:
                 logger.warning("暂停当前视频失败：%s", type(exc).__name__)
         try:
