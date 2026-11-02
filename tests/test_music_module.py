@@ -139,6 +139,36 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
             lx_control.assert_not_called()
             self.assertIsNone(module.current)
 
+    async def test_parallel_requests_from_same_uid_obey_cooldown(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        module._medal_enabled = True
+        module.enqueue = AsyncMock()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def medal_check(uid):
+            entered.set()
+            await release.wait()
+            return True, "ok"
+
+        event = {
+            "type": "danmaku", "uid": 456, "nickname": "viewer",
+            "text": "点歌 晴天-周杰伦", "timestamp": 1,
+        }
+        with patch("modules.music.service.check_fan_medal", side_effect=medal_check):
+            first = asyncio.create_task(module.on_danmu(event))
+            await entered.wait()
+            second = asyncio.create_task(module.on_danmu(event))
+            await asyncio.sleep(0)
+            release.set()
+            await asyncio.gather(first, second)
+
+        self.assertEqual(module.enqueue.await_count, 1)
+
+
 
 
 if __name__ == "__main__":
