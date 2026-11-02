@@ -197,7 +197,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const prefs=data.preferences||{};
     body.appendChild(make("div","primary-line","语音播报"));
     const enabled = !!(prefs.danmaku_enabled || prefs.gift_enabled || prefs.super_chat_enabled);
-    body.appendChild(make("div","row","状态："+(enabled?"已启用":"已关闭")));
+    const moduleState = data.module_state || "running";
+    body.appendChild(make("div","row","模块："+({running:"运行中",paused:"已暂停",stopped:"已关闭",error:"运行异常"}[moduleState]||moduleState)));
+    body.appendChild(make("div","row","触发："+(enabled?"已启用":"已关闭")));
     body.appendChild(make("div","muted","音色："+(prefs.voice||"默认")));
     body.appendChild(make("div","muted","语速："+(prefs.rate||"+0%")+" · 音量："+(prefs.volume||"+0%")));
   }
@@ -280,12 +282,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
   async function refreshData(){
     try{
-      const [music,video,voice]=await Promise.all([
-        api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings")
+      const [music,video,voice,modules]=await Promise.all([
+        api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
       ]);
       latestData.music=music;
       latestData.video=video;
       latestData.voice=voice;
+      latestData.voice.module_state=(modules.modules.voice||{}).state||"stopped";
       const danmaku=await api("/api/danmaku?after=0");
       latestData.danmaku=danmaku.items||[];
       danmakuAfter=danmaku.latest_id||danmakuAfter;
