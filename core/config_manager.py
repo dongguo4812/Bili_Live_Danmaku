@@ -28,12 +28,13 @@ def _assert_no_secrets(value: Any, path: str = "$") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
             name = str(key)
+            normalized_name = re.sub(r"([a-z0-9])([A-Z])", r"\\1_\\2", name).casefold()
             # 文件路径字段仅表示凭据存放位置，不包含凭据值本身。
-            if name.lower().endswith(("_file", "_path")):
+            if normalized_name.endswith(("_file", "_path")):
                 if isinstance(child, (dict, list)):
                     _assert_no_secrets(child, f"{path}.{name}")
                 continue
-            if _SECRET_KEY.search(name):
+            if _SECRET_KEY.search(normalized_name):
                 raise ConfigError(f"普通配置禁止包含敏感字段：{path}.{name}")
             _assert_no_secrets(child, f"{path}.{name}")
     elif isinstance(value, list):
