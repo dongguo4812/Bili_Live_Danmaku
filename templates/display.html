@@ -26,6 +26,28 @@
       <select id="model-select"></select>
     </label>
 
+    <div class="settings-divider"></div>
+    <strong class="settings-subtitle">模型动作与表情</strong>
+
+    <label class="setting-field">
+      <span>模型动作</span>
+      <select id="model-motion-select"><option value="">正在读取动作…</option></select>
+    </label>
+    <div class="tts-actions">
+      <button id="model-motion-play" class="secondary-button" type="button" disabled>播放动作</button>
+    </div>
+
+    <label class="setting-field">
+      <span>模型表情</span>
+      <select id="model-expression-select"><option value="">正在读取表情…</option></select>
+    </label>
+    <div class="tts-actions">
+      <button id="model-expression-apply" class="secondary-button" type="button" disabled>切换表情</button>
+      <button id="model-expression-reset" class="secondary-button" type="button" disabled>恢复默认表情</button>
+    </div>
+    <p id="model-action-status" class="settings-save-status" role="status">动作和表情选项由当前模型配置自动读取。</p>
+
+    <div class="settings-divider"></div>
     <label class="setting-field">
       <span>模型大小 <output id="scale-value">100%</output></span>
       <input id="scale-slider" type="range" min="25" max="150" step="1" value="100">
