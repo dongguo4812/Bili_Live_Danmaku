@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from core.config_manager import ConfigManager
+from core.paths import get_base_dir
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = get_base_dir()
 LOG_DIR = BASE_DIR / "logs"
 
 _SECRET_VALUE_PATTERN = re.compile(
