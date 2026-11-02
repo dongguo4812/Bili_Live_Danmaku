@@ -550,6 +550,17 @@ def _initialize_login_state() -> None:
         BILIBILI_STATE["message"] = message
 
 
+def _credential_watchdog() -> None:
+    while True:
+        time.sleep(60)
+        with BILIBILI_STATE_LOCK:
+            should_check = BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting"}
+        if should_check:
+            valid, message, _ = _login_status()
+            if not valid:
+                logger.warning("B站登录凭据失效，已停止直播连接：%s", message)
+
+
 _initialize_login_state()
 
 
@@ -557,5 +568,6 @@ if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
+    threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     logger.info("Starting local management server at http://%s:%s", host, port)
     app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
