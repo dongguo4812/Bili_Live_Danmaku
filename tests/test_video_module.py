@@ -292,6 +292,29 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(video_service.migrate_legacy_video_room_config(root, manager), {})
             self.assertTrue(manager.load("video", {})["requests"]["require_fans_medal"])
 
+    async def test_legacy_obs_migration_keeps_password_out_of_plain_config(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manager = ConfigManager(root / "config")
+            (root / "obs_config.txt").write_text(
+                "host=192.168.1.3\n"
+                "port=4455\n"
+                "password=must-not-be-migrated\n"
+                "source_name=b站视频播放器\n",
+                encoding="utf-8",
+            )
+            migrated = video_service.migrate_legacy_video_obs_config(root, manager)
+            config = manager.load("obs", {})
+            self.assertEqual(migrated["host"], "192.168.1.3")
+            self.assertEqual(migrated["port"], 4455)
+            self.assertEqual(config["source_name"], "b站视频播放器")
+            self.assertNotIn("password", config)
+            (root / "obs_config.txt").write_text("host=127.0.0.1\n", encoding="utf-8")
+            self.assertEqual(video_service.migrate_legacy_video_obs_config(root, manager), {})
+            self.assertEqual(manager.load("obs", {})["host"], "192.168.1.3")
+
     async def test_inflight_order_is_discarded_after_pause_and_resume(self):
         import asyncio
         video_service.module_enabled = True
