@@ -145,18 +145,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   pointer-events: none;
 }
 .danmaku-bubble[hidden] { display: none; }
-.danmaku-bubble::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  width: 16px;
-  height: 16px;
-  transform: translateX(-50%) rotate(45deg);
-  border-right: 1px solid rgba(255,255,255,.25);
-  border-bottom: 1px solid rgba(255,255,255,.25);
-  background: rgba(20,25,36,.9);
-}
 .danmaku-entry {
   flex: 0 0 auto;
   display: flex;
