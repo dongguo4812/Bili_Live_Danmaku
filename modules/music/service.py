@@ -1291,6 +1291,7 @@ class MusicModule:
                 async with self.queue_lock:
                     if not self.queue:
                         self.current = None
+                        self._lx_playback_active = False
                         return
                     item = self.queue.popleft()
                     self.queued_keys.discard(item["key"])
@@ -1380,9 +1381,12 @@ class MusicModule:
                     )
 
                 if self._skip_requested.is_set():
+                    self._lx_playback_active = False
                     log.info("检测到管理员切歌，已停止当前歌曲核验/音源回退流程。")
                     continue
                 if not verified:
+                    # 未确认属于本次机器人点播的曲目时，不再将洛雪当前播放视为本模块拥有。
+                    self._lx_playback_active = False
                     log.error("所有可用音源均未能确认播放成功：%s - %s", item.get("title", ""), item.get("artist", ""))
                     async with self.queue_lock:
                         if self.current is item:
@@ -1504,8 +1508,8 @@ class MusicModuleFacade:
         self.room_id = max(0, int(room_id or 0))
         update_music_room_id(self.room_id)
 
-    def queue_snapshot(self) -> dict[str, Any]:
-        return self.bot.queue_snapshot()
+    async def queue_snapshot(self) -> dict[str, Any]:
+        return await self.bot.queue_snapshot()
 
     async def panel_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.bot.panel_action(payload)
