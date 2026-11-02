@@ -242,34 +242,6 @@ def _load_user_settings() -> dict[str, Any]:
     }
 
 
-def _save_user_settings(settings: dict[str, Any]) -> None:
-    """把用户设置分别保存到 live/live2d/voice 模块配置，不再写根目录 JSON。"""
-    manager = ConfigManager()
-    live = manager.load("live", {})
-    live2d = manager.load("live2d", {})
-    voice = manager.load("voice", {})
-
-    bilibili = settings.get("bilibili") if isinstance(settings.get("bilibili"), dict) else {}
-    live["room_id"] = max(0, int(bilibili.get("room_id", live.get("room_id", 0)) or 0))
-
-    model_id = settings.get("model")
-    if isinstance(model_id, str) and _safe_model_dir(model_id):
-        live2d["model"] = model_id
-    models = settings.get("models")
-    if isinstance(models, dict):
-        live2d["models"] = models
-    idle_tips = settings.get("idle_tips")
-    if isinstance(idle_tips, dict):
-        live2d["idle_tips"] = idle_tips
-    tts = settings.get("tts")
-    if isinstance(tts, dict):
-        voice["tts"] = tts
-
-    manager.save("live", live)
-    manager.save("live2d", live2d)
-    manager.save("voice", voice)
-
-
 def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
     raw = settings.get("models", {}).get(model_id, {})
     if not isinstance(raw, dict):
