@@ -6,10 +6,12 @@ import json
 import os
 import re
 import threading
+
+from core.paths import get_base_dir
 from pathlib import Path
 from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = get_base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 _LOCK = threading.RLock()
 _SECRET_KEY = re.compile(
