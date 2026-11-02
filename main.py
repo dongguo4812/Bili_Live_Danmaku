@@ -2,6 +2,8 @@
 """Bili Live Danmaku application entry point."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import math
@@ -9,6 +11,10 @@ import os
 import re
 import threading
 import time
+import uuid
+from urllib.parse import urlparse
+
+import websocket
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -188,6 +194,107 @@ def _save_user_settings(settings: dict[str, Any]) -> None:
     temporary = USER_SETTINGS_PATH.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, USER_SETTINGS_PATH)
+
+
+
+def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | None = None) -> dict[str, Any]:
+    request_id = uuid.uuid4().hex
+    ws.send(json.dumps({
+        "op": 6,
+        "d": {
+            "requestType": request_type,
+            "requestId": request_id,
+            "requestData": request_data or {},
+        },
+    }))
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        message = json.loads(ws.recv())
+        if message.get("op") != 7:
+            continue
+        data = message.get("d", {})
+        if data.get("requestId") != request_id:
+            continue
+        status = data.get("requestStatus", {})
+        if not status.get("result", False):
+            raise RuntimeError(status.get("comment") or f"OBS 请求失败：{request_type}")
+        return data.get("responseData") or {}
+    raise TimeoutError(f"等待 OBS 请求响应超时：{request_type}")
+
+
+def _refresh_obs_browser_sources() -> dict[str, Any]:
+    """尝试通过 OBS WebSocket 刷新指向 /display 的浏览器源；失败时不影响设置保存。"""
+    obs_config = CONFIG.get("obs_websocket", {})
+    if not isinstance(obs_config, dict):
+        obs_config = {}
+    host = str(obs_config.get("host", "127.0.0.1")).strip() or "127.0.0.1"
+    try:
+        port = int(obs_config.get("port", 4455))
+        timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
+    except (TypeError, ValueError):
+        port, timeout = 4455, 2.5
+    password = str(obs_config.get("password", ""))
+    ws = None
+    try:
+        ws = websocket.create_connection(
+            f"ws://{host}:{port}",
+            timeout=timeout,
+            suppress_origin=True,
+        )
+        hello = json.loads(ws.recv())
+        if hello.get("op") != 0:
+            raise RuntimeError("OBS WebSocket 未返回 Hello 握手。")
+        hello_data = hello.get("d", {})
+        identify: dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}
+        authentication = hello_data.get("authentication")
+        if authentication:
+            if not password:
+                raise RuntimeError("OBS WebSocket 已启用密码验证，但 config.json 未配置密码。")
+            secret = base64.b64encode(
+                hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
+            ).decode("ascii")
+            identify["authentication"] = base64.b64encode(
+                hashlib.sha256((secret + authentication["challenge"]).encode("utf-8")).digest()
+            ).decode("ascii")
+        ws.send(json.dumps({"op": 1, "d": identify}))
+        identified = json.loads(ws.recv())
+        if identified.get("op") != 2:
+            raise RuntimeError("OBS WebSocket 身份验证未成功。")
+
+        response = _obs_ws_request(ws, "GetInputList")
+        refreshed = 0
+        for item in response.get("inputs", []):
+            if item.get("inputKind") != "browser_source":
+                continue
+            input_name = item.get("inputName")
+            settings = item.get("inputSettings") or {}
+            source_url = settings.get("url", "")
+            if not isinstance(input_name, str) or not isinstance(source_url, str):
+                continue
+            parsed = urlparse(source_url)
+            if parsed.path.rstrip("/") != "/display":
+                continue
+            _obs_ws_request(ws, "PressInputPropertiesButton", {
+                "inputName": input_name,
+                "propertyName": "refreshnocache",
+            })
+            refreshed += 1
+        if refreshed:
+            message = f"已通过 OBS WebSocket 刷新 {refreshed} 个展示浏览器源。"
+        else:
+            message = "已连接 OBS，但未找到 URL 指向 /display 的浏览器源，已跳过刷新。"
+        logger.info("%s", message)
+        return {"attempted": True, "refreshed": refreshed, "message": message}
+    except Exception as exc:
+        message = f"OBS WebSocket 不可用，已跳过浏览器源刷新：{exc}"
+        logger.info("%s", message)
+        return {"attempted": True, "refreshed": 0, "message": message}
+    finally:
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
 
 
 def _available_models() -> list[dict[str, str]]:
@@ -419,7 +526,13 @@ def save_display_settings():
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
-    return jsonify({"ok": True, "model": model_id, "preferences": preferences})
+    obs_refresh = _refresh_obs_browser_sources()
+    return jsonify({
+        "ok": True,
+        "model": model_id,
+        "preferences": preferences,
+        "obs_refresh": obs_refresh,
+    })
 
 
 @app.get("/models/<model_id>/model.json")
