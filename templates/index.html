@@ -20,7 +20,7 @@
     <section class="panel">
       <h2>运行状态</h2>
       <div class="status-grid">
-        <div><span class="muted">B站登录</span><strong id="login-state">未登录</strong></div>
+        <div><span class="muted">B站登录</span><strong id="login-state">检查中</strong></div>
         <div><span class="muted">直播连接</span><strong id="connection-state">未连接</strong></div>
         <div><span class="muted">MOC2 运行时</span><strong id="runtime-state">尚未接入</strong></div>
       </div>
@@ -28,10 +28,35 @@
     </section>
 
     <section class="panel">
-      <h2>默认模型</h2>
+      <h2>B站登录与直播间连接</h2>
+      <div class="room-control">
+        <label for="room-id">直播间房间号</label>
+        <div class="inline-controls">
+          <input id="room-id" type="number" min="1" step="1" placeholder="输入 B 站直播间房间号">
+          <button id="save-room" type="button" class="secondary-button">保存房间号</button>
+        </div>
+      </div>
+      <div class="inline-controls action-controls">
+        <button id="qr-start" type="button">扫码登录</button>
+        <button id="connect-live" type="button">连接直播间</button>
+        <button id="disconnect-live" type="button" class="secondary-button">断开连接</button>
+      </div>
+      <p id="bili-action-message" class="muted" role="status">连接直播间前必须完成 B 站登录。</p>
+      <div id="qr-area" class="qr-area" hidden>
+        <img id="qr-image" alt="B站登录二维码">
+        <div>
+          <strong id="qr-title">请使用 B 站手机客户端扫码</strong>
+          <p id="qr-message" class="muted">二维码有效期约 3 分钟。</p>
+          <button id="qr-cancel" type="button" class="secondary-button">关闭二维码</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live2D 模型</h2>
       <div class="model-row">
         <div>
-          <strong>live_uu</strong>
+          <strong id="model-name">live_uu</strong>
           <p class="muted">Live2D Cubism 2（MOC2）</p>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
@@ -44,34 +69,126 @@
       <h2>OBS 展示</h2>
       <p>浏览器源地址：</p>
       <code>http://127.0.0.1:8768/display</code>
-      <p class="muted">建议 OBS 浏览器源画布分辨率与实际输出分辨率一致。</p>
+      <p class="muted">建议 OBS 浏览器源画布分辨率与实际输出分辨率一致。对话框位置、宽度和显示规则可在展示页左上角「设置」中手动调整。</p>
     </section>
   </main>
   <script>
+    const $ = id => document.getElementById(id);
+    let qrTimer = null;
+    let qrPolling = false;
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { cache: "no-store", ...options });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || ("HTTP " + response.status));
+      return data;
+    }
+
     async function refreshStatus() {
-      const pill = document.getElementById("server-state");
+      const pill = $("server-state");
       try {
-        const response = await fetch("/api/status", { cache: "no-store" });
-        if (!response.ok) throw new Error("HTTP " + response.status);
-        const data = await response.json();
+        const data = await api("/api/status");
         pill.textContent = "服务运行中";
         pill.classList.add("ok");
-        document.getElementById("login-state").textContent =
-          data.bilibili.logged_in ? "已登录" : "未登录";
-        document.getElementById("connection-state").textContent =
-          data.bilibili.connected ? "已连接" : "未连接";
-        document.getElementById("runtime-state").textContent =
-          data.live2d.runtime_ready ? "已就绪" : "尚未接入";
-        document.getElementById("model-state").textContent =
-          data.live2d.config_exists ? "已找到配置" : "缺少模型配置";
-        document.getElementById("status-message").textContent =
-          data.bilibili.message + " " + data.live2d.message;
+        $("login-state").textContent = data.bilibili.logged_in ? "已登录" : "未登录";
+        $("connection-state").textContent = data.bilibili.connected ? "已连接" : ({
+          connecting: "连接中", reconnecting: "等待重连"
+        }[data.bilibili.connection_state] || "未连接");
+        $("runtime-state").textContent = data.live2d.runtime_ready ? "已就绪" : "尚未接入";
+        $("model-state").textContent = data.live2d.config_exists ? "已找到配置" : "缺少模型配置";
+        $("model-name").textContent = data.live2d.name || "live_uu";
+        $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
+        $("room-id").value = data.bilibili.room_id || "";
       } catch (error) {
         pill.textContent = "服务不可用";
         pill.classList.remove("ok");
-        document.getElementById("status-message").textContent = error.message;
+        $("status-message").textContent = error.message;
       }
     }
+
+    async function startQr() {
+      try {
+        $("bili-action-message").textContent = "正在申请二维码…";
+        const data = await api("/api/bilibili/qr", { method: "POST" });
+        $("qr-image").src = data.image;
+        $("qr-area").hidden = false;
+        $("qr-message").textContent = data.message;
+        $("bili-action-message").textContent = "请使用 B 站手机客户端扫码。";
+        if (qrTimer) clearInterval(qrTimer);
+        qrTimer = setInterval(pollQr, 1800);
+        pollQr();
+      } catch (error) {
+        $("bili-action-message").textContent = "二维码申请失败：" + error.message;
+      }
+    }
+
+    async function pollQr() {
+      if (qrPolling || $("qr-area").hidden) return;
+      qrPolling = true;
+      try {
+        const data = await api("/api/bilibili/qr");
+        $("qr-message").textContent = data.message;
+        if (data.state === "success") {
+          clearInterval(qrTimer);
+          qrTimer = null;
+          $("qr-title").textContent = "登录成功";
+          $("bili-action-message").textContent = data.message + " 现在可以连接直播间。";
+          $("qr-image").hidden = true;
+          refreshStatus();
+        } else if (["expired", "error"].includes(data.state)) {
+          clearInterval(qrTimer);
+          qrTimer = null;
+          $("qr-title").textContent = "二维码不可用";
+          $("bili-action-message").textContent = data.message + " 请重新获取二维码。";
+        }
+      } catch (error) {
+        $("qr-message").textContent = error.message;
+      } finally {
+        qrPolling = false;
+      }
+    }
+
+    $("save-room").addEventListener("click", async () => {
+      try {
+        const room_id = Number($("room-id").value);
+        const data = await api("/api/bilibili/room", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room_id })
+        });
+        $("bili-action-message").textContent = "房间号 " + data.room_id + " 已保存。";
+      } catch (error) {
+        $("bili-action-message").textContent = error.message;
+      }
+    });
+
+    $("qr-start").addEventListener("click", startQr);
+    $("qr-cancel").addEventListener("click", () => {
+      $("qr-area").hidden = true;
+      if (qrTimer) clearInterval(qrTimer);
+      qrTimer = null;
+    });
+
+    $("connect-live").addEventListener("click", async () => {
+      try {
+        await api("/api/bilibili/connect", { method: "POST" });
+        $("bili-action-message").textContent = "连接任务已启动，等待 B 站 WebSocket 真实认证。";
+        refreshStatus();
+      } catch (error) {
+        $("bili-action-message").textContent = error.message;
+        if (error.message.includes("登录") || error.message.includes("Cookie")) startQr();
+      }
+    });
+
+    $("disconnect-live").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/bilibili/disconnect", { method: "POST" });
+        $("bili-action-message").textContent = data.message;
+        refreshStatus();
+      } catch (error) {
+        $("bili-action-message").textContent = error.message;
+      }
+    });
+
     refreshStatus();
     setInterval(refreshStatus, 3000);
   </script>
