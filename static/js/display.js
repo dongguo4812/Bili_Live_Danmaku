@@ -15,7 +15,7 @@
 
   const ids = [
     "scale", "x", "y", "bubble-x", "bubble-bottom", "bubble-width",
-    "bubble-height", "bubble-items", "bubble-duration"
+    "bubble-height", "bubble-items", "bubble-duration", "bubble-font"
   ];
   const controls = Object.fromEntries(ids.map(key => [key, document.getElementById(key + "-slider")]));
   const outputs = Object.fromEntries(ids.map(key => [key, document.getElementById(key + "-value")]));
@@ -132,7 +132,8 @@
       bubble_width: Number(controls["bubble-width"].value),
       bubble_max_height: Number(controls["bubble-height"].value),
       bubble_max_items: Number(controls["bubble-items"].value),
-      bubble_duration: Number(controls["bubble-duration"].value)
+      bubble_duration: Number(controls["bubble-duration"].value),
+      bubble_font_size: Number(controls["bubble-font"].value)
     };
   }
 
@@ -146,6 +147,7 @@
     outputs["bubble-height"].textContent = controls["bubble-height"].value + "px";
     outputs["bubble-items"].textContent = controls["bubble-items"].value + " 条";
     outputs["bubble-duration"].textContent = controls["bubble-duration"].value + " 秒";
+    outputs["bubble-font"].textContent = controls["bubble-font"].value + "px";
   }
 
   function applyBubblePreferences() {
@@ -161,6 +163,8 @@
       target.style.bottom = p.bubble_bottom + "%";
       target.style.width = width + "px";
       target.style.maxHeight = p.bubble_max_height + "px";
+      target.style.fontSize = p.bubble_font_size + "px";
+      target.style.lineHeight = Math.round(p.bubble_font_size * 1.1) + "px";
       target.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
     }
     while (bubble.children.length > p.bubble_max_items) {
@@ -264,6 +268,7 @@
     controls["bubble-height"].value = String(p.bubble_max_height ?? 320);
     controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
     controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
+    controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
     updateSliderLabels();
     applyBubblePreferences();
     return currentModel;
@@ -416,6 +421,7 @@
       controls["bubble-height"].value = String(p.bubble_max_height ?? 320);
       controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
+    controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
       markUnsaved();
     } catch (error) {
       setSaveStatus(error.message, true);
