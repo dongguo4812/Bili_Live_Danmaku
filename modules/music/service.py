@@ -529,7 +529,8 @@ def match_candidates(
 def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], str]:
     """按 QQ→酷狗→网易云→酷我顺序收集每个平台的首个有效匹配，供播放失败时回退。"""
     keyword = f"{title} {artist}".strip()
-    matches: list[dict[str, Any]] = []
+    exact_matches: list[dict[str, Any]] = []
+    contains_matches: list[dict[str, Any]] = []
     errors: list[str] = []
     total_candidates = 0
     for provider_name, source, search_func in PROVIDERS:
@@ -539,11 +540,11 @@ def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], 
             stage_one, stage_two = match_candidates(candidates, title, artist)
             if stage_one:
                 selected = dict(stage_one[0])
-                matches.append(selected)
+                exact_matches.append(selected)
                 log.info("音乐匹配候选：平台=%s（%s），级别=完全匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
             elif stage_two:
                 selected = dict(stage_two[0])
-                matches.append(selected)
+                contains_matches.append(selected)
                 log.info("音乐匹配候选：平台=%s（%s），级别=歌手包含匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
             else:
                 log.info("音乐平台无符合条件结果：%s（%s），有效候选=%s", provider_name, source, len(candidates))
@@ -552,6 +553,8 @@ def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], 
             log.exception("音乐平台搜索失败：%s（%s）", provider_name, source)
             continue
 
+    # 全平台先使用精确歌手结果；只有不存在任何精确结果时才使用包含匹配。
+    matches = exact_matches + contains_matches
     if matches:
         return matches, f"已取得 {len(matches)} 个音源候选"
     if errors and total_candidates == 0:
