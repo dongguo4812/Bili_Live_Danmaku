@@ -1734,12 +1734,13 @@ def migrate_legacy_credentials():
             obs = {}
         password = str(obs.get("password", "") or "")
         old_file = str(obs.get("password_file", "") or "").strip()
-        if not password and old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
+        if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
             candidate = (BASE_DIR / old_file).resolve()
             candidate.relative_to(BASE_DIR.resolve())
             if candidate.is_file():
                 password_file_path = candidate
-                password = candidate.read_text(encoding="utf-8-sig").strip()
+                if not password:
+                    password = candidate.read_text(encoding="utf-8-sig").strip()
         if not password:
             return jsonify({"ok": False, "error": "未发现可自动迁移的旧 OBS 明文密码。"}), 404
 
