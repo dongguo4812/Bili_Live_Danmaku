@@ -978,7 +978,7 @@ class MusicModule:
         with self._display_lock:
             events = [
                 dict(item) for item in self.display_events
-                if now - float(item.get("timestamp", 0)) < 5.0
+                if now - float(item.get("timestamp", 0)) < 10.0
             ]
         return {
             "ok": True,
