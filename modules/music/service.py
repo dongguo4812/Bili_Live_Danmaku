@@ -20,9 +20,10 @@ from typing import Any, Optional
 import requests
 
 from core.config_manager import ConfigManager
+from core.paths import get_base_dir
 
 log = logging.getLogger("bili_live_danmaku.music")
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = get_base_dir()
 CONFIG_MANAGER = ConfigManager()
 _MUSIC_CONFIG = CONFIG_MANAGER.load("music", {})
 LX_API = str(_MUSIC_CONFIG.get("lx_music", {}).get("base_url", "http://127.0.0.1:23330")).rstrip("/")
