@@ -42,7 +42,7 @@ ADMIN_UIDS: set[int] = set()
 REQUIRE_FANS_MEDAL = str(_MUSIC_CONFIG.get("requests", {}).get("require_fans_medal", 0))
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
 QUEUE_LIMIT = max(1, int(_MUSIC_CONFIG.get("requests", {}).get("queue_limit", 100)))
-SEARCH_LIMIT = max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20)))
+SEARCH_LIMIT = min(20, max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20))))
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
 
@@ -305,7 +305,7 @@ BAD_VERSION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-SEARCH_LIMIT = 20
+SEARCH_LIMIT = min(20, max(1, SEARCH_LIMIT))
 
 
 def compact_music_name(value: str) -> str:
