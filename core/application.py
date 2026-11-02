@@ -62,7 +62,7 @@ class ApplicationRuntime:
             raise ValueError(f"不支持的模块操作：{action}")
         return self.async_runtime.submit(actions[action](name))
 
-    def shutdown(self, timeout: float = 15.0) -> None:
+    def shutdown(self, timeout: float = 45.0) -> None:
         if not self._started:
             return
         try:
