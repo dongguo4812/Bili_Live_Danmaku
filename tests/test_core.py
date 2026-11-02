@@ -37,6 +37,8 @@ class ConfigManagerTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 manager.save("music", {"apiKey": "must-not-be-saved"})
             with self.assertRaises(ConfigError):
+                manager.save("music", {"APIKey": "must-not-be-saved"})
+            with self.assertRaises(ConfigError):
                 manager.save("music", {"accessToken": "must-not-be-saved"})
 
     def test_round_trip_plain_settings(self):
