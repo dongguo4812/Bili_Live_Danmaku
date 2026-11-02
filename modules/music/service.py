@@ -94,6 +94,12 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     MEDAL_CACHE.clear()
 
 
+def update_music_room_id(room_id: int) -> None:
+    global ROOM_ID
+    ROOM_ID = max(0, int(room_id or 0))
+    MEDAL_CACHE.clear()
+
+
 def _lx_control(action: str) -> tuple[bool, str]:
     endpoint = {"pause": "/pause", "resume": "/resume", "stop": "/stop"}.get(action)
     if not endpoint:
@@ -1213,8 +1219,11 @@ class MusicModuleFacade:
         await self.bot.resume()
 
     async def close(self):
+        # 保留事件订阅，模块重新启动后可继续接收新弹幕。
         await self.bot.close()
-        self.event_bus.unsubscribe("danmaku", self.bot.on_danmu)
+
+    def update_room_id(self, room_id: int) -> None:
+        update_music_room_id(room_id)
 
     def queue_snapshot(self) -> dict[str, Any]:
         return self.bot.queue_snapshot()
