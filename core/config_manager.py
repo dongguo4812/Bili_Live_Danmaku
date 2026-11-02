@@ -140,8 +140,8 @@ class ConfigManager:
                 "connect_on_start": False,
             },
             "live2d": dict(live2d),
-            # 新版界面从 voice.tts 读取播报偏好；旧版 config.json 的 tts 整体放入此节点。
-            "voice": {"tts": dict(old_voice)} if old_voice else {},
+            # 保留旧版 config.json 中的语音默认值；用户最后保存的播报偏好仍从 user_settings.json 迁移。
+            "voice": dict(old_voice),
             "obs": {
                 "host": str(obs.get("host", "127.0.0.1")),
                 "port": int(obs.get("port", 4455) or 4455),
