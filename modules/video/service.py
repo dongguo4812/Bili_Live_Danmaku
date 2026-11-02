@@ -552,6 +552,12 @@ driver = None
 
 
 @selenium_locked
+def _quit_browser_sync(browser):
+    if browser is not None:
+        browser.quit()
+
+
+@selenium_locked
 def create_browser():
     """创建 Chrome 浏览器实例。"""
 
@@ -1528,12 +1534,15 @@ class VideoModuleFacade:
                 pass
             except Exception:
                 logger.debug("关闭视频监控任务时发生异常。", exc_info=True)
-        try:
-            if driver is not None:
+        if driver is not None:
+            try:
                 await asyncio.to_thread(stop_current_page_sync)
+            except Exception as exc:
+                logger.warning("暂停当前视频失败：%s", type(exc).__name__)
+        try:
             await set_obs_visibility_async(False)
         except Exception as exc:
-            logger.warning("关闭视频播放状态时发生异常：%s", type(exc).__name__)
+            logger.warning("隐藏 OBS 视频来源失败：%s", type(exc).__name__)
         video_queue.clear()
         is_playing = False
         current_bv = None
@@ -1541,7 +1550,7 @@ class VideoModuleFacade:
             old_driver = driver
             driver = None
             try:
-                await asyncio.to_thread(old_driver.quit)
+                await asyncio.to_thread(_quit_browser_sync, old_driver)
             except Exception as exc:
                 logger.warning("关闭 Chrome 会话失败：%s", type(exc).__name__)
         logger.info("视频模块已关闭，Chrome 会话已释放，待播队列已清空。")
