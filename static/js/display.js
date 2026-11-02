@@ -11,6 +11,20 @@
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
   const bubblePreview = document.getElementById("danmaku-preview");
+  const ttsDanmakuEnabled = document.getElementById("tts-danmaku-enabled");
+  const ttsGiftEnabled = document.getElementById("tts-gift-enabled");
+  const ttsScEnabled = document.getElementById("tts-sc-enabled");
+  const ttsVoice = document.getElementById("tts-voice");
+  const ttsRate = document.getElementById("tts-rate-slider");
+  const ttsVolume = document.getElementById("tts-volume-slider");
+  const ttsQueueLimit = document.getElementById("tts-queue-slider");
+  const ttsGiftMin = document.getElementById("tts-gift-min");
+  const ttsRateValue = document.getElementById("tts-rate-value");
+  const ttsVolumeValue = document.getElementById("tts-volume-value");
+  const ttsQueueValue = document.getElementById("tts-queue-value");
+  const ttsTestButton = document.getElementById("tts-test-button");
+  const ttsSaveButton = document.getElementById("tts-save-button");
+  const ttsStatus = document.getElementById("tts-status");
   if (!canvas) return;
 
   const ids = [
@@ -31,6 +45,305 @@
   let lastDanmakuId = 0;
   let pollTimer = null;
   const activeItems = new Map();
+  let ttsSettings = null;
+  let speechQueue = [];
+  let speechSequence = 0;
+  let speaking = false;
+  let audioUnlocked = false;
+  let audioContext = null;
+  let currentAudio = null;
+  let currentAudioSource = null;
+  let currentAnalyser = null;
+  let mouthAnimationFrame = 0;
+
+
+  function setTtsStatus(message, isError = false) {
+    if (!ttsStatus) return;
+    ttsStatus.textContent = message;
+    ttsStatus.classList.toggle("error", isError);
+  }
+
+  function updateTtsLabels() {
+    if (ttsRateValue) ttsRateValue.textContent = Number(ttsRate.value) + "%";
+    if (ttsVolumeValue) ttsVolumeValue.textContent = Number(ttsVolume.value) + "%";
+    if (ttsQueueValue) ttsQueueValue.textContent = Number(ttsQueueLimit.value) + " 条";
+  }
+
+  async function loadTtsSettings() {
+    const response = await fetch("/api/tts/settings", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "无法读取语音设置。");
+    const p = data.preferences || {};
+    ttsSettings = p;
+    if (ttsVoice) {
+      ttsVoice.replaceChildren();
+      for (const voice of data.voices || []) {
+        const option = document.createElement("option");
+        option.value = voice;
+        option.textContent = voice.replace(/^zh-CN-/, "").replace(/Neural$/, "");
+        ttsVoice.appendChild(option);
+      }
+      ttsVoice.value = p.voice || "zh-CN-XiaoxiaoNeural";
+    }
+    if (ttsDanmakuEnabled) ttsDanmakuEnabled.checked = p.danmaku_enabled !== false;
+    if (ttsGiftEnabled) ttsGiftEnabled.checked = p.gift_enabled !== false;
+    if (ttsScEnabled) ttsScEnabled.checked = p.super_chat_enabled !== false;
+    if (ttsRate) ttsRate.value = String(p.rate ?? 0);
+    if (ttsVolume) ttsVolume.value = String(p.volume ?? 0);
+    if (ttsQueueLimit) ttsQueueLimit.value = String(p.max_queue_length ?? 30);
+    if (ttsGiftMin) ttsGiftMin.value = String(p.gift_min_amount ?? 0);
+    updateTtsLabels();
+  }
+
+  function currentTtsPreferences() {
+    return {
+      danmaku_enabled: Boolean(ttsDanmakuEnabled && ttsDanmakuEnabled.checked),
+      gift_enabled: Boolean(ttsGiftEnabled && ttsGiftEnabled.checked),
+      super_chat_enabled: Boolean(ttsScEnabled && ttsScEnabled.checked),
+      voice: ttsVoice ? ttsVoice.value : "zh-CN-XiaoxiaoNeural",
+      rate: Number(ttsRate ? ttsRate.value : 0),
+      volume: Number(ttsVolume ? ttsVolume.value : 0),
+      max_queue_length: Number(ttsQueueLimit ? ttsQueueLimit.value : 30),
+      gift_min_amount: Math.max(0, Number(ttsGiftMin ? ttsGiftMin.value : 0) || 0)
+    };
+  }
+
+  async function saveTtsSettings() {
+    if (ttsSaveButton) ttsSaveButton.disabled = true;
+    setTtsStatus("正在保存语音设置…");
+    try {
+      const response = await fetch("/api/tts/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(currentTtsPreferences())
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "保存失败。");
+      ttsSettings = data.preferences;
+      setTtsStatus("语音设置已保存。");
+    } catch (error) {
+      setTtsStatus("保存失败：" + error.message, true);
+    } finally {
+      if (ttsSaveButton) ttsSaveButton.disabled = false;
+    }
+  }
+
+  function numberToChinese(value) {
+    const digits = "零一二三四五六七八九";
+    const units = ["", "十", "百", "千"];
+    const n = Math.max(0, Math.floor(Number(value) || 0));
+    if (n < 10) return digits[n];
+    if (n < 100) {
+      const tens = Math.floor(n / 10), ones = n % 10;
+      return (tens === 1 ? "" : digits[tens]) + "十" + (ones ? digits[ones] : "");
+    }
+    if (n < 10000) {
+      let out = "", rest = n, zero = false;
+      for (let i = 3; i >= 0; i--) {
+        const base = Math.pow(10, i), digit = Math.floor(rest / base);
+        rest %= base;
+        if (digit) {
+          if (zero && out) out += "零";
+          out += digits[digit] + units[i];
+          zero = false;
+        } else if (out && rest > 0) zero = true;
+      }
+      return out;
+    }
+    return String(n);
+  }
+
+  function speechTextFor(item) {
+    const nickname = item.nickname || "观众";
+    if (item.type === "danmaku") return nickname + "说：" + item.text;
+    if (item.type === "gift") {
+      const count = Math.max(1, Number(item.gift_num) || 1);
+      const countText = count === 1 ? "一个" : numberToChinese(count) + "个";
+      return nickname + "送出了" + countText + (item.gift_name || "礼物") + "。";
+    }
+    if (item.type === "super_chat") {
+      const amount = Math.max(0, Number(item.amount_yuan) || 0);
+      if (amount > 0) {
+        const amountText = Number.isInteger(amount) ? numberToChinese(amount) : String(amount).replace(".", "点");
+        return nickname + "发来价值" + amountText + "元的醒目留言：" + item.text;
+      }
+      return "醒目留言，" + nickname + "说：" + item.text;
+    }
+    return "";
+  }
+
+  function speechPriority(type) {
+    return type === "danmaku" ? 1 : 0;
+  }
+
+  function enqueueSpeech(item) {
+    if (!ttsSettings || !item || !item.text) return;
+    if (item.type === "danmaku" && !ttsSettings.danmaku_enabled) return;
+    if (item.type === "gift") {
+      if (!ttsSettings.gift_enabled) return;
+      if ((Number(item.gift_value_yuan) || 0) < Number(ttsSettings.gift_min_amount || 0)) return;
+    }
+    if (item.type === "super_chat" && !ttsSettings.super_chat_enabled) return;
+    if (!["danmaku", "gift", "super_chat"].includes(item.type)) return;
+
+    const text = speechTextFor(item);
+    if (!text) return;
+    const limit = Math.max(1, Number(ttsSettings.max_queue_length) || 30);
+    if (speechQueue.length >= limit) {
+      const oldestOrdinary = speechQueue.findIndex(entry => entry.priority === 1);
+      if (oldestOrdinary >= 0) {
+        speechQueue.splice(oldestOrdinary, 1);
+      } else {
+        return;
+      }
+    }
+    speechQueue.push({
+      text,
+      priority: speechPriority(item.type),
+      sequence: ++speechSequence,
+      type: item.type
+    });
+    speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    processSpeechQueue();
+  }
+
+  function setLive2DMouth(value) {
+    try {
+      const manager = window.__live2dManager;
+      const model = manager && manager.getModel(0);
+      if (!model || !model.initialized || typeof model.getLive2DModel !== "function") return;
+      const liveModel = model.getLive2DModel();
+      if (!liveModel || typeof liveModel.getParamIndex !== "function") return;
+      if (liveModel.getParamIndex("PARAM_MOUTH_OPEN_Y") < 0) return;
+      model.lipSync = null;
+      model.lipSyncValue = Math.max(0, Math.min(1, value));
+    } catch (error) {
+      console.debug("Live2D mouth sync unavailable:", error);
+    }
+  }
+
+  function stopMouthSync() {
+    if (mouthAnimationFrame) cancelAnimationFrame(mouthAnimationFrame);
+    mouthAnimationFrame = 0;
+    setLive2DMouth(0);
+  }
+
+  function startMouthSync(analyser) {
+    const samples = new Uint8Array(analyser.fftSize);
+    const tick = () => {
+      if (!currentAudio || currentAudio.paused || currentAudio.ended) {
+        setLive2DMouth(0);
+        mouthAnimationFrame = 0;
+        return;
+      }
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const normalized = (samples[i] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      const rms = Math.sqrt(sum / samples.length);
+      const level = Math.max(0, Math.min(1, (rms - 0.012) * 7.5));
+      setLive2DMouth(level);
+      mouthAnimationFrame = requestAnimationFrame(tick);
+    };
+    if (mouthAnimationFrame) cancelAnimationFrame(mouthAnimationFrame);
+    tick();
+  }
+
+  async function unlockSpeechAudio() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error("当前浏览器不支持 Web Audio，无法进行嘴型同步。");
+    if (!audioContext) audioContext = new AudioContextClass();
+    if (audioContext.state !== "running") await audioContext.resume();
+    audioUnlocked = audioContext.state === "running";
+    if (!audioUnlocked) throw new Error("浏览器未允许播放语音，请再次点击测试语音。");
+  }
+
+  async function playSpeechText(text) {
+    await unlockSpeechAudio();
+    const response = await fetch("/api/tts/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "语音生成失败。");
+
+    const audio = new Audio(data.url);
+    audio.preload = "auto";
+    const source = audioContext.createMediaElementSource(audio);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    analyser.connect(audioContext.destination);
+    currentAudio = audio;
+    currentAudioSource = source;
+    currentAnalyser = analyser;
+
+    await new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = error => {
+        if (finished) return;
+        finished = true;
+        stopMouthSync();
+        currentAudio = null;
+        currentAudioSource = null;
+        currentAnalyser = null;
+        try { source.disconnect(); } catch (_) {}
+        try { analyser.disconnect(); } catch (_) {}
+        audio.src = "";
+        if (error) reject(error);
+        else resolve();
+      };
+      audio.addEventListener("ended", () => finish(), { once: true });
+      audio.addEventListener("error", () => finish(new Error("音频播放失败。")), { once: true });
+      audio.play().then(() => startMouthSync(analyser)).catch(finish);
+    });
+  }
+
+  async function processSpeechQueue() {
+    if (speaking || !speechQueue.length) return;
+    if (!audioUnlocked) return;
+    speaking = true;
+    while (speechQueue.length) {
+      const next = speechQueue.shift();
+      try {
+        await playSpeechText(next.text);
+      } catch (error) {
+        setTtsStatus("语音播放失败：" + error.message, true);
+        console.warn("TTS playback failed:", error);
+        if (/允许播放|支持 Web Audio/.test(error.message)) {
+          speechQueue.unshift(next);
+          break;
+        }
+      }
+    }
+    speaking = false;
+  }
+
+  async function testSpeech() {
+    try {
+      await unlockSpeechAudio();
+      setTtsStatus("正在生成测试语音…");
+      enqueueTestSpeech();
+      setTtsStatus("测试语音已加入播报队列。");
+    } catch (error) {
+      setTtsStatus("无法启动语音：" + error.message, true);
+    }
+  }
+
+  function enqueueTestSpeech() {
+    const entry = {
+      text: "这是一条 Edge TTS 语音测试。嘴型会根据实际语音音量同步变化。",
+      priority: 0,
+      sequence: ++speechSequence,
+      type: "test"
+    };
+    speechQueue.push(entry);
+    speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    processSpeechQueue();
+  }
 
   function showMessage(message) {
     if (placeholder) placeholder.textContent = message;
@@ -330,6 +643,7 @@
       for (const item of data.items || []) {
         lastDanmakuId = Math.max(lastDanmakuId, Number(item.id) || 0);
         addDanmaku(item);
+        enqueueSpeech(item);
       }
     } catch (error) {
       console.debug("Danmaku polling temporarily unavailable:", error);
@@ -377,6 +691,12 @@
     try {
       showMessage("正在读取展示设置…");
       const modelId = await loadDisplaySettings();
+      try {
+        await loadTtsSettings();
+      } catch (ttsError) {
+        console.warn("Unable to load TTS settings:", ttsError);
+        setTtsStatus("读取语音设置失败：" + ttsError.message, true);
+      }
       const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
       showMessage("正在检查 " + modelId + " 模型资源…");
       await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
@@ -413,6 +733,12 @@
       setSaveStatus(error.message, true);
     }
   }
+
+  if (ttsRate) ttsRate.addEventListener("input", updateTtsLabels);
+  if (ttsVolume) ttsVolume.addEventListener("input", updateTtsLabels);
+  if (ttsQueueLimit) ttsQueueLimit.addEventListener("input", updateTtsLabels);
+  if (ttsSaveButton) ttsSaveButton.addEventListener("click", saveTtsSettings);
+  if (ttsTestButton) ttsTestButton.addEventListener("click", testSpeech);
 
   if (toggle) toggle.addEventListener("click", () => setPanelOpen(panel.hidden));
   if (closeButton) closeButton.addEventListener("click", () => setPanelOpen(false));
