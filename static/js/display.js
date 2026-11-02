@@ -324,11 +324,11 @@
   }
 
   function linesToMessages(value) {
-    return String(value || "").split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+    return String(value || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   }
 
   function messagesToLines(value) {
-    return Array.isArray(value) ? value.join("\\n") : "";
+    return Array.isArray(value) ? value.join("\n") : "";
   }
 
   async function loadIdleTipSettings() {
