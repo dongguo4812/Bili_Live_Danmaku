@@ -30,6 +30,8 @@ from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from modules.music.service import MusicModuleFacade
 from modules.video.service import VideoModuleFacade
+from modules.live2d.service import Live2DModule
+from modules.voice.service import VoiceModule
 
 BASE_DIR = Path(__file__).resolve().parent
 LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
@@ -992,6 +994,12 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
 def _music_cookie_provider() -> dict[str, str]:
     valid, _, cookies = _login_status()
     return cookies if valid and isinstance(cookies, dict) else {}
+
+
+LIVE2D_MODULE = Live2DModule()
+VOICE_MODULE = VoiceModule()
+APPLICATION_RUNTIME.register_module("live2d", LIVE2D_MODULE, initial_state="running")
+APPLICATION_RUNTIME.register_module("voice", VOICE_MODULE, initial_state="running")
 
 
 MUSIC_MODULE = MusicModuleFacade(
