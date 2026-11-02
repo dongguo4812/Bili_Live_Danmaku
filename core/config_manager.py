@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""普通配置管理：只读写 config/，拒绝保存敏感凭据字段。"""
+"""普通配置管理：只读写 config/，拒绝保存敏感凭据。"""
 from __future__ import annotations
 
 import json
@@ -18,6 +18,29 @@ _SECRET_KEY = re.compile(
     r"(?:^|_)(?:cookie|sessdata|bili_jct|password|passwd|secret|token|api_key|access_key|private_key|authorization)(?:$|_)",
     re.IGNORECASE,
 )
+
+# 必须与仓库随附的 config/*.json 初始模板保持一致。
+# 只有当前值仍等于这些默认值时，旧配置才可以覆盖它；用户已修改的值优先保留。
+SHIPPED_DEFAULTS: dict[str, dict[str, Any]] = {
+    "app": {"host": "127.0.0.1", "port": 8768, "debug": False},
+    "live": {
+        "room_id": 0, "reconnect": True,
+        "reconnect_interval_seconds": 5, "connect_on_start": False,
+    },
+    "live2d": {
+        "format": "MOC2", "default_model": "live_uu",
+        "model_dir": "models/live_uu", "model_config": "models/live_uu/model.json",
+        "canvas_width": 1920, "canvas_height": 1080, "max_device_pixel_ratio": 2,
+    },
+    "voice": {
+        "enabled": True, "voice": "zh-CN-XiaoxiaoNeural",
+        "rate": "+0%", "volume": "+0%",
+    },
+    "obs": {
+        "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
+        "password_file": "credentials/obs.json", "source_name": "b站视频播放器",
+    },
+}
 
 
 class ConfigError(ValueError):
@@ -41,6 +64,20 @@ def _assert_no_secrets(value: Any, path: str = "$") -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             _assert_no_secrets(child, f"{path}[{index}]")
+
+
+def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        temporary.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink(missing_ok=True)
 
 
 class ConfigManager:
@@ -77,105 +114,177 @@ class ConfigManager:
             raise ConfigError("配置内容必须是 JSON 对象。")
         _assert_no_secrets(data)
         path = self._path(name)
-        temporary = path.with_suffix(".json.tmp")
-        encoded = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
         with _LOCK:
-            try:
-                temporary.write_text(encoded, encoding="utf-8")
-                os.replace(temporary, path)
-            finally:
-                if temporary.exists():
-                    temporary.unlink(missing_ok=True)
+            _write_json_atomic(path, data)
         return path
 
     def migrate_legacy_config(self, legacy_path: Path | None = None) -> dict[str, str]:
-        """一次性迁移旧 config.json；旧配置仅作为初次导入来源，之后新配置优先。"""
+        """安全迁移旧 config.json；保留用户新配置，并支持中断后续跑。"""
         source = (legacy_path or (BASE_DIR / "config.json")).resolve()
         if not source.is_file():
             return {}
 
-        # 标记放在 config/，清理 data/ 运行数据时也不会意外重复导入旧配置。
         marker = self.directory / ".legacy_config_migrated_v1.json"
-        if marker.is_file():
-            return {}
+        journal = self.directory / ".legacy_config_migration_v1.json"
+        with _LOCK:
+            if marker.is_file():
+                return {}
 
-        try:
-            legacy = json.loads(source.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ConfigError(f"旧 config.json 读取失败：{exc}") from exc
-        if not isinstance(legacy, dict):
-            raise ConfigError("旧 config.json 顶层必须是 JSON 对象。")
+            if journal.is_file():
+                try:
+                    plan = json.loads(journal.read_text(encoding="utf-8-sig"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ConfigError(f"旧配置迁移记录读取失败：{exc}") from exc
+                if not isinstance(plan, dict) or plan.get("source") != str(source) or not isinstance(plan.get("entries"), list):
+                    raise ConfigError("旧配置迁移记录无效；为避免覆盖配置，已停止迁移。")
+            else:
+                try:
+                    legacy = json.loads(source.read_text(encoding="utf-8-sig"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ConfigError(f"旧 config.json 读取失败：{exc}") from exc
+                if not isinstance(legacy, dict):
+                    raise ConfigError("旧 config.json 顶层必须是 JSON 对象。")
 
-        app = legacy.get("app") if isinstance(legacy.get("app"), dict) else {}
-        bili = legacy.get("bilibili") if isinstance(legacy.get("bilibili"), dict) else {}
-        live2d = legacy.get("live2d") if isinstance(legacy.get("live2d"), dict) else {}
-        old_voice = legacy.get("tts") if isinstance(legacy.get("tts"), dict) else {}
-        obs = legacy.get("obs_websocket") if isinstance(legacy.get("obs_websocket"), dict) else {}
+                app = legacy.get("app") if isinstance(legacy.get("app"), dict) else {}
+                bili = legacy.get("bilibili") if isinstance(legacy.get("bilibili"), dict) else {}
+                live2d = legacy.get("live2d") if isinstance(legacy.get("live2d"), dict) else {}
+                old_voice = legacy.get("tts") if isinstance(legacy.get("tts"), dict) else {}
+                obs = legacy.get("obs_websocket") if isinstance(legacy.get("obs_websocket"), dict) else {}
 
-        # 旧 user_settings.json 保存的是用户最后确认的房间号，优先级高于旧 config.json。
-        old_user_settings = source.parent / "user_settings.json"
-        try:
-            old_settings_data = (
-                json.loads(old_user_settings.read_text(encoding="utf-8-sig"))
-                if old_user_settings.is_file() else {}
-            )
-            old_bilibili = old_settings_data.get("bilibili", {}) if isinstance(old_settings_data, dict) else {}
-            has_old_user_room = isinstance(old_bilibili, dict) and int(old_bilibili.get("room_id", 0) or 0) > 0
-        except (OSError, ValueError, TypeError):
-            has_old_user_room = False
+                old_user_settings = source.parent / "user_settings.json"
+                try:
+                    old_settings_data = (
+                        json.loads(old_user_settings.read_text(encoding="utf-8-sig"))
+                        if old_user_settings.is_file() else {}
+                    )
+                    old_bilibili = old_settings_data.get("bilibili", {}) if isinstance(old_settings_data, dict) else {}
+                    has_old_user_room = (
+                        isinstance(old_bilibili, dict)
+                        and int(old_bilibili.get("room_id", 0) or 0) > 0
+                    )
+                except (OSError, ValueError, TypeError):
+                    has_old_user_room = False
 
-        try:
-            legacy_room_id = max(0, int(bili.get("room_id", 0) or 0))
-        except (TypeError, ValueError):
-            legacy_room_id = 0
+                try:
+                    legacy_room_id = max(0, int(bili.get("room_id", 0) or 0))
+                except (TypeError, ValueError):
+                    legacy_room_id = 0
 
-        mapping = {
-            "app": dict(app),
-            "live": {
-                "room_id": 0 if has_old_user_room else legacy_room_id,
-                "reconnect": bool(bili.get("reconnect", True)),
-                "reconnect_interval_seconds": max(
-                    2, int(bili.get("reconnect_interval_seconds", 5) or 5)
-                ),
-                "connect_on_start": False,
-            },
-            "live2d": dict(live2d),
-            # 保留旧版 config.json 中的语音默认值；用户最后保存的播报偏好仍从 user_settings.json 迁移。
-            "voice": dict(old_voice),
-            "obs": {
-                "host": str(obs.get("host", "127.0.0.1")),
-                "port": int(obs.get("port", 4455) or 4455),
-                "timeout": float(obs.get("timeout", 2.5) or 2.5),
-                # 不迁移旧明文密码或旧密码文件路径，统一要求写入 DPAPI 凭据库。
-                "password_file": "credentials/obs.json",
-            },
-        }
+                mapping = {
+                    "app": dict(app),
+                    "live": {
+                        "room_id": 0 if has_old_user_room else legacy_room_id,
+                        "reconnect": bool(bili.get("reconnect", True)),
+                        "reconnect_interval_seconds": max(
+                            2, int(bili.get("reconnect_interval_seconds", 5) or 5)
+                        ),
+                        "connect_on_start": False,
+                    },
+                    "live2d": dict(live2d),
+                    "voice": dict(old_voice),
+                    "obs": {
+                        "host": str(obs.get("host", "127.0.0.1")),
+                        "port": int(obs.get("port", 4455) or 4455),
+                        "timeout": float(obs.get("timeout", 2.5) or 2.5),
+                        # 旧明文密码及旧密码文件路径不进入普通配置。
+                        "password_file": "credentials/obs.json",
+                    },
+                }
 
-        migrated: dict[str, str] = {}
-        for name, legacy_data in mapping.items():
-            if not legacy_data:
-                continue
-            current = self.load(name, {})
-            merged = self._merge_legacy_values(current, legacy_data)
-            if merged != current:
-                self.save(name, merged)
-                migrated[name] = str(self._path(name).relative_to(source.parent))
+                entries = []
+                for name, legacy_data in mapping.items():
+                    if not legacy_data:
+                        continue
+                    current = self.load(name, {})
+                    merged = self._merge_legacy_values(
+                        current, legacy_data, SHIPPED_DEFAULTS.get(name, {})
+                    )
+                    _assert_no_secrets(merged)
+                    if merged != current:
+                        entries.append({"name": name, "before": current, "after": merged})
+                plan = {"source": str(source), "entries": entries}
+                _write_json_atomic(journal, plan)
 
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(
-            json.dumps({"source": source.name, "migrated": sorted(migrated)}, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return migrated
+            migrated: dict[str, str] = {}
+            for entry in plan["entries"]:
+                if not isinstance(entry, dict):
+                    raise ConfigError("旧配置迁移记录条目无效。")
+                name = entry.get("name")
+                before = entry.get("before")
+                after = entry.get("after")
+                if not isinstance(name, str) or not isinstance(before, dict) or not isinstance(after, dict):
+                    raise ConfigError("旧配置迁移记录条目无效。")
+                current = self.load(name, {})
+                merged, changed = self._apply_migration_plan(current, before, after)
+                if changed:
+                    self.save(name, merged)
+                if merged != current or current == after:
+                    migrated[name] = str(self._path(name).relative_to(source.parent))
+
+            _write_json_atomic(marker, {
+                "source": source.name,
+                "migrated": sorted(migrated),
+            })
+            journal.unlink(missing_ok=True)
+            return migrated
 
     @classmethod
-    def _merge_legacy_values(cls, current: dict[str, Any], legacy: dict[str, Any]) -> dict[str, Any]:
-        """递归合并：初次升级时旧配置覆盖仓库默认值，其他新字段继续保留。"""
+    def _merge_legacy_values(
+        cls,
+        current: dict[str, Any],
+        legacy: dict[str, Any],
+        defaults: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """旧值只覆盖仍为仓库默认值的字段；已修改字段和新字段优先保留。"""
+        defaults = defaults or {}
         merged = dict(current)
         for key, value in legacy.items():
-            existing = merged.get(key)
+            if key not in merged:
+                merged[key] = value
+                continue
+            existing = merged[key]
+            default_value = defaults.get(key, object())
             if isinstance(existing, dict) and isinstance(value, dict):
-                merged[key] = cls._merge_legacy_values(existing, value)
-            else:
+                nested_defaults = default_value if isinstance(default_value, dict) else {}
+                merged[key] = cls._merge_legacy_values(existing, value, nested_defaults)
+            elif default_value is not _MISSING and existing == default_value:
                 merged[key] = value
         return merged
+
+    @classmethod
+    def _apply_migration_plan(
+        cls,
+        current: dict[str, Any],
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """恢复迁移计划：只应用仍保持迁移前值的字段，保留计划生成后的用户编辑。"""
+        result = dict(current)
+        changed = False
+        for key, target in after.items():
+            if key not in before:
+                if key not in result:
+                    result[key] = target
+                    changed = True
+                elif isinstance(result[key], dict) and isinstance(target, dict):
+                    nested, nested_changed = cls._apply_migration_plan(result[key], {}, target)
+                    if nested_changed:
+                        result[key] = nested
+                        changed = True
+                continue
+
+            original = before[key]
+            existing = result.get(key, _MISSING)
+            if isinstance(original, dict) and isinstance(target, dict) and isinstance(existing, dict):
+                nested, nested_changed = cls._apply_migration_plan(existing, original, target)
+                if nested_changed:
+                    result[key] = nested
+                    changed = True
+            elif existing is _MISSING or existing == original:
+                if existing != target:
+                    result[key] = target
+                    changed = True
+        return result, changed
+
+
+_MISSING = object()
