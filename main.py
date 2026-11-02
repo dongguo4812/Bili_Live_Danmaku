@@ -1373,6 +1373,79 @@ def api_music_action():
         return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
 
 
+
+def _default_display_layout() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "widgets": [
+            {"id": "live2d", "type": "live2d", "x": 0, "y": 0, "w": 45, "h": 100},
+            {"id": "music", "type": "music", "x": 45, "y": 0, "w": 27.5, "h": 50},
+            {"id": "video", "type": "video", "x": 72.5, "y": 0, "w": 27.5, "h": 50},
+            {"id": "voice", "type": "voice", "x": 45, "y": 50, "w": 27.5, "h": 50},
+            {"id": "danmaku", "type": "danmaku", "x": 72.5, "y": 50, "w": 27.5, "h": 50},
+        ],
+    }
+
+
+def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("widgets"), list):
+        raise ValueError("展示布局格式无效。")
+    widgets = []
+    used_types = set()
+    for item in payload["widgets"][:10]:
+        if not isinstance(item, dict):
+            continue
+        widget_type = str(item.get("type", ""))
+        if widget_type not in DISPLAY_WIDGET_TYPES or widget_type in used_types:
+            continue
+        try:
+            x, y, w, h = (float(item.get(k, d)) for k, d in (("x", 0), ("y", 0), ("w", 30), ("h", 30)))
+        except (TypeError, ValueError):
+            continue
+        if not all(math.isfinite(v) for v in (x, y, w, h)):
+            continue
+        w = max(10.0, min(100.0, w))
+        h = max(10.0, min(100.0, h))
+        x = max(0.0, min(100.0 - w, x))
+        y = max(0.0, min(100.0 - h, y))
+        widgets.append({
+            "id": widget_type, "type": widget_type,
+            "x": round(x, 2), "y": round(y, 2),
+            "w": round(w, 2), "h": round(h, 2),
+        })
+        used_types.add(widget_type)
+    return {"version": 1, "widgets": widgets}
+
+
+@app.get("/api/display/layout")
+def get_combined_display_layout():
+    try:
+        if DISPLAY_LAYOUT_PATH.is_file():
+            payload = json.loads(DISPLAY_LAYOUT_PATH.read_text(encoding="utf-8"))
+            layout = _sanitize_display_layout(payload)
+        else:
+            layout = _default_display_layout()
+        return jsonify({"ok": True, "layout": layout})
+    except Exception as exc:
+        logger.warning("读取综合展示布局失败：%s", type(exc).__name__)
+        return jsonify({"ok": True, "layout": _default_display_layout()})
+
+
+@app.post("/api/display/layout")
+def save_combined_display_layout():
+    payload = request.get_json(silent=True)
+    try:
+        layout = _sanitize_display_layout(payload)
+        DISPLAY_LAYOUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = DISPLAY_LAYOUT_PATH.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(layout, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, DISPLAY_LAYOUT_PATH)
+        return jsonify({"ok": True, "layout": layout, "message": "综合展示布局已保存。"})
+    except Exception as exc:
+        logger.warning("保存综合展示布局失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": str(exc) or "布局保存失败。"}), 400
+
+
 @app.get("/api/danmaku")
 def get_danmaku():
     with DANMAKU_LOCK:
