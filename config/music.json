@@ -18,5 +18,6 @@
     "queue_limit": 100,
     "require_fans_medal": 0
   },
-  "admins_file": "uid.txt"
+  "admins_file": "data/music/uid.txt",
+  "admin_uids": []
 }
