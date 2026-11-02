@@ -181,14 +181,14 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 
 ## 本地数据与安全
 
-以下内容属于本地运行数据，不应提交到公开仓库或分享给他人：
+项目将数据分为三类：
 
-- `credentials/bilibili.json`：B 站登录凭据。
-- `credentials/obs_websocket.key`：OBS WebSocket 密码。
-- `user_settings.json`：直播间房间号、模型及展示/TTS 用户设置。
-- `config.json`：本地服务和连接配置。
+- `config/`：普通功能配置，例如直播间号、模型设置、语音设置、歌曲/视频参数和 OBS 地址端口。
+- `credentials/`：敏感凭据，例如 B 站 Cookie、OBS 密码和第三方 API Key。Windows 下使用 DPAPI 保护。
+- `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
+- `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-在 Windows 上，B 站凭据支持使用 Windows DPAPI 保护，使凭据可由当前 Windows 用户解密。凭据文件和本地设置已加入 `.gitignore`。不要将 Cookie、密码或凭据文件上传到 GitHub，也不要把它们发送给他人。
+旧版 `user_settings.json` 中的房间号、Live2D 和语音设置会在首次运行时迁移到对应模块配置。普通配置可单独备份；不要把 `credentials/` 上传到 GitHub。
 
 ## 常见问题
 
