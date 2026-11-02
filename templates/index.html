@@ -22,7 +22,13 @@
       <div class="status-grid">
         <div><span class="muted">B站登录</span><strong id="login-state">检查中</strong></div>
         <div><span class="muted">直播连接</span><strong id="connection-state">未连接</strong></div>
-        <div><span class="muted">MOC2 运行时</span><strong id="runtime-state">尚未接入</strong></div>
+        <div class="runtime-status-cell">
+          <span class="muted">MOC2 运行时</span>
+          <div class="runtime-status-row">
+            <strong id="runtime-state">尚未接入</strong>
+            <button id="open-display" type="button" class="secondary-button">打开展示页</button>
+          </div>
+        </div>
       </div>
       <p id="status-message" class="muted">正在读取状态…</p>
     </section>
@@ -83,6 +89,10 @@
       if (!response.ok || data.ok === false) throw new Error(data.error || data.message || ("HTTP " + response.status));
       return data;
     }
+
+    $("open-display").addEventListener("click", () => {
+      window.open("http://127.0.0.1:8768/display", "_blank", "noopener,noreferrer");
+    });
 
     async function refreshStatus() {
       const pill = $("server-state");
