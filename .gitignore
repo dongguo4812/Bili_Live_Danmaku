@@ -20,3 +20,12 @@ data/cache/
 
 # Local credentials must never be committed
 credentials/
+
+# Legacy local secrets and administrator lists
+bili_cookie.txt
+obs_config.txt
+uid.txt
+*.cookie
+*.secret
+*.key
+chrome_profile/
