@@ -805,7 +805,7 @@ def try_enter_video_fullscreen(bv, timeout=10):
 
 @selenium_locked
 def open_video_page(bv, url):
-    """打开视频页面；若当前标签页刚被关闭，则恢复后重试一次，并尝试全屏。"""
+    """打开视频页面并重置进度；网页全屏由监控在确认播放进度后触发。"""
     global driver
 
     # 首先处理最常见的情况：视频标签页被手动关闭，但其他标签页仍在。
