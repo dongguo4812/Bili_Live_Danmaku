@@ -52,6 +52,8 @@ class AsyncRuntime:
             if pending:
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.run_until_complete(loop.shutdown_asyncgens())
+            # 等待 asyncio.to_thread 使用的默认线程池退出，避免关闭后残留工作线程。
+            loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
             self._loop = None
             self._stopped.set()
