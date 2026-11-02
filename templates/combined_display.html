@@ -286,8 +286,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       latestData.music=music;
       latestData.video=video;
       latestData.voice=voice;
-      const after=danmakuAfter;
-      const danmaku=await api("/api/danmaku?after="+after);
+      const danmaku=await api("/api/danmaku?after=0");
       latestData.danmaku=danmaku.items||[];
       danmakuAfter=danmaku.latest_id||danmakuAfter;
       layout.widgets.forEach(item=>{
