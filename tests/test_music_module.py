@@ -33,6 +33,38 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertEqual(fallback, [])
 
 
+class MusicFallbackSearchTests(unittest.TestCase):
+    def test_collects_ordered_source_candidates(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def provider(source):
+            def search(keyword):
+                calls.append(source)
+                return [{
+                    "title": "晴天",
+                    "artist": "周杰伦",
+                    "source": source,
+                    "songmid": source + "-id",
+                    "types": [{"type": "128k", "size": None}],
+                }]
+            return search
+
+        ordered = (
+            ("QQ音乐", "tx", provider("tx")),
+            ("酷狗音乐", "kg", provider("kg")),
+            ("网易云音乐", "wy", provider("wy")),
+            ("酷我音乐", "kw", provider("kw")),
+        )
+        with patch.object(service, "PROVIDERS", ordered):
+            matches, message = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual(calls, ["tx", "kg", "wy", "kw"])
+        self.assertEqual([item["source"] for item in matches], ["tx", "kg", "wy", "kw"])
+        self.assertEqual([item["songmid"] for item in matches], ["tx-id", "kg-id", "wy-id", "kw-id"])
+
+
 class FanMedalParsingTests(unittest.TestCase):
     def test_finds_nested_medal_list(self):
         from modules.music.service import _find_medal_list
