@@ -114,6 +114,15 @@ class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(live2d.calls, ["start"])
         self.assertEqual(music.calls, [])
 
+    async def test_manual_close_before_first_connection_suppresses_auto_start(self):
+        manager = ModuleManager()
+        live2d = FakeModule()
+        manager.register("live2d", live2d, auto_start_on_connect=True)
+        await manager.close("live2d")
+        await manager.on_connection_restored()
+        self.assertEqual(manager.list_status()["live2d"]["state"], "stopped")
+        self.assertEqual(live2d.calls, [])
+
     async def test_modules_are_independent_and_start_stopped(self):
         manager = ModuleManager()
         music = FakeModule()
