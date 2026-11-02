@@ -78,8 +78,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.driver = object()
         video_service.video_queue.append("BV1yy411c7mE")
 
-        with patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \\
-             patch.object(video_service, "_quit_browser_sync", return_value=None), \\
+        with patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \
+             patch.object(video_service, "_quit_browser_sync", return_value=None), \
              patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)):
             await self.module.close()
 
