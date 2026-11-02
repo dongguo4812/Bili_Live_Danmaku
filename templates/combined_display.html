@@ -263,7 +263,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       latestData.music=music;
       latestData.video=video;
       latestData.voice=voice;
-      if(!displayMode) return;
       const after=danmakuAfter;
       const danmaku=await api("/api/danmaku?after="+after);
       latestData.danmaku=danmaku.items||[];
