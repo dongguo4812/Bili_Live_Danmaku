@@ -1213,6 +1213,9 @@ class MusicModule:
 
         # 第二步：检查机器人自己的当前歌曲和待播列表。
         async with self.queue_lock:
+            # 搜索和读取洛雪状态期间可能发生暂停/关闭；最终入队前必须再次确认生命周期。
+            if not self.enabled or self._closing or self.paused:
+                return
 
             # 检查当前正在处理的机器人点播歌曲。
             if self.current and self.current.get("key") == key:
