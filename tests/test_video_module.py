@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import modules.video.service as video_service
+from core.config_manager import ConfigManager
 
 
 class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
@@ -251,6 +252,42 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             video_service.CHROME_PROFILE = old["profile"]
             video_service.ADMIN_UIDS = old["admin_uids"]
             video_service.OBS_CONFIG = old["obs"]
+
+    async def test_legacy_room_config_migrates_limits_once_without_changing_room(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_dir = root / "config"
+            manager = ConfigManager(config_dir)
+            manager.save("video", {
+                "requests": {
+                    "require_fans_medal": False,
+                    "cooldown_seconds": 60,
+                    "queue_limit": 30,
+                    "max_video_duration_seconds": 300,
+                }
+            })
+            (root / "room_config.txt").write_text(
+                "ROOM_ID=22851631\n"
+                "REQUIRE_FAN_MEDAL=1\n"
+                "MAX_VIDEO_DURATION_SEC=240\n"
+                "COOLDOWN_SEC=90\n"
+                "MAX_QUEUE_SIZE=20\n",
+                encoding="utf-8",
+            )
+            migrated = video_service.migrate_legacy_video_room_config(root, manager)
+            config = manager.load("video", {})
+            self.assertEqual(migrated["require_fans_medal"], True)
+            self.assertEqual(config["requests"]["require_fans_medal"], True)
+            self.assertEqual(config["requests"]["max_video_duration_seconds"], 240)
+            self.assertEqual(config["requests"]["cooldown_seconds"], 90)
+            self.assertEqual(config["requests"]["queue_limit"], 20)
+            self.assertNotIn("room_id", config)
+            (root / "room_config.txt").write_text("REQUIRE_FAN_MEDAL=0\n", encoding="utf-8")
+            self.assertEqual(video_service.migrate_legacy_video_room_config(root, manager), {})
+            self.assertTrue(manager.load("video", {})["requests"]["require_fans_medal"])
+
 
 
 
