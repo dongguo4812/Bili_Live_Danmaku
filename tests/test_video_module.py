@@ -25,6 +25,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "require_medal": video_service.REQUIRE_FAN_MEDAL,
             "cooldown": video_service.COOLDOWN_SEC,
             "max_queue": video_service.MAX_QUEUE_SIZE,
+            "session_generation": video_service.video_session_generation,
+            "request_generation": video_service.video_request_generation,
         }
         video_service.module_enabled = False
         video_service.module_paused = False
@@ -61,6 +63,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.REQUIRE_FAN_MEDAL = self.old_state["require_medal"]
         video_service.COOLDOWN_SEC = self.old_state["cooldown"]
         video_service.MAX_QUEUE_SIZE = self.old_state["max_queue"]
+        video_service.video_session_generation = self.old_state["session_generation"]
+        video_service.video_request_generation = self.old_state["request_generation"]
 
     async def test_disabled_module_ignores_danmaku(self):
         await video_service.on_dan_mu({
@@ -287,6 +291,72 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             (root / "room_config.txt").write_text("REQUIRE_FAN_MEDAL=0\n", encoding="utf-8")
             self.assertEqual(video_service.migrate_legacy_video_room_config(root, manager), {})
             self.assertTrue(manager.load("video", {})["requests"]["require_fans_medal"])
+
+    async def test_inflight_order_is_discarded_after_pause_and_resume(self):
+        import asyncio
+        video_service.module_enabled = True
+        video_service.is_playing = True
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def delayed_info(bv):
+            entered.set()
+            await release.wait()
+            return ("title", 120)
+
+        event = {
+            "type": "danmaku", "uid": 1001, "nickname": "viewer",
+            "text": "点播 BV1xx411c7mD", "timestamp": 1,
+        }
+        with patch.object(video_service, "ensure_video_info", side_effect=delayed_info), \
+             patch.object(video_service, "configure_video_module"):
+            task = asyncio.create_task(video_service.on_dan_mu(event))
+            await entered.wait()
+            await self.module.pause()
+            await self.module.resume()
+            release.set()
+            await task
+
+        self.assertEqual(video_service.video_queue, [])
+        self.assertFalse(video_service.pending_video_uids)
+        self.assertFalse(video_service.pending_video_bvs)
+
+    async def test_old_playback_task_cannot_attach_monitor_after_close_and_restart(self):
+        import asyncio
+        import threading
+        video_service.module_enabled = True
+        video_service.is_playing = False
+        video_service.video_queue.append("BV1xx411c7mD")
+        old_driver = object()
+        video_service.driver = old_driver
+        entered = threading.Event()
+        release = threading.Event()
+
+        def delayed_open(bv, url):
+            entered.set()
+            release.wait(timeout=3)
+
+        with patch.object(video_service, "open_video_page", side_effect=delayed_open), \
+             patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \
+             patch.object(video_service, "_quit_browser_sync", return_value=None), \
+             patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)), \
+             patch.object(video_service, "configure_video_module"), \
+             patch.object(video_service, "create_browser", return_value=object()):
+            play_task = asyncio.create_task(video_service.play_next())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+            await self.module.close()
+            await self.module.start()
+            new_driver = video_service.driver
+            self.assertIsNot(new_driver, old_driver)
+            release.set()
+            await play_task
+
+        self.assertIsNone(video_service.playback_monitor_task)
+        self.assertTrue(video_service.module_enabled)
+        self.assertFalse(video_service.is_playing)
+        self.assertIsNone(video_service.current_bv)
+        self.assertIs(video_service.driver, new_driver)
+
 
 
 
