@@ -25,6 +25,7 @@ from typing import Any
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
+from core.paths import get_base_dir
 from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
@@ -34,7 +35,7 @@ from modules.video.service import VideoModuleFacade
 from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = get_base_dir()
 LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
 MODEL_ROOT = BASE_DIR / "models"
 USER_SETTINGS_PATH = BASE_DIR / "user_settings.json"
