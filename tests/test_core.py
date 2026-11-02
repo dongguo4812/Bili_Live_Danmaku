@@ -43,6 +43,18 @@ class ConfigManagerTests(unittest.TestCase):
 
 
 class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_authenticated_connection_starts_only_opted_in_modules(self):
+        manager = ModuleManager()
+        live2d = FakeModule()
+        music = FakeModule()
+        manager.register("live2d", live2d, auto_start_on_connect=True)
+        manager.register("music", music)
+        await manager.on_connection_restored()
+        self.assertEqual(manager.list_status()["live2d"]["state"], "running")
+        self.assertEqual(manager.list_status()["music"]["state"], "stopped")
+        self.assertEqual(live2d.calls, ["start"])
+        self.assertEqual(music.calls, [])
+
     async def test_modules_are_independent_and_start_stopped(self):
         manager = ModuleManager()
         music = FakeModule()
