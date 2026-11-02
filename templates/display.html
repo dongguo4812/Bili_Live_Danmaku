@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Live2D OBS Display</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261102-font-size">
 </head>
 <body class="display-page">
   <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
@@ -60,6 +60,11 @@
     </label>
 
     <label class="setting-field">
+      <span>弹幕字体大小 <output id="bubble-font-value">20px</output></span>
+      <input id="bubble-font-slider" type="range" min="12" max="40" step="1" value="20">
+    </label>
+
+    <label class="setting-field">
       <span>对话框最大高度 <output id="bubble-height-value">320px</output></span>
       <input id="bubble-height-slider" type="range" min="100" max="700" step="10" value="320">
     </label>
@@ -84,6 +89,6 @@
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
   <script src="/static/js/live2d.min.js"></script>
-  <script src="/static/js/display.js"></script>
+  <script src="/static/js/display.js?v=20261102-font-size"></script>
 </body>
 </html>
