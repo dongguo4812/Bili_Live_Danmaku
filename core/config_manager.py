@@ -94,8 +94,8 @@ class ConfigManager:
         if not source.is_file():
             return {}
 
-        # 标记放在 data/，不进入普通配置，也不会提交到 Git。
-        marker = source.parent / "data" / "legacy_config_migrated_v1.json"
+        # 标记放在 config/，清理 data/ 运行数据时也不会意外重复导入旧配置。
+        marker = self.directory / ".legacy_config_migrated_v1.json"
         if marker.is_file():
             return {}
 
