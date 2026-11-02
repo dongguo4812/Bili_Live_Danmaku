@@ -31,11 +31,6 @@ HTTP_TIMEOUT = 8
 MEDAL_CACHE_SECONDS = 60
 ROOM_ID = 0
 COOKIE_DICT: dict[str, str] = {}
-SESSION = requests.Session()
-SESSION.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132 Safari/537.36",
-    "Referer": "https://live.bilibili.com/",
-})
 MEDAL_CACHE: dict[int, tuple[float, bool, str]] = {}
 UID_FILE = BASE_DIR / "uid.txt"
 ADMIN_UIDS: set[int] = set()
