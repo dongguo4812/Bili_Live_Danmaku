@@ -87,7 +87,7 @@ class ConfigManagerTests(unittest.TestCase):
                 "reconnect_interval_seconds": 5, "connect_on_start": False,
             })
             manager.save("voice", {
-                "enabled": True, "voice": "zh-CN-XiaoxiaoNeural",
+                "enabled": True, "voice": "zh-CN-XiaoyiNeural",
                 "rate": "+0%", "volume": "+0%",
             })
 
@@ -114,7 +114,7 @@ class ConfigManagerTests(unittest.TestCase):
             self.assertEqual(live["room_id"], 22851631)
             self.assertFalse(live["reconnect"])
             voice = manager.load("voice")
-            self.assertEqual(voice["voice"], "zh-CN-XiaoxiaoNeural")
+            self.assertEqual(voice["voice"], "zh-CN-XiaoyiNeural")
             self.assertEqual(voice["rate"], "+10%")
             obs = manager.load("obs")
             self.assertEqual(obs["password_file"], "credentials/obs.json")
