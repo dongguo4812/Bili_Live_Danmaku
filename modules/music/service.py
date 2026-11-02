@@ -1234,7 +1234,8 @@ class MusicModuleFacade:
         self.config = dict(config)
         self.cookie_provider = cookie_provider
         self.room_id = max(0, int(room_id or 0))
-        configure_music_module(self.config, self.cookie_provider, self.room_id)
+        # 构造阶段不访问 B 站；只有用户启动歌曲模块时才刷新登录态。
+        configure_music_module(self.config, None, self.room_id)
         self.bot = MusicModule(config=self.config, cookie_provider=cookie_provider, admin_uids=set(ADMIN_UIDS))
         self.event_bus.subscribe("danmaku", self.bot.on_danmu)
 
