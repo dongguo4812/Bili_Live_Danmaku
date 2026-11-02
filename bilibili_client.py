@@ -18,6 +18,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import qrcode
 import requests
@@ -164,19 +165,29 @@ class QRLogin:
                 ticket_url = data.get("url")
                 if not ticket_url:
                     raise BilibiliClientError("扫码成功响应缺少跨域登录票据。")
-                # The new WEB QR flow delivers cookies in Set-Cookie on this
-                # cross-domain ticket response; follow it immediately.
+                ticket_parts = urlparse(str(ticket_url))
+                if ticket_parts.scheme != "https" or not (
+                    ticket_parts.hostname == "bilibili.com"
+                    or (ticket_parts.hostname or "").endswith(".bilibili.com")
+                    or ticket_parts.hostname == "biligame.com"
+                    or (ticket_parts.hostname or "").endswith(".biligame.com")
+                ):
+                    raise BilibiliClientError("B 站返回了不受信任的跨域登录地址。")
+                # The WEB QR flow may deliver cookies on the poll response
+                # and/or on the cross-domain ticket response.
                 ticket_response = session.get(ticket_url, timeout=15, allow_redirects=True)
                 ticket_response.raise_for_status()
                 cookies = _cookie_values(session)
                 if not cookies.get("sessdata"):
-                    for item in ticket_response.history + [ticket_response]:
-                        for raw in item.headers.get("Set-Cookie", "").split("\n"):
+                    for item in [response, *ticket_response.history, ticket_response]:
+                        for raw in item.headers.get("Set-Cookie", "").splitlines():
                             first = raw.split(";", 1)[0]
-                            if "=" in first:
-                                name, value = first.split("=", 1)
-                                if name in {"SESSDATA", "bili_jct", "buvid3", "buvid4", "DedeUserID", "ac_time_value"}:
-                                    cookies[{"SESSDATA":"sessdata","DedeUserID":"dedeuserid"}.get(name, name)] = value
+                            if "=" not in first:
+                                continue
+                            name, value = first.split("=", 1)
+                            if name in {"SESSDATA", "bili_jct", "buvid3", "buvid4", "DedeUserID", "ac_time_value"}:
+                                cookies[{"SESSDATA": "sessdata", "DedeUserID": "dedeuserid"}.get(name, name)] = value
+                                session.cookies.set(name, value, domain=".bilibili.com")
                 if not cookies.get("sessdata"):
                     raise BilibiliClientError("扫码接口返回成功，但没有取得 SESSDATA；凭据未保存。")
                 nav = session.get(NAV_URL, timeout=12)
