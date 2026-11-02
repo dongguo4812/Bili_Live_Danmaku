@@ -516,6 +516,7 @@
         if (bubble) bubble.hidden = true;
         if (bubblePreview) bubblePreview.hidden = true;
       }
+      syncIdleTipTimer(true);
     }
     if (canvas) canvas.style.visibility = live2dModuleState === "stopped" ? "hidden" : "visible";
 
