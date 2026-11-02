@@ -106,6 +106,10 @@ class ModuleManager:
         # 同一模块的 start/pause/resume/close 串行执行，避免重连恢复与用户操作互相覆盖。
         async with record.operation_lock:
             with self._lock:
+                if expected_generation is not None and (
+                    record.generation != expected_generation or record.state != "paused"
+                ):
+                    return
                 if manual:
                     record.generation += 1
                 instance = record.instance
