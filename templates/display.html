@@ -8,6 +8,39 @@
 </head>
 <body class="display-page">
   <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
+
+  <button id="display-settings-toggle" class="display-settings-toggle" type="button"
+          aria-expanded="false" aria-controls="display-settings-panel">⚙ 设置</button>
+
+  <section id="display-settings-panel" class="display-settings-panel" aria-label="Live2D 展示设置" hidden>
+    <header class="display-settings-header">
+      <strong>Live2D 展示设置</strong>
+      <button id="display-settings-close" class="settings-close" type="button" aria-label="关闭设置">×</button>
+    </header>
+
+    <label class="setting-field">
+      <span>模型</span>
+      <select id="model-select"></select>
+    </label>
+
+    <label class="setting-field">
+      <span>模型大小 <output id="scale-value">100%</output></span>
+      <input id="scale-slider" type="range" min="50" max="180" step="1" value="100">
+    </label>
+
+    <label class="setting-field">
+      <span>水平位置 <output id="x-value">0.00</output></span>
+      <input id="x-slider" type="range" min="-100" max="100" step="1" value="0">
+    </label>
+
+    <label class="setting-field">
+      <span>垂直位置 <output id="y-value">0.00</output></span>
+      <input id="y-slider" type="range" min="-100" max="100" step="1" value="0">
+    </label>
+
+    <p id="settings-save-status" class="settings-save-status" role="status">设置会自动保存到本地。</p>
+  </section>
+
   <div id="display-placeholder" role="status">正在初始化 Live2D 模型…</div>
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
