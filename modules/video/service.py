@@ -107,6 +107,10 @@ COOKIE_VALUES: dict[str, str] = {}
 ADMIN_UIDS: set[int] = set()
 module_enabled = False
 module_paused = False
+# 生命周期代数：会话代数防止关闭后旧 Selenium 任务污染新会话；
+# 请求代数防止暂停/恢复期间尚未完成的旧弹幕请求重新入队。
+video_session_generation = 0
+video_request_generation = 0
 _streamer_uid_cache = None
 _streamer_uid_cache_at = 0.0
 STREAMER_UID_CACHE_SEC = 600
@@ -951,9 +955,11 @@ skip_lock = asyncio.Lock()
 
 # ====================== 播放结束监控 ======================
 
-async def monitor_video_end(bv):
+async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
     global is_playing, current_bv, playback_monitor_task
+    if session_generation is None:
+        session_generation = video_session_generation
 
     saw_video = False
     last_time = -1.0
@@ -993,7 +999,12 @@ async def monitor_video_end(bv):
         };
     """
     try:
-        while module_enabled and is_playing and current_bv == bv:
+        while (
+            module_enabled
+            and session_generation == video_session_generation
+            and is_playing
+            and current_bv == bv
+        ):
             await asyncio.sleep(1)
 
             if driver is None:
@@ -1175,6 +1186,7 @@ async def play_next():
             current_bv = None
             return
 
+        session_generation = video_session_generation
         bv = video_queue.pop(0)
         asyncio.create_task(ensure_video_title(bv))
 
@@ -1190,10 +1202,9 @@ async def play_next():
             # 必须放到工作线程，避免 Chrome 无响应时堵住 asyncio 事件循环。
             await asyncio.to_thread(open_video_page, bv, url)
 
-            if not module_enabled:
-                await asyncio.to_thread(_pause_video_for_close_sync)
-                is_playing = False
-                current_bv = None
+            # 关闭并重新启动可能发生在 driver.get() 的工作线程执行期间。
+            # 旧任务不得操作新会话的 driver、播放状态或 OBS 显隐。
+            if session_generation != video_session_generation or not module_enabled:
                 return
 
             # 暂停可能发生在 driver.get() 正在执行期间；页面加载完成后补充暂停，
@@ -1218,10 +1229,13 @@ async def play_next():
                 playback_monitor_task.cancel()
 
             playback_monitor_task = asyncio.create_task(
-                monitor_video_end(bv)
+                monitor_video_end(bv, session_generation)
             )
 
         except Exception:
+            if session_generation != video_session_generation:
+                logger.debug("忽略旧视频会话的打开异常：%s", bv)
+                return
             logger.exception("打开视频失败：%s", bv)
             await set_obs_visibility_async(False)
 
@@ -1233,7 +1247,7 @@ async def play_next():
             )
 
             # create_task 避免在持有 play_lock 时直接递归调用 play_next。
-            if video_queue:
+            if video_queue and module_enabled and not module_paused:
                 asyncio.create_task(play_next())
 
 @selenium_locked
@@ -1386,6 +1400,7 @@ async def on_dan_mu(msg_json):
 
     if not module_enabled or module_paused or not isinstance(msg_json, dict):
         return
+    request_generation = video_request_generation
     if str(msg_json.get("type", "")) != "danmaku":
         return
     try:
@@ -1477,7 +1492,11 @@ async def on_dan_mu(msg_json):
                     return
 
                 # 网络校验期间模块可能已暂停或关闭，不能让过期弹幕在其后重新入队。
-                if not module_enabled or module_paused:
+                if (
+                    not module_enabled
+                    or module_paused
+                    or request_generation != video_request_generation
+                ):
                     return
 
                 logger.info(
@@ -1523,7 +1542,11 @@ async def on_dan_mu(msg_json):
                 add_operation_message(message)
                 return
 
-            if not module_enabled or module_paused:
+            if (
+                not module_enabled
+                or module_paused
+                or request_generation != video_request_generation
+            ):
                 return
 
             if duration <= 0:
@@ -1550,7 +1573,11 @@ async def on_dan_mu(msg_json):
                 add_operation_message(message)
                 return
 
-            if not module_enabled or module_paused:
+            if (
+                not module_enabled
+                or module_paused
+                or request_generation != video_request_generation
+            ):
                 return
 
             video_queue.append(bv)
@@ -1614,11 +1641,14 @@ class VideoModuleFacade:
 
     async def start(self):
         global driver, module_enabled, module_paused
+        global video_session_generation, video_request_generation
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
             if module_paused:
                 await self.resume()
             return
+        video_session_generation += 1
+        video_request_generation += 1
         await set_obs_visibility_async(False)
         driver = await asyncio.to_thread(create_browser)
         module_enabled = True
@@ -1626,11 +1656,12 @@ class VideoModuleFacade:
         logger.info("视频模块已启动，Chrome 播放会话已初始化。")
 
     async def pause(self):
-        global module_paused
+        global module_paused, video_request_generation
         if not module_enabled or module_paused:
             return
         # 先标记暂停，阻止事件和播放任务继续启动下一条视频。
         module_paused = True
+        video_request_generation += 1
         try:
             if current_bv and driver is not None:
                 await asyncio.to_thread(
@@ -1643,9 +1674,11 @@ class VideoModuleFacade:
         logger.info("视频模块已暂停，保留当前 BV、播放进度和待播队列。")
 
     async def resume(self):
-        global module_paused
+        global module_paused, video_request_generation
         if not module_enabled or not module_paused:
             return
+        # 暂停期间尚未完成的旧弹幕请求不应在恢复后重新入队。
+        video_request_generation += 1
         # 断线重连后刷新统一登录态，避免粉丝牌查询继续使用失效 Cookie。
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if current_bv and driver is not None:
@@ -1662,6 +1695,9 @@ class VideoModuleFacade:
 
     async def close(self):
         global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task
+        global video_session_generation, video_request_generation
+        video_session_generation += 1
+        video_request_generation += 1
         module_enabled = False
         module_paused = False
         monitor_task = playback_monitor_task
