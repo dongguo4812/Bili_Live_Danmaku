@@ -1071,6 +1071,11 @@ def display():
     return render_template("display.html")
 
 
+@app.get("/live2d")
+def live2d_settings_page():
+    return redirect("/#live2d-settings")
+
+
 @app.get("/dashboard")
 def dashboard_page():
     return render_template("combined_display.html", display_mode=False)
