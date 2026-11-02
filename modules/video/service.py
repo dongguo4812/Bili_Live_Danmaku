@@ -960,6 +960,8 @@ async def monitor_video_end(bv, session_generation=None):
     global is_playing, current_bv, playback_monitor_task
     if session_generation is None:
         session_generation = video_session_generation
+    if not module_enabled or session_generation != video_session_generation:
+        return
 
     saw_video = False
     last_time = -1.0
@@ -968,6 +970,8 @@ async def monitor_video_end(bv, session_generation=None):
 
     logger.info("开始监控视频播放状态和结束：%s", bv)
     await set_obs_visibility_async(False)
+    if not module_enabled or session_generation != video_session_generation:
+        return
     last_obs_visible = False
     status_task = None
     status_timeout_count = 0
@@ -1006,6 +1010,8 @@ async def monitor_video_end(bv, session_generation=None):
             and current_bv == bv
         ):
             await asyncio.sleep(1)
+            if not module_enabled or session_generation != video_session_generation:
+                return
 
             if driver is None:
                 continue
@@ -1028,6 +1034,8 @@ async def monitor_video_end(bv, session_generation=None):
                 status_task = None
                 status_timeout_count = 0
                 status = completed_task.result()
+                if not module_enabled or session_generation != video_session_generation:
+                    return
                 if module_paused:
                     if last_obs_visible:
                         await set_obs_visibility_async(False)
@@ -1218,6 +1226,9 @@ async def play_next():
                 except Exception as pause_exc:
                     logger.warning("视频加载期间补充暂停失败：%s", type(pause_exc).__name__)
 
+            if session_generation != video_session_generation or not module_enabled:
+                return
+
             logger.info("视频页面已打开：%s", bv)
 
             # 若此前有旧视频监控任务，先取消；只保留当前 BV 的监控。
@@ -1271,6 +1282,10 @@ async def skip_current_video():
 
     global is_playing, current_bv, playback_monitor_task
 
+    if not module_enabled:
+        return {"ok": False, "message": "视频模块尚未启动"}
+    session_generation = video_session_generation
+
     # 如果另一个手动切换操作正在执行，不再重复切换。
     if skip_lock.locked():
         return {
@@ -1299,6 +1314,8 @@ async def skip_current_video():
                         exc_info=True
                     )
 
+            if session_generation != video_session_generation or not module_enabled:
+                return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
             if playback_monitor_task is monitor_task:
                 playback_monitor_task = None
 
@@ -1311,15 +1328,22 @@ async def skip_current_video():
                 exc_info=True
             )
 
+        if session_generation != video_session_generation or not module_enabled:
+            return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
+
         # 清理当前播放状态。
         is_playing = False
         current_bv = None
 
         # 隐藏 OBS 视频来源。
         await set_obs_visibility_async(False)
+        if session_generation != video_session_generation or not module_enabled:
+            return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
 
         # 启动队列中的下一条视频。
         try:
+            if session_generation != video_session_generation or not module_enabled:
+                return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
             await play_next()
         except Exception:
             logger.exception("手动切换后启动下一条视频失败")
