@@ -116,9 +116,24 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
   function addWidget(type){
     if(layout.widgets.some(w=>w.type===type)) return;
-    const count=layout.widgets.length;
-    const x=Math.min(70,5+(count%3)*7), y=Math.min(65,5+(count%3)*7);
-    layout.widgets.push({id:type,type,x,y,w:30,h:38});
+    const size={w:28,h:36};
+    let position=null;
+    // 从左上到右下寻找不与现有模块重叠的位置，避免新模块默认叠在一起。
+    for(let y=2;y<=62&&!position;y+=4){
+      for(let x=2;x<=70;x+=4){
+        const candidate={x,y,...size};
+        const overlaps=layout.widgets.some(item=>
+          candidate.x<item.x+item.w && candidate.x+candidate.w>item.x &&
+          candidate.y<item.y+item.h && candidate.y+candidate.h>item.y
+        );
+        if(!overlaps){position=candidate;break;}
+      }
+    }
+    if(!position){
+      setMessage("当前布局没有足够的空白区域；请先缩小或移动已有模块。",true);
+      return;
+    }
+    layout.widgets.push({id:type,type,...position});
     renderLayout();
     setMessage(labels[type]+" 已添加；保存后才会保留。");
   }
