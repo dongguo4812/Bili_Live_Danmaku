@@ -9,7 +9,7 @@
     "cooldown_seconds": 60,
     "queue_limit": 30,
     "max_video_duration_seconds": 300,
-    "require_fans_medal": true
+    "require_fans_medal": false
   },
   "admin_uids": [],
   "admins_file": "data/video/uid.txt"
