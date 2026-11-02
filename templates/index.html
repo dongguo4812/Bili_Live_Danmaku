@@ -88,6 +88,34 @@
     </section>
 
     <section class="panel">
+      <h2>视频点播模块</h2>
+      <div class="model-row">
+        <div>
+          <strong id="video-state">已关闭</strong>
+          <p class="muted">独立控制 Chrome 播放、BV 点播队列和 OBS 视频来源</p>
+        </div>
+        <span id="video-queue-count" class="status-pill">待播：0 条</span>
+      </div>
+      <div class="inline-controls action-controls">
+        <button id="video-start" type="button">启动</button>
+        <button id="video-pause" type="button" class="secondary-button">暂停</button>
+        <button id="video-resume" type="button" class="secondary-button">恢复</button>
+        <button id="video-close" type="button" class="secondary-button">关闭</button>
+      </div>
+      <div class="inline-controls action-controls">
+        <button id="video-next" type="button" class="secondary-button">下一个</button>
+        <button id="video-clear" type="button" class="secondary-button">清空待播队列</button>
+      </div>
+      <p id="video-current" class="muted">当前视频：无</p>
+      <p id="video-queue" class="muted">待播队列：0 条</p>
+      <p id="video-message" class="muted" role="status">视频模块每次启动后默认关闭；请先连接直播间，再启动模块。</p>
+      <div class="inline-controls">
+        <a href="/video" target="_blank" rel="noopener">打开完整视频队列控制面板</a>
+        <a href="/video/display" target="_blank" rel="noopener">打开视频 OBS 展示页</a>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Live2D 模型</h2>
       <div class="model-row">
         <div>
@@ -118,6 +146,53 @@
       if (!response.ok || data.ok === false) throw new Error(data.error || data.message || ("HTTP " + response.status));
       return data;
     }
+
+    async function refreshVideoQueue() {
+      try {
+        const data = await api("/api/video/queue");
+        const current = data.current;
+        $("video-current").textContent = current
+          ? "当前视频：" + current.title + (current.bvid ? "（" + current.bvid + "）" : "")
+          : "当前视频：无";
+        const queue = Array.isArray(data.queue) ? data.queue : [];
+        $("video-queue-count").textContent = "待播：" + queue.length + " 条";
+        $("video-queue").textContent = "待播队列：" + queue.length + " 条" +
+          (queue.length ? "（" + queue.slice(0, 4).map(x => x.title).join("、") + (queue.length > 4 ? "…" : "") + "）" : "");
+      } catch (error) {
+        $("video-message").textContent = "读取视频队列失败：" + error.message;
+      }
+    }
+
+    async function videoModuleAction(action) {
+      try {
+        await api("/api/modules/video/" + action, { method: "POST" });
+        $("video-message").textContent = "视频模块操作成功：" + action;
+        refreshStatus();
+        refreshVideoQueue();
+      } catch (error) {
+        $("video-message").textContent = error.message;
+      }
+    }
+
+    async function videoQueueAction(payload) {
+      try {
+        const data = await api("/api/video/action", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        $("video-message").textContent = data.message || "操作成功。";
+        refreshVideoQueue();
+      } catch (error) {
+        $("video-message").textContent = error.message;
+      }
+    }
+
+    $("video-start").addEventListener("click", () => videoModuleAction("start"));
+    $("video-pause").addEventListener("click", () => videoModuleAction("pause"));
+    $("video-resume").addEventListener("click", () => videoModuleAction("resume"));
+    $("video-close").addEventListener("click", () => videoModuleAction("close"));
+    $("video-next").addEventListener("click", () => videoQueueAction({ action: "next" }));
+    $("video-clear").addEventListener("click", () => videoQueueAction({ action: "clear" }));
 
     async function refreshMusicQueue() {
       try {
@@ -200,6 +275,10 @@
         $("music-state").textContent = ({
           stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
         }[music.state] || "状态未知");
+        const video = (data.modules || {}).video || { state: "stopped" };
+        $("video-state").textContent = ({
+          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
+        }[video.state] || "状态未知");
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }
@@ -306,8 +385,10 @@
 
     refreshStatus();
     refreshMusicQueue();
+    refreshVideoQueue();
     setInterval(refreshStatus, 3000);
     setInterval(refreshMusicQueue, 2500);
+    setInterval(refreshVideoQueue, 2500);
   </script>
 </body>
 </html>
