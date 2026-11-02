@@ -428,19 +428,43 @@ class LiveRoomClient:
                 })
             elif isinstance(payload, dict):
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                extra: dict[str, Any] = {}
                 if kind == "gift":
                     nickname = str(data.get("uname") or "观众")
-                    text = f"赠送 {data.get('giftName') or '礼物'} ×{data.get('num') or 1}"
+                    gift_name = str(data.get("giftName") or "礼物")
+                    gift_num = max(1, int(data.get("num") or 1))
+                    text = f"赠送 {gift_name} ×{gift_num}"
+                    coin_type = str(data.get("coin_type") or "gold").lower()
+                    try:
+                        total_coin = float(data.get("total_coin"))
+                    except (TypeError, ValueError):
+                        try:
+                            total_coin = float(data.get("price") or 0) * gift_num
+                        except (TypeError, ValueError):
+                            total_coin = 0.0
+                    gift_value_yuan = total_coin / 1000.0 if coin_type == "gold" else 0.0
+                    extra = {
+                        "gift_name": gift_name[:100],
+                        "gift_num": gift_num,
+                        "gift_coin_type": coin_type,
+                        "gift_value_yuan": round(max(0.0, gift_value_yuan), 2),
+                    }
                 else:
                     user = data.get("user_info") or {}
                     nickname = str(user.get("uname") or "观众")
                     text = str(data.get("message") or "醒目留言")
+                    try:
+                        amount_yuan = float(data.get("price") or 0)
+                    except (TypeError, ValueError):
+                        amount_yuan = 0.0
+                    extra = {"amount_yuan": round(max(0.0, amount_yuan), 2)}
                 self.on_event({
                     "type": kind,
                     "nickname": nickname[:80],
                     "uid": 0,
                     "text": text[:500],
                     "timestamp": int(time.time() * 1000),
+                    **extra,
                 })
         except Exception:
             logger.exception("解析 B 站直播事件失败")
