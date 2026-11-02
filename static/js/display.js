@@ -8,6 +8,7 @@
   const closeButton = document.getElementById("display-settings-close");
   const modelSelect = document.getElementById("model-select");
   const saveStatus = document.getElementById("settings-save-status");
+  const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
   const bubblePreview = document.getElementById("danmaku-preview");
   if (!canvas) return;
@@ -25,9 +26,8 @@
   let resizePending = false;
   let statusSent = false;
   let currentModel = "live_uu";
-  let saveTimer = null;
   let isSaving = false;
-  let reloadAfterSave = false;
+  let hasUnsavedChanges = false;
   let lastDanmakuId = 0;
   let pollTimer = null;
   const activeItems = new Map();
@@ -199,9 +199,10 @@
     bubblePreview.hidden = false;
   }
   async function saveSettings() {
-    if (isSaving) return;
+    if (isSaving || !hasUnsavedChanges) return;
     isSaving = true;
-    setSaveStatus("正在保存设置…");
+    if (saveButton) saveButton.disabled = true;
+    setSaveStatus("正在保存设置，并尝试刷新 OBS…");
     try {
       const response = await fetch("/api/display/settings", {
         method: "POST",
@@ -210,26 +211,27 @@
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "保存失败。");
-      setSaveStatus("已保存到本地。");
-      if (reloadAfterSave) {
-        window.location.reload();
-        return;
+      hasUnsavedChanges = false;
+      const obs = result.obs_refresh || {};
+      setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
+      // A normal browser preview must reload to rebuild the Live2D model using
+      // the saved transform. OBS sources are refreshed by the backend request.
+      if (!window.obsstudio) {
+        window.setTimeout(() => window.location.reload(), 350);
       }
     } catch (error) {
       setSaveStatus("保存失败：" + error.message, true);
     } finally {
       isSaving = false;
-      reloadAfterSave = false;
+      if (saveButton) saveButton.disabled = false;
     }
   }
 
-  function scheduleSave(reload = false) {
+  function markUnsaved() {
     updateSliderLabels();
     applyBubblePreferences();
-    reloadAfterSave = reloadAfterSave || reload;
-    window.clearTimeout(saveTimer);
-    setSaveStatus("有未保存的更改…");
-    saveTimer = window.setTimeout(saveSettings, 450);
+    hasUnsavedChanges = true;
+    setSaveStatus("有未保存的更改；点击下方“保存设置”后才会保存并尝试刷新 OBS。");
   }
 
   async function loadDisplaySettings() {
@@ -414,13 +416,14 @@
       controls["bubble-height"].value = String(p.bubble_max_height ?? 320);
       controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
-      scheduleSave(true);
+      markUnsaved();
     } catch (error) {
       setSaveStatus(error.message, true);
     }
   }
 
   if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
+  if (saveButton) saveButton.addEventListener("click", saveSettings);
   for (const [key, slider] of Object.entries(controls)) {
     if (!slider) continue;
     slider.addEventListener("input", () => {
@@ -428,9 +431,7 @@
       applyBubblePreferences();
       if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
-    slider.addEventListener("change", () => {
-      scheduleSave(["scale", "x", "y"].includes(key));
-    });
+    slider.addEventListener("change", markUnsaved);
   }
 
   start();
