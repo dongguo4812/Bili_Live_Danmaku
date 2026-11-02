@@ -1699,8 +1699,6 @@ def _legacy_obs_credential_candidates() -> dict[str, Any]:
                             found["password_file"] = str(candidate.relative_to(BASE_DIR))
                     except ValueError:
                         pass
-                    except ValueError:
-                        pass
     except Exception as exc:
         logger.warning("检查旧 OBS 凭据失败：%s", type(exc).__name__)
     return found
