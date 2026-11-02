@@ -175,30 +175,9 @@ http://127.0.0.1:8768/display
 - 正常退出程序时，尝试隐藏匹配的展示来源。
 - 会遍历场景及嵌套分组中的场景项目，处理匹配浏览器源对应的场景项。
 
-OBS WebSocket 配置位于项目根目录的 `config.json`，示例：
+OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、超时和来源名称。密码在系统设置页面单独录入，保存在 `credentials/obs.json`；Windows 使用 DPAPI 加密，页面不会回显密码原文。
 
-```json
-{
-  "obs_websocket": {
-    "host": "127.0.0.1",
-    "port": 4455,
-    "password_file": "credentials/obs_websocket.key",
-    "timeout": 2.5
-  }
-}
-```
-
-请根据 OBS WebSocket 服务器设置填写 host、port。密码单独保存到：
-
-```text
-credentials/obs_websocket.key
-```
-
-文件中只填写 OBS WebSocket 密码本身，不要添加引号或 `password=` 前缀。并在 OBS 中通过“工具 → WebSocket 服务器设置”启用 WebSocket 服务器。
-
-也可以在未配置 `password_file` 时使用旧版 `config.json` 中的 `password` 字段。建议使用独立密码文件方式。程序会拒绝指向项目目录之外的密码文件路径。
-
-**自动控制的边界：** OBS 未运行、连接认证失败、来源 URL 不匹配时，程序无法控制对应来源。强制结束程序、断电或 OBS 已先行关闭时，也无法保证执行退出隐藏操作。设置保存与浏览器源刷新相互独立；OBS 不可用不会阻止本地设置保存。
+系统设置页面：`http://127.0.0.1:8768/settings`。请在 OBS 的“工具 → WebSocket 服务器设置”中启用 WebSocket 服务器，并确认地址、端口和来源名称正确。
 
 ## 本地数据与安全
 
