@@ -52,7 +52,8 @@
       await fetch("/api/live2d/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state, message })
+        body: JSON.stringify({ state, message }),
+        keepalive: true
       });
     } catch (error) {
       console.warn("Unable to report Live2D state:", error);
@@ -419,6 +420,6 @@
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
-    if (!statusSent) reportState("error", "OBS 展示页面在模型初始化完成前关闭。");
+    reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
   });
 })();
