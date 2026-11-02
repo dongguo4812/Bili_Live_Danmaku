@@ -219,6 +219,12 @@ class QRLogin:
         temporary = self.credential_path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, self.credential_path)
+        # Restrict permissions on platforms that implement POSIX mode bits.
+        try:
+            os.chmod(self.credential_path.parent, 0o700)
+            os.chmod(self.credential_path, 0o600)
+        except OSError:
+            logger.debug("当前系统不支持 POSIX 凭据文件权限设置。")
 
     def status(self) -> dict[str, Any]:
         with self.lock:
