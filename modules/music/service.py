@@ -1019,6 +1019,8 @@ class MusicModule:
                 log.error("控制面板切歌失败：%s", detail)
                 return {"ok": False, "message": detail}
             self._skip_requested.set()
+            # 已请求洛雪自身列表下一曲；之后播放的曲目不再属于机器人点播模块。
+            self._lx_playback_active = False
             log.info("机器人待播队列为空，已请求洛雪下一曲：%s", detail)
             return {"ok": True, "message": detail}
         if action == "delete":
@@ -1402,8 +1404,10 @@ class MusicModule:
                     continue
 
                 await self.wait_song_end()
-                # 正常结束/管理员切歌后，在下一轮出队或队列为空时清除归属。
-                # close() 需要保留该标志，才能在 worker 退出后暂停当前曲目。
+                # 自然结束或管理员切歌时释放播放归属；若是模块关闭触发的退出，
+                # 则保留标志交给 close() 暂停当前机器人歌曲。
+                if not self._closing:
+                    self._lx_playback_active = False
                 log.info("机器人点播流程结束：%s", item["title"])
 
     async def wait_song_end(self) -> None:
