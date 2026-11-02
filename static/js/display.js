@@ -166,6 +166,13 @@
       target.style.fontSize = p.bubble_font_size + "px";
       target.style.lineHeight = Math.round(p.bubble_font_size * 1.1) + "px";
       target.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
+
+      // .danmaku-entry has its own CSS font-size, so set the size directly
+      // on every entry instead of relying on inheritance from the container.
+      for (const entry of target.querySelectorAll(".danmaku-entry")) {
+        entry.style.fontSize = p.bubble_font_size + "px";
+        entry.style.lineHeight = Math.round(p.bubble_font_size * 1.1) + "px";
+      }
     }
     while (bubble.children.length > p.bubble_max_items) {
       const oldest = bubble.firstElementChild;
@@ -201,7 +208,9 @@
       bubblePreview.appendChild(entry);
     }
     bubblePreview.hidden = false;
+    applyBubblePreferences();
   }
+
   async function saveSettings() {
     if (isSaving || !hasUnsavedChanges) return;
     isSaving = true;
@@ -289,6 +298,8 @@
     bubble.hidden = false;
 
     const p = currentPreferences();
+    wrapper.style.fontSize = p.bubble_font_size + "px";
+    wrapper.style.lineHeight = Math.round(p.bubble_font_size * 1.1) + "px";
     while (bubble.children.length > p.bubble_max_items) {
       const oldest = bubble.firstElementChild;
       if (!oldest) break;
