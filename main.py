@@ -22,7 +22,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
 from core.config_manager import ConfigManager
