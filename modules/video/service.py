@@ -1584,6 +1584,12 @@ class VideoModuleFacade:
         _streamer_uid_cache = None
         _streamer_uid_cache_at = 0.0
 
+    def reload_config(self, config: dict[str, Any]) -> None:
+        if module_enabled or driver is not None:
+            raise RuntimeError("请先关闭视频模块，再修改视频配置。")
+        self.config = dict(config)
+        configure_video_module(self.config, None, self.room_id)
+
     def reload_obs_settings(self) -> None:
         global OBS_CONFIG
         OBS_CONFIG = load_obs_config()
