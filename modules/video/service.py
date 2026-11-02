@@ -855,11 +855,7 @@ def open_video_page(bv, url):
     except Exception as exc:
         logger.warning("重置视频播放位置失败（不影响点播队列）：%s；%s", bv, exc)
 
-    # 视频进度重置尝试完成后，再执行原有的 B 站网页全屏逻辑。
-    try:
-        try_enter_video_fullscreen(bv)
-    except Exception as exc:
-        logger.warning("自动网页全屏失败（不影响点播队列）：%s", exc)
+    # 网页全屏不在页面刚打开时触发；由播放监控确认视频已产生进度后再尝试一次。
 
 
 # ====================== 队列及播放状态 ======================
@@ -893,6 +889,7 @@ async def monitor_video_end(bv):
     saw_video = False
     last_time = -1.0
     saw_progress = False
+    fullscreen_attempted = False
 
     logger.info("开始监控视频播放状态和结束：%s", bv)
     await set_obs_visibility_async(False)
@@ -1045,6 +1042,14 @@ async def monitor_video_end(bv):
                 if current_time > last_time + 0.2:
                     saw_progress = True
                 last_time = current_time
+
+                # 必须确认 HTML5 视频实际前进后才触发一次 B 站网页全屏（W），不使用 F/F11。
+                if saw_progress and not fullscreen_attempted and not module_paused:
+                    fullscreen_attempted = True
+                    try:
+                        await asyncio.to_thread(try_enter_video_fullscreen, bv, 5)
+                    except Exception as fullscreen_exc:
+                        logger.warning("播放开始后自动网页全屏失败（不影响队列）：%s", type(fullscreen_exc).__name__)
 
                 # 只有视频真正处于播放状态时才显示 OBS 来源；暂停/结束时隐藏。
                 actually_playing = not bool(status.get("paused")) and not bool(status.get("ended"))
