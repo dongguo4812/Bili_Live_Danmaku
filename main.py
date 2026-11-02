@@ -170,33 +170,104 @@ def _default_model_id() -> str:
 
 
 def _load_user_settings() -> dict[str, Any]:
-    default_model = _default_model_id()
-    if not USER_SETTINGS_PATH.is_file():
-        default_room_id = int(CONFIG.get("bilibili", {}).get("room_id", 0) or 0)
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": default_room_id}, "tts": {}, "idle_tips": {}}
-    try:
-        data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError("设置文件格式错误")
-        model_id = data.get("model")
-        if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
-            model_id = default_model
-        models = data.get("models")
-        if not isinstance(models, dict):
-            models = {}
-        bilibili = data.get("bilibili")
-        if not isinstance(bilibili, dict):
-            bilibili = {}
+    """从模块配置读取设置；首次运行时只迁移旧 user_settings.json 的普通字段。"""
+    manager = ConfigManager()
+    live = manager.load("live", {})
+    live2d = manager.load("live2d", {})
+    voice = manager.load("voice", {})
+    legacy: dict[str, Any] = {}
+
+    if USER_SETTINGS_PATH.is_file():
         try:
-            room_id = max(0, int(bilibili.get("room_id", CONFIG.get("bilibili", {}).get("room_id", 0))))
+            raw = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                legacy = raw
+        except Exception as exc:
+            logger.warning("读取旧用户设置失败：%s", type(exc).__name__)
+
+    changed_live = False
+    changed_live2d = False
+    changed_voice = False
+
+    legacy_bilibili = legacy.get("bilibili") if isinstance(legacy.get("bilibili"), dict) else {}
+    if not live.get("room_id") and legacy_bilibili.get("room_id"):
+        try:
+            live["room_id"] = max(0, int(legacy_bilibili["room_id"]))
+            changed_live = True
         except (TypeError, ValueError):
-            room_id = 0
-        tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
-        idle_tips = data.get("idle_tips") if isinstance(data.get("idle_tips"), dict) else {}
-        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}, "tts": tts, "idle_tips": idle_tips}
-    except Exception as exc:
-        logger.warning("读取用户设置失败，将使用默认设置：%s", exc)
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
+            pass
+
+    default_model = str(live2d.get("default_model") or DEFAULT_MODEL)
+    if "model" not in live2d:
+        live2d["model"] = legacy.get("model", default_model)
+        changed_live2d = True
+    if not isinstance(live2d.get("models"), dict):
+        live2d["models"] = {}
+        changed_live2d = True
+    if "models" not in live2d and isinstance(legacy.get("models"), dict):
+        live2d["models"] = legacy["models"]
+        changed_live2d = True
+    if "idle_tips" not in live2d:
+        live2d["idle_tips"] = legacy.get("idle_tips", {})
+        changed_live2d = True
+
+    if "tts" not in voice:
+        legacy_tts = legacy.get("tts") if isinstance(legacy.get("tts"), dict) else {}
+        voice["tts"] = legacy_tts
+        changed_voice = True
+
+    if changed_live:
+        manager.save("live", live)
+    if changed_live2d:
+        manager.save("live2d", live2d)
+    if changed_voice:
+        manager.save("voice", voice)
+
+    model_id = live2d.get("model")
+    if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
+        model_id = default_model
+    models = live2d.get("models") if isinstance(live2d.get("models"), dict) else {}
+    tts = voice.get("tts") if isinstance(voice.get("tts"), dict) else {}
+    idle_tips = live2d.get("idle_tips") if isinstance(live2d.get("idle_tips"), dict) else {}
+    try:
+        room_id = max(0, int(live.get("room_id", CONFIG.get("bilibili", {}).get("room_id", 0))))
+    except (TypeError, ValueError):
+        room_id = 0
+    return {
+        "model": model_id,
+        "models": models,
+        "bilibili": {"room_id": room_id},
+        "tts": tts,
+        "idle_tips": idle_tips,
+    }
+
+
+def _save_user_settings(settings: dict[str, Any]) -> None:
+    """把用户设置分别保存到 live/live2d/voice 模块配置，不再写根目录 JSON。"""
+    manager = ConfigManager()
+    live = manager.load("live", {})
+    live2d = manager.load("live2d", {})
+    voice = manager.load("voice", {})
+
+    bilibili = settings.get("bilibili") if isinstance(settings.get("bilibili"), dict) else {}
+    live["room_id"] = max(0, int(bilibili.get("room_id", live.get("room_id", 0)) or 0))
+
+    model_id = settings.get("model")
+    if isinstance(model_id, str) and _safe_model_dir(model_id):
+        live2d["model"] = model_id
+    models = settings.get("models")
+    if isinstance(models, dict):
+        live2d["models"] = models
+    idle_tips = settings.get("idle_tips")
+    if isinstance(idle_tips, dict):
+        live2d["idle_tips"] = idle_tips
+    tts = settings.get("tts")
+    if isinstance(tts, dict):
+        voice["tts"] = tts
+
+    manager.save("live", live)
+    manager.save("live2d", live2d)
+    manager.save("voice", voice)
 
 
 def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
