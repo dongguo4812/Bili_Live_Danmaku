@@ -156,14 +156,6 @@ def add_operation_message(message):
     })
     del operation_messages[:-OPERATION_MESSAGE_LIMIT]
 
-panel_server = None
-panel_thread = None
-main_async_loop = None
-main_task = None
-# 仅在主程序完成 Chrome 初始化后置为 True；与队列数据接口分离。
-program_ready = False
-
-
 def fetch_video_info_sync(bv):
     """通过 B 站公开视频信息接口获取标题和时长。"""
     url = "https://api.bilibili.com/x/web-interface/view?" + urllib.parse.urlencode(
@@ -1374,8 +1366,8 @@ async def on_dan_mu(msg_json):
 
         is_admin = uid in ADMIN_UIDS
 
-        # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 room_config.txt 控制。
-        # REQUIRE_FAN_MEDAL=0 时跳过勋章查询，但冷却、时长、队列等其他限制仍然生效。
+        # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 config/video.json 控制。
+        # require_fans_medal=false 时跳过勋章查询，但冷却、时长、队列等其他限制仍然生效。
         if is_admin:
             logger.info("管理员点播：跳过粉丝勋章校验（UID: %s）", uid)
         elif REQUIRE_FAN_MEDAL:
