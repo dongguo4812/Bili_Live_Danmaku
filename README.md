@@ -7,36 +7,62 @@ A modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2
 Requirements: Python 3.10 or newer.
 
 1. Download or clone this repository.
-2. Double-click `start.bat`.
-3. On the first launch, the script creates a local `.venv` virtual environment and installs dependencies.
-4. The management page opens at `http://127.0.0.1:8768/`.
-5. The transparent OBS display page is at `http://127.0.0.1:8768/display`.
+2. Double-click \`start.bat\`.
+3. On the first launch, the script creates a local \`.venv\` virtual environment and installs dependencies.
+4. Open the management page at \`http://127.0.0.1:8768/\`.
+5. The transparent OBS display page is at \`http://127.0.0.1:8768/display\`.
 
-Keep the console window open while using the application. Press `Ctrl+C` in that window to stop the server.
+Keep the console window open while using the application. Press \`Ctrl+C\` in that window to stop the server.
 
 Manual startup:
 
-```powershell
+\`\`\`powershell
 py -3 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe main.py
-```
+.venv\\Scripts\\python.exe -m pip install -r requirements.txt
+.venv\\Scripts\\python.exe main.py
+\`\`\`
+
+## Bilibili login and live room
+
+1. Enter your live-room ID in the management page and save it. The value is stored in the local \`user_settings.json\`, not in the tracked project configuration.
+2. Click **扫码登录** and scan the QR code with the Bilibili mobile app.
+3. After the login is confirmed, the server captures the login cookies from Bilibili's QR-login response and stores them atomically in \`credentials/bilibili.json\`.
+4. The server validates the saved login on startup and again before starting a live-room connection. Anonymous connections are rejected.
+5. Click **连接直播间**. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event.
+6. Unexpected disconnects are retried using the reconnect settings in \`config.json\`. Use **断开连接** to stop the connection.
+
+The credential directory and local settings file are excluded by \`.gitignore\`. Do not share \`credentials/bilibili.json\`; it contains account login credentials. If the Bilibili QR-login flow changes, a successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check.
+
+The WEB QR login implementation explicitly follows Bilibili's cross-domain ticket URL after a successful poll. This is necessary for the newer QR-login response format, where login cookies are delivered through response headers rather than the old URL query parameters.
+
+## Live danmaku speech bubble
+
+The \`/display\` page polls the local event queue and displays incoming danmaku above the Live2D model. The bubble is manually positioned by the user:
+
+- Horizontal position and bottom anchor position can be adjusted independently.
+- Width and maximum height are adjustable.
+- The bottom edge remains fixed while new messages are added from the bottom and the bubble grows upward.
+- The maximum number of visible entries and each entry's display duration are adjustable.
+- Older entries are removed when the configured item limit is exceeded.
+- Each Live2D model stores its own model transform and speech-bubble settings in local \`user_settings.json\`.
+
+Use the settings button at the upper-left of the display page. The sliders preview changes immediately and save them locally. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
 
 ## Default Live2D model
 
-The default model is `live_uu`:
+The default model is \`live_uu\`:
 
-- Model setting: `models/live_uu/model.json`
-- Cubism 2 runtime bundle: `static/js/live2d.min.js`
-- OBS display controller: `static/js/display.js`
+- Model setting: \`models/live_uu/model.json\` (or \`models/<model-id>/<model-id>.model.json\`)
+- Cubism 2 runtime bundle: \`static/js/live2d.min.js\`
+- OBS display controller: \`static/js/display.js\`
 
-The display page calls the legacy runtime API `loadlive2d(canvasId, modelJsonUrl)`. Flask serves model assets through `/models/<path>`. The page checks referenced model files before starting the renderer and reports success only after detecting rendered pixels in the WebGL drawing buffer.
+The display page calls the legacy runtime API \`loadlive2d(canvasId, modelJsonUrl)\`. Flask serves model assets through \`/models/<path>\`. The page checks referenced model files before starting the renderer and reports success only after detecting rendered pixels in the WebGL drawing buffer.
 
 Add the OBS Browser Source URL:
 
-```text
+\`\`\`text
 http://127.0.0.1:8768/display
-```
+\`\`\`
 
 For best clarity, set the OBS Browser Source resolution to the intended output resolution (normally 1920×1080) rather than stretching a small source.
 
@@ -51,14 +77,16 @@ Rendering quality is a first-class requirement. The implementation:
 
 MagicalDanmaku is a visual-quality reference only. This project does not copy, port, or derive code or assets from it.
 
-## Planned features
+## Current scope
 
-- Bilibili QR-code login and secure local credential storage
-- Cookie validation before connecting to a live room
-- Live-room WebSocket connection and event reception
-- Danmaku and gift event handling
-- Edge TTS speech playback with mouth movement synchronization
-- Gift-specific actions, membership expressions, and configurable danmaku emotions
+- Bilibili WEB QR-code login and local credential storage
+- Login validation before connecting
+- Live-room WebSocket connection, reconnection and event reception
+- Danmaku, gift and Super Chat event display in the Live2D speech bubble
+- Per-model speech-bubble positioning and sizing controls
+- Transparent OBS Live2D display
+
+Text-to-speech playback, mouth synchronization and gift-triggered model actions are not implemented yet.
 
 ## Development principles
 
