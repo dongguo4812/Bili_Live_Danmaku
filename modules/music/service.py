@@ -526,9 +526,10 @@ def match_candidates(
     return stage_one, stage_two
 
 
-def find_matching_song(title: str, artist: str) -> tuple[Optional[dict[str, Any]], str]:
-    """按 QQ→酷狗→网易云→酷我逐个平台搜索，当前平台匹配成功即停止。"""
+def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], str]:
+    """按 QQ→酷狗→网易云→酷我顺序收集每个平台的首个有效匹配，供播放失败时回退。"""
     keyword = f"{title} {artist}".strip()
+    matches: list[dict[str, Any]] = []
     errors: list[str] = []
     total_candidates = 0
     for provider_name, source, search_func in PROVIDERS:
@@ -537,23 +538,33 @@ def find_matching_song(title: str, artist: str) -> tuple[Optional[dict[str, Any]
             total_candidates += len(candidates)
             stage_one, stage_two = match_candidates(candidates, title, artist)
             if stage_one:
-                selected = stage_one[0]
-                log.info("音乐匹配成功：平台=%s（%s），级别=完全匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-                return selected, f"匹配成功（{provider_name}，完全匹配）"
-            if stage_two:
-                selected = stage_two[0]
-                log.info("音乐匹配成功：平台=%s（%s），级别=歌手包含匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-                return selected, f"匹配成功（{provider_name}，歌手包含匹配）"
-            log.info("音乐平台无符合条件结果：%s（%s），有效候选=%s", provider_name, source, len(candidates))
+                selected = dict(stage_one[0])
+                matches.append(selected)
+                log.info("音乐匹配候选：平台=%s（%s），级别=完全匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
+            elif stage_two:
+                selected = dict(stage_two[0])
+                matches.append(selected)
+                log.info("音乐匹配候选：平台=%s（%s），级别=歌手包含匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
+            else:
+                log.info("音乐平台无符合条件结果：%s（%s），有效候选=%s", provider_name, source, len(candidates))
         except Exception as exc:
             errors.append(f"{source}:{type(exc).__name__}: {exc}")
             log.exception("音乐平台搜索失败：%s（%s）", provider_name, source)
             continue
+
+    if matches:
+        return matches, f"已取得 {len(matches)} 个音源候选"
     if errors and total_candidates == 0:
-        return None, "音乐源搜索请求失败（" + ", ".join(errors) + "）"
+        return [], "音乐源搜索请求失败（" + ", ".join(errors) + "）"
     if artist:
-        return None, f"未找到歌名完全匹配且歌手完全匹配/包含“{artist}”的歌曲"
-    return None, "未找到歌名完全匹配且通过版本过滤的歌曲"
+        return [], f"未找到歌名完全匹配且歌手完全匹配/包含“{artist}”的歌曲"
+    return [], "未找到歌名完全匹配且通过版本过滤的歌曲"
+
+
+def find_matching_song(title: str, artist: str) -> tuple[Optional[dict[str, Any]], str]:
+    """兼容旧调用：返回搜索顺序中的首个有效候选。"""
+    matches, reason = find_matching_songs(title, artist)
+    return (matches[0], reason) if matches else (None, reason)
 
 
 def lx_scheme_play(song: dict[str, Any]) -> str:
@@ -658,7 +669,8 @@ def get_lx_current_song_key(
 def verify_requested_song(
     song: dict[str, Any],
     before_status: Optional[dict[str, Any]] = None,
-    timeout: float = 15.0,
+    timeout: float = 5.0,
+    abort_event: Any = None,
 ) -> tuple[bool, str]:
     """核对洛雪实际播放结果，必须确认本次请求产生了新的播放变化。"""
     requested_title = normalize_name(str(song.get("title", "")))
@@ -685,6 +697,8 @@ def verify_requested_song(
     saw_new_playback = False
 
     while time.monotonic() < deadline:
+        if abort_event is not None and abort_event.is_set():
+            return False, "检测到管理员切歌，已中止本次歌曲核验和音源回退"
         status = get_lx_status()
 
         if status:
@@ -760,6 +774,8 @@ def verify_requested_song(
 
             # 歌名相同但歌手不匹配，只有确认这是新播放的歌曲才暂停。
             if playing and fresh_playback and title_matches and requested_artist and not artist_matches:
+                if abort_event is not None and abort_event.is_set():
+                    return False, "检测到管理员切歌，已中止本次歌曲核验"
                 ok, detail = pause_lx_playback()
 
                 if ok:
@@ -777,6 +793,9 @@ def verify_requested_song(
 
     if last_status is None:
         return False, "无法读取洛雪状态接口，不能确认歌曲是否存在，已拒绝本次点歌"
+
+    if abort_event is not None and abort_event.is_set():
+        return False, "检测到管理员切歌，已中止本次歌曲核验和音源回退"
 
     if saw_new_playback:
         ok, detail = pause_lx_playback()
@@ -1074,11 +1093,11 @@ class MusicModule:
         # 先搜索并核验，只有拿到明确的歌曲 ID/音源后才继续。
         if not self.enabled or self._closing:
             return
-        matched, reason = await asyncio.to_thread(find_matching_song, title, artist)
+        matched_candidates, reason = await asyncio.to_thread(find_matching_songs, title, artist)
         if not self.enabled or self._closing:
             return
 
-        if not matched:
+        if not matched_candidates:
             log.info(
                 "【%s】点歌拒绝：%s%s；%s",
                 uname,
@@ -1093,6 +1112,7 @@ class MusicModule:
             )
             return
 
+        matched = matched_candidates[0]
         actual_title = str(matched.get("title", "")).strip()
         actual_artist = str(matched.get("artist", "")).strip()
 
@@ -1118,6 +1138,7 @@ class MusicModule:
             "source": str(matched.get("source", "")),
             "songmid": str(matched.get("songmid", "")),
             "music_info": matched,
+            "fallback_candidates": matched_candidates[1:],
             "uname": uname,
             "uid": uid,
             "key": key,
@@ -1232,35 +1253,78 @@ class MusicModule:
                     item = self.queue.popleft()
                     self.queued_keys.discard(item["key"])
                     self.current = item
-                self._skip_requested.clear()
-                if self._restore_snapshot is None:
-                    self._restore_snapshot = await asyncio.to_thread(get_lx_status)
-                # 每首歌播放前单独保存状态，便于区分“搜索失败仍停留在旧歌”和“切换到了错误歌曲”。
-                before_status = await asyncio.to_thread(get_lx_status)
-                while self.paused and self.enabled and not self._closing:
-                    await asyncio.sleep(0.25)
-                if not self.enabled or self._closing:
-                    return
-                log.info("开始播放点歌：%s%s", item["title"], f" - {item['artist']}" if item["artist"] else "")
-                started = await asyncio.to_thread(play_song_in_lx, item)
-                if not started:
-                    log.error("调用音乐失败，跳过本首：%s", item["title"])
-                    continue
-                verified, verify_message = await asyncio.to_thread(verify_requested_song, item, before_status)
-                if not verified:
-                    log.error("点歌歌曲核验失败：%s%s；%s", item["title"], f" - {item['artist']}" if item.get("artist") else "", verify_message)
-                    continue
-                log.info("点歌歌曲核验：%s", verify_message)
 
-                # 如果管理员在 URI Scheme 启动或核验期间切歌，wait_song_end 会立即返回，
-                # 随后播放 worker 处理下一首；这里绝不补发暂停，避免把切歌变成暂停。
+                self._skip_requested.clear()
+                candidates = [item.get("music_info") or {}]
+                candidates.extend(item.get("fallback_candidates") or [])
+                verified = False
+
+                for candidate_index, candidate in enumerate(candidates):
+                    if self._skip_requested.is_set() or not self.enabled or self._closing:
+                        break
+                    candidate_song = dict(item)
+                    candidate_song["music_info"] = candidate
+                    candidate_song["title"] = str(candidate.get("title") or item.get("title") or "")
+                    candidate_song["artist"] = str(candidate.get("artist") or item.get("artist") or "")
+                    candidate_song["source"] = str(candidate.get("source") or "")
+                    candidate_song["songmid"] = str(candidate.get("songmid") or "")
+
+                    before_status = await asyncio.to_thread(get_lx_status)
+                    if self._skip_requested.is_set() or not self.enabled or self._closing:
+                        break
+
+                    log.info(
+                        "开始播放点歌：%s - %s（音源 %s；候选 %s/%s）",
+                        candidate_song["title"], candidate_song["artist"],
+                        candidate_song["source"], candidate_index + 1, len(candidates),
+                    )
+                    started = await asyncio.to_thread(play_song_in_lx, candidate_song)
+                    if self._skip_requested.is_set():
+                        break
+                    if not started:
+                        log.warning("调用洛雪播放失败，准备回退音源：%s（%s）", candidate_song["title"], candidate_song["source"])
+                        continue
+
+                    ok, verify_message = await asyncio.to_thread(
+                        verify_requested_song,
+                        candidate_song,
+                        before_status,
+                        5.0,
+                        self._skip_requested,
+                    )
+                    if self._skip_requested.is_set():
+                        break
+                    if ok:
+                        item["music_info"] = candidate
+                        item["title"] = candidate_song["title"]
+                        item["artist"] = candidate_song["artist"]
+                        item["source"] = candidate_song["source"]
+                        item["songmid"] = candidate_song["songmid"]
+                        if candidate_song.get("actual_artist"):
+                            item["actual_artist"] = candidate_song["actual_artist"]
+                        log.info("点歌歌曲核验成功：%s", verify_message)
+                        verified = True
+                        break
+
+                    log.warning(
+                        "音源播放核验失败，准备尝试下一个音源：歌曲=%s - %s；音源=%s；原因=%s",
+                        candidate_song["title"], candidate_song["artist"],
+                        candidate_song["source"], verify_message,
+                    )
+
                 if self._skip_requested.is_set():
-                    log.info("检测到播放启动/核验期间收到切歌请求；将直接进入下一步播放流程，不发送暂停命令")
-                # URI Scheme 发起播放后等待用户切歌或当前曲目结束。
-                # status API 的字段因本机插件版本而异，采用多种常见字段判断。
+                    log.info("检测到管理员切歌，已停止当前歌曲核验/音源回退流程。")
+                    continue
+                if not verified:
+                    log.error("所有可用音源均未能确认播放成功：%s - %s", item.get("title", ""), item.get("artist", ""))
+                    async with self.queue_lock:
+                        if self.current is item:
+                            self.current = None
+                    continue
+
                 await self.wait_song_end()
                 log.info("机器人点播流程结束：%s", item["title"])
-            
+
     async def wait_song_end(self) -> None:
         start = time.monotonic()
         saw_playing = False
