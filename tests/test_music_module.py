@@ -168,6 +168,36 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(module.enqueue.await_count, 1)
 
+    async def test_inflight_search_cannot_enqueue_after_module_close(self):
+        import asyncio
+        import threading
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        status_entered = threading.Event()
+        release_status = threading.Event()
+
+        def delayed_status():
+            status_entered.set()
+            release_status.wait(timeout=3)
+            return None
+
+        candidate = {
+            "title": "晴天", "artist": "周杰伦", "source": "tx",
+            "songmid": "tx-id", "types": [{"type": "128k", "size": None}],
+        }
+        with patch("modules.music.service.find_matching_songs", return_value=([candidate], "ok")), \
+             patch("modules.music.service.get_lx_status", side_effect=delayed_status):
+            task = asyncio.create_task(module.enqueue("晴天", "周杰伦", "viewer", 789))
+            self.assertTrue(await asyncio.to_thread(status_entered.wait, 2))
+            await module.close()
+            release_status.set()
+            await task
+
+        self.assertFalse(module.enabled)
+        self.assertEqual(len(module.queue), 0)
+
+
 
 
 
