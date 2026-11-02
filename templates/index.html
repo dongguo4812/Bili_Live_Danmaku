@@ -185,6 +185,11 @@
 
     $("connect-live").addEventListener("click", async () => {
       try {
+        const room_id = Number($("room-id").value);
+        await api("/api/bilibili/room", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room_id })
+        });
         await api("/api/bilibili/connect", { method: "POST" });
         $("bili-action-message").textContent = "连接任务已启动，等待 B 站 WebSocket 真实认证。";
         refreshStatus();
