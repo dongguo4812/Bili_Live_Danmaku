@@ -51,6 +51,25 @@ class ConfigManagerTests(unittest.TestCase):
             self.assertEqual(manager.load("live")["room_id"], 123456)
 
 
+    def test_last_saved_user_room_takes_precedence_over_legacy_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            manager = ConfigManager(config_dir)
+            legacy = root / "config.json"
+            legacy.write_text(
+                __import__("json").dumps({"bilibili": {"room_id": 111}}),
+                encoding="utf-8",
+            )
+            (root / "user_settings.json").write_text(
+                __import__("json").dumps({"bilibili": {"room_id": 222}}),
+                encoding="utf-8",
+            )
+
+            manager.migrate_legacy_config(legacy)
+            self.assertEqual(manager.load("live")["room_id"], 0)
+
     def test_legacy_config_migrates_once_without_plain_obs_password(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
