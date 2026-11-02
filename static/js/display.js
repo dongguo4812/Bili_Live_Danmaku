@@ -29,10 +29,13 @@
   }
 
   function setCanvasResolution() {
-    const rect = canvas.getBoundingClientRect();
+    // Use the untransformed CSS layout size. The canvas is visually scaled
+    // with CSS, but its drawing buffer must remain full resolution.
+    const widthCss = canvas.clientWidth;
+    const heightCss = canvas.clientHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
-    const width = Math.max(1, Math.round(rect.width * dpr));
-    const height = Math.max(1, Math.round(rect.height * dpr));
+    const width = Math.max(1, Math.round(widthCss * dpr));
+    const height = Math.max(1, Math.round(heightCss * dpr));
 
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
