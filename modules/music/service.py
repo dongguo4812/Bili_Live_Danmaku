@@ -785,12 +785,16 @@ class MusicModule:
             await asyncio.gather(worker, return_exceptions=True)
         async with self.queue_lock:
             count = len(self.queue)
+            had_current_song = self.current is not None
             self.queue.clear()
             self.queued_keys.clear()
             self.current = None
-        ok, detail = await asyncio.to_thread(_lx_control, "stop")
-        if not ok:
-            log.warning("洛雪停止接口不可用，已尝试暂停当前歌曲：%s", detail)
+        if had_current_song:
+            ok, detail = await asyncio.to_thread(_lx_control, "stop")
+            if not ok:
+                log.warning("关闭歌曲模块时暂停当前点播失败：%s", detail)
+            else:
+                log.info("关闭歌曲模块：%s", detail)
         log.info("歌曲模块已关闭；清空待播队列 %s 首。", count)
 
 
