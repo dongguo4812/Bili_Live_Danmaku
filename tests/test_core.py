@@ -34,6 +34,10 @@ class ConfigManagerTests(unittest.TestCase):
             manager = ConfigManager(Path(directory))
             with self.assertRaises(ConfigError):
                 manager.save("music", {"lx_url": "http://127.0.0.1", "api_key": "must-not-be-saved"})
+            with self.assertRaises(ConfigError):
+                manager.save("music", {"apiKey": "must-not-be-saved"})
+            with self.assertRaises(ConfigError):
+                manager.save("music", {"accessToken": "must-not-be-saved"})
 
     def test_round_trip_plain_settings(self):
         with tempfile.TemporaryDirectory() as directory:
