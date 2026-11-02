@@ -7,7 +7,20 @@
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body class="manager-page">
-  <main class="manager">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">B站直播互动中心</div>
+      <nav class="sidebar-nav">
+        <a href="/dashboard">综合展示</a>
+        <a class="active" href="/">接入中心</a>
+        <a href="/display">Live2D</a>
+        <a href="/voice">语音播报</a>
+        <a href="/music">歌曲点播</a>
+        <a href="/video">视频点播</a>
+        <a href="/settings">系统设置</a>
+      </nav>
+    </aside>
+    <main class="manager">
     <header class="page-header">
       <div>
         <p class="eyebrow">BILI LIVE DANMAKU</p>
@@ -135,6 +148,7 @@
       <p class="muted">建议 OBS 浏览器源画布分辨率与实际输出分辨率一致。对话框位置、宽度和显示规则可在展示页左上角「设置」中手动调整。</p>
     </section>
   </main>
+  </div>
   <script>
     const $ = id => document.getElementById(id);
     let qrTimer = null;
