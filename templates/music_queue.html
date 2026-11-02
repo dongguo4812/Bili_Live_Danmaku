@@ -14,7 +14,7 @@ main{max-width:1100px;margin:auto}.top{display:flex;align-items:center;justify-c
 .unified-nav a{color:#c8d5e9;text-decoration:none}.unified-nav a.active{color:#fff;font-weight:800}
 </style>
 <nav class="unified-nav">
-<a href="/dashboard">综合展示</a><a href="/">接入中心</a><a href="/live2d">Live2D</a><a href="/voice">语音播报</a><a href="/music" class="active">歌曲点播</a><a href="/video" class="">视频点播</a><a href="/settings">系统设置</a>
+<a href="/dashboard">综合展示</a><a href="/">接入中心</a><a href="/live2d">Live2D</a><a href="/voice">语音播报</a><a href="/music" class="active">歌曲点播</a><a href="/music/settings">歌曲设置</a><a href="/video" class="">视频点播</a><a href="/settings">系统设置</a>
 </nav><main>
 <div class="top"><div><h1>音乐点歌 · 控制面板</h1><div class="muted">本地控制页面 · 数据每 2 秒自动刷新</div></div><div class="links"><a href="/music/display" target="_blank">打开展示页面 ↗</a> <button id="songRequestToggle" class="danger" onclick="toggleSongRequest()">关闭点歌</button></div></div>
 <div class="grid"><section class="card"><h2>正在播放</h2><div id="current" class="song">当前没有机器人点播歌曲</div><div class="buttons"><button id="skip" class="danger" onclick="action('skip')">切歌 / 播放下一首</button></div><div class="muted" style="margin-top:10px;font-size:13px">切歌时，待播队列为空时，尝试切换到洛雪音乐自身播放列表的下一首</div><div id="status" class="status" role="status"></div></section>
