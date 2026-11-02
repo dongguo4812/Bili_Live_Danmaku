@@ -10,6 +10,7 @@
   <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
 
   <section id="danmaku-bubble" class="danmaku-bubble" aria-live="polite" aria-label="直播弹幕" hidden></section>
+  <section id="danmaku-preview" class="danmaku-bubble danmaku-preview" aria-hidden="true" hidden></section>
 
   <button id="display-settings-toggle" class="display-settings-toggle" type="button"
           aria-expanded="false" aria-controls="display-settings-panel">⚙ 设置</button>
@@ -27,7 +28,7 @@
 
     <label class="setting-field">
       <span>模型大小 <output id="scale-value">100%</output></span>
-      <input id="scale-slider" type="range" min="50" max="180" step="1" value="100">
+      <input id="scale-slider" type="range" min="25" max="150" step="1" value="100">
     </label>
 
     <label class="setting-field">
