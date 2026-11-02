@@ -115,7 +115,11 @@ class ModuleManager:
             record = self._modules.get(name)
             if record is None:
                 raise KeyError(f"未知模块：{name}")
-            if record.state in {"stopped", "closing"}:
+            if record.state == "stopped":
+                # 即使模块尚未启动，用户明确点击“关闭”也应覆盖首次连接自动启动。
+                record.generation += 1
+                return
+            if record.state == "closing":
                 return
         await self._operate(name, "close", "stopped", manual=True)
 
@@ -202,7 +206,7 @@ class ModuleManager:
             snapshot = dict(self._disconnect_snapshot or {})
             auto_start_names = [
                 name for name, record in self._modules.items()
-                if first_connection and record.auto_start_on_connect and record.state == "stopped"
+                if first_connection and record.auto_start_on_connect and record.state == "stopped" and record.generation == 0
             ]
 
         if first_connection:
