@@ -48,18 +48,18 @@ The \`/display\` page polls the local event queue and displays incoming danmaku 
 
 Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
 
-If OBS WebSocket uses a non-default address, port, or password, add an optional section to the local `config.json`:
+OBS WebSocket settings are stored in the top-level `obs_websocket` section of the local `config.json`. The password is read from a separate local file rather than being written into the JSON configuration:
 
 ```json
 "obs_websocket": {
   "host": "127.0.0.1",
   "port": 4455,
-  "password": "你的 OBS WebSocket 密码",
+  "password_file": "credentials/obs_websocket.key",
   "timeout": 2.5
 }
 ```
 
-Merge this section into the existing top-level JSON object; do not replace the rest of `config.json`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**. The close (×) control is centered independently of the global button styles. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
+Create `credentials/obs_websocket.key` and put only the OBS WebSocket password in it (plain text, without quotes or a `password=` prefix). Keep the file private; the entire `credentials/` directory is excluded by `.gitignore`. The application rejects password-file paths outside the project directory. For compatibility, an older `password` value in `config.json` is still accepted when `password_file` is not configured. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**. The close (×) control is centered independently of the global button styles. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
 
 ## Default Live2D model
 
