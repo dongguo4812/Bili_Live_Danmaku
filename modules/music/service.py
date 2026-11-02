@@ -76,7 +76,7 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     REQUIRE_FANS_MEDAL = str(req.get("require_fans_medal", 0))
     COOLDOWN_SECONDS = max(0, int(req.get("cooldown_seconds", 10)))
     QUEUE_LIMIT = max(1, int(req.get("queue_limit", 100)))
-    SEARCH_LIMIT = max(1, int(search.get("max_results_per_platform", 20)))
+    SEARCH_LIMIT = min(20, max(1, int(search.get("max_results_per_platform", 20))))
     ADMIN_UIDS = set()
     configured_uids = config.get("admin_uids", [])
     if isinstance(configured_uids, list):
@@ -857,6 +857,9 @@ class MusicModule:
         self.queue_lock = asyncio.Lock()
         self.play_lock = asyncio.Lock()
         self.current: Optional[dict[str, Any]] = None
+        # 只有机器人确实向洛雪发起过当前曲目的播放后，生命周期操作才可控制洛雪。
+        # current 也可能只是已出队、正在查询音源的请求，不能据此暂停用户自己的歌曲。
+        self._lx_playback_active = False
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._skip_requested = asyncio.Event()
         self._worker: Optional[asyncio.Task] = None
@@ -866,6 +869,7 @@ class MusicModule:
         self.paused = False
         self._closing = False
         self.display_events: deque[dict[str, Any]] = deque(maxlen=30)
+        self._display_lock = threading.RLock()
         # 每次主程序启动默认开启点歌请求开关，但歌曲模块本身默认关闭。
         self.song_request_enabled = True
 
@@ -888,7 +892,7 @@ class MusicModule:
         # 先阻止播放 worker 启动下一首；只有机器人确实有当前点播时才控制洛雪，
         # 避免暂停空队列时误暂停用户自己播放的歌曲。
         self.paused = True
-        if self.current is not None:
+        if self._lx_playback_active:
             ok, detail = await asyncio.to_thread(_lx_control, "pause")
             if not ok:
                 self.paused = False
@@ -902,7 +906,7 @@ class MusicModule:
         if not self.paused:
             return
         # 当前没有机器人点播歌曲时，只解除模块暂停，不触碰洛雪中其他来源的歌曲。
-        if self.current is not None:
+        if self._lx_playback_active:
             ok, detail = await asyncio.to_thread(_lx_control, "resume")
             if not ok:
                 raise RuntimeError(detail)
@@ -928,7 +932,8 @@ class MusicModule:
                 await asyncio.gather(worker, return_exceptions=True)
         async with self.queue_lock:
             count = len(self.queue)
-            had_current_song = self.current is not None
+            had_current_song = self._lx_playback_active
+            self._lx_playback_active = False
             self.queue.clear()
             self.queued_keys.clear()
             self.current = None
@@ -943,35 +948,49 @@ class MusicModule:
 
     def add_display_event(self, message: str, kind: str) -> None:
         """将点歌成功/失败提示推送到展示页，网页端显示 5 秒。"""
-        self.display_events.append({
-            "message": str(message),
-            "kind": "success" if kind == "success" else "failure",
-            "timestamp": time.time(),
-        })
-
-    def queue_snapshot(self) -> dict[str, Any]:
-        now = time.time()
-        events = [
-            item for item in self.display_events
-            if now - float(item.get("timestamp", 0)) < 5.0
-        ]
-        current = None
-        if self.current:
-            # 若观众点歌时没有填写歌手，展示页使用洛雪状态 API 确认的实际歌手。
-            current = {
-                "title": self.current.get("title", ""),
-                "artist": self.current.get("artist", "") or self.current.get("actual_artist", ""),
-                "uname": self.current.get("uname", ""),
-            }
-        waiting = []
-        for i, item in enumerate(list(self.queue), 1):
-            waiting.append({
-                "index": i,
-                "title": item.get("title", ""),
-                "artist": item.get("artist", ""),
-                "uname": item.get("uname", ""),
+        with self._display_lock:
+            self.display_events.append({
+                "message": str(message),
+                "kind": "success" if kind == "success" else "failure",
+                "timestamp": time.time(),
             })
-        return {"ok": True, "current": current, "queue": waiting, "queue_count": len(waiting), "queue_limit": QUEUE_LIMIT, "events": events, "song_request_enabled": self.song_request_enabled}
+
+    async def queue_snapshot(self) -> dict[str, Any]:
+        # 展示页由 Flask 线程请求；切换到模块所属 asyncio 线程并加队列锁，
+        # 避免与弹幕入队、播放出队、人工删除同时读写 deque。
+        async with self.queue_lock:
+            current = None
+            if self.current:
+                current = {
+                    "title": self.current.get("title", ""),
+                    "artist": self.current.get("artist", "") or self.current.get("actual_artist", ""),
+                    "uname": self.current.get("uname", ""),
+                }
+            waiting = [
+                {
+                    "index": i,
+                    "title": item.get("title", ""),
+                    "artist": item.get("artist", ""),
+                    "uname": item.get("uname", ""),
+                }
+                for i, item in enumerate(self.queue, 1)
+            ]
+            queue_count = len(waiting)
+        now = time.time()
+        with self._display_lock:
+            events = [
+                dict(item) for item in self.display_events
+                if now - float(item.get("timestamp", 0)) < 5.0
+            ]
+        return {
+            "ok": True,
+            "current": current,
+            "queue": waiting,
+            "queue_count": queue_count,
+            "queue_limit": QUEUE_LIMIT,
+            "events": events,
+            "song_request_enabled": self.song_request_enabled,
+        }
 
     async def panel_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         action = str(payload.get("action", "")).strip().lower()
@@ -1276,6 +1295,7 @@ class MusicModule:
                     item = self.queue.popleft()
                     self.queued_keys.discard(item["key"])
                     self.current = item
+                    self._lx_playback_active = False
 
                 self._skip_requested.clear()
                 candidates = [item.get("music_info") or {}]
@@ -1302,6 +1322,9 @@ class MusicModule:
                         candidate_song["source"], candidate_index + 1, len(candidates),
                     )
                     started = await asyncio.to_thread(play_song_in_lx, candidate_song)
+                    if started:
+                        # Scheme 调用已成功发起；后续即使在切歌/关闭窗口内，也需确保可暂停此曲。
+                        self._lx_playback_active = True
                     if self._skip_requested.is_set():
                         break
                     if not started:
@@ -1367,6 +1390,7 @@ class MusicModule:
                     continue
 
                 await self.wait_song_end()
+                self._lx_playback_active = False
                 log.info("机器人点播流程结束：%s", item["title"])
 
     async def wait_song_end(self) -> None:
