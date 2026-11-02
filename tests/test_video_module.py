@@ -138,10 +138,10 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info) as info:
             first_task = asyncio.create_task(video_service.on_dan_mu(first))
-            await entered.wait()
+            await asyncio.wait_for(entered.wait(), timeout=3)
             await video_service.on_dan_mu(second)
             release.set()
-            await first_task
+            await asyncio.wait_for(first_task, timeout=5)
 
         self.assertEqual(info.await_count, 1)
         self.assertEqual(video_service.video_queue, ["BV1xx411c7mD"])
@@ -169,10 +169,10 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info) as info:
             first_task = asyncio.create_task(video_service.on_dan_mu(event_a))
-            await entered.wait()
+            await asyncio.wait_for(entered.wait(), timeout=3)
             await video_service.on_dan_mu(event_b)
             release.set()
-            await first_task
+            await asyncio.wait_for(first_task, timeout=5)
 
         self.assertEqual(info.await_count, 1)
         self.assertEqual(video_service.video_queue, ["BV1xx411c7mD"])
@@ -201,10 +201,10 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info) as info:
             first_task = asyncio.create_task(video_service.on_dan_mu(event_a))
-            await entered.wait()
+            await asyncio.wait_for(entered.wait(), timeout=3)
             await video_service.on_dan_mu(event_b)
             release.set()
-            await first_task
+            await asyncio.wait_for(first_task, timeout=5)
 
         self.assertEqual(info.await_count, 1)
         self.assertEqual(video_service.video_queue, ["BV1xx411c7mD"])
@@ -311,11 +311,11 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info), \
              patch.object(video_service, "configure_video_module"):
             task = asyncio.create_task(video_service.on_dan_mu(event))
-            await entered.wait()
+            await asyncio.wait_for(entered.wait(), timeout=3)
             await self.module.pause()
             await self.module.resume()
             release.set()
-            await task
+            await asyncio.wait_for(task, timeout=5)
 
         self.assertEqual(video_service.video_queue, [])
         self.assertFalse(video_service.pending_video_uids)
