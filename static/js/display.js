@@ -12,7 +12,7 @@
   const expressionSelect = document.getElementById("model-expression-select");
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
-  const modelActionStatus = document.getElementById("model-action-status");
+  const modelActionStatusElement = document.getElementById("model-action-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
@@ -684,10 +684,10 @@
     if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
   }
 
-  function modelActionStatus(message, isError = false) {
-    if (!modelActionStatus) return;
-    modelActionStatus.textContent = message;
-    modelActionStatus.classList.toggle("error", isError);
+  function setModelActionStatus(message, isError = false) {
+    if (!modelActionStatusElement) return;
+    modelActionStatusElement.textContent = message;
+    modelActionStatusElement.classList.toggle("error", isError);
   }
 
   function updateModelActionAvailability() {
@@ -741,10 +741,10 @@
         expressionSelect.appendChild(option);
       }
     }
-    if (modelActionStatus) {
+    if (modelActionStatusElement) {
       const motionCount = motionSelect ? Math.max(0, motionSelect.options.length - 1) : 0;
       const expressionCount = expressionSelect ? Math.max(0, expressionSelect.options.length - 1) : 0;
-      modelActionStatus.textContent = modelId + "：读取到 " + motionCount + " 个动作、" + expressionCount + " 个表情。";
+      modelActionStatusElement.textContent = modelId + "：读取到 " + motionCount + " 个动作、" + expressionCount + " 个表情。";
     }
     updateModelActionAvailability();
   }
@@ -759,7 +759,7 @@
 
   function playSelectedModelMotion() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
-      modelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      setModelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
       return;
     }
     const value = motionSelect && motionSelect.value;
@@ -769,40 +769,40 @@
     const index = Number(value.slice(separator + 2));
     const model = window.__live2dManager && window.__live2dManager.getModel(0);
     if (!model || !model.initialized || typeof model.startMotion !== "function") {
-      modelActionStatus("Live2D 模型尚未完成初始化。", true);
+      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
       return;
     }
     try {
       // Cubism 2 priority 4 is FORCE: user-selected motion takes precedence
       // over the model's low-priority automatic idle motion.
       model.startMotion(group, index, 4);
-      modelActionStatus("已播放动作：" + group + " / " + motionSelect.selectedOptions[0].textContent);
+      setModelActionStatus("已播放动作：" + group + " / " + motionSelect.selectedOptions[0].textContent);
     } catch (error) {
-      modelActionStatus("动作播放失败：" + error.message, true);
+      setModelActionStatus("动作播放失败：" + error.message, true);
     }
   }
 
   function applySelectedModelExpression() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
-      modelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      setModelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
       return;
     }
     const name = expressionSelect && expressionSelect.value;
     if (!name) return;
     const model = window.__live2dManager && window.__live2dManager.getModel(0);
     if (!model || !model.initialized || typeof model.setExpression !== "function") {
-      modelActionStatus("Live2D 模型尚未完成初始化。", true);
+      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
       return;
     }
     if (!model.expressions || !model.expressions[name]) {
-      modelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
+      setModelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
       return;
     }
     try {
       model.setExpression(name);
-      modelActionStatus("已切换表情：" + name);
+      setModelActionStatus("已切换表情：" + name);
     } catch (error) {
-      modelActionStatus("表情切换失败：" + error.message, true);
+      setModelActionStatus("表情切换失败：" + error.message, true);
     }
   }
 
@@ -810,11 +810,11 @@
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) return;
     const model = window.__live2dManager && window.__live2dManager.getModel(0);
     if (!model || !model.expressionManager || typeof model.expressionManager.stopAllMotions !== "function") {
-      modelActionStatus("当前模型不支持恢复默认表情。", true);
+      setModelActionStatus("当前模型不支持恢复默认表情。", true);
       return;
     }
     model.expressionManager.stopAllMotions();
-    modelActionStatus("已恢复模型默认表情。");
+    setModelActionStatus("已恢复模型默认表情。");
   }
 
   function collectModelFiles(config) {
