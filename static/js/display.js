@@ -80,9 +80,9 @@
   let audioContext = null;
   let connectionTimer = null;
   let lastConnectionState = null;
-  let live2dModuleActive = true;
-  let voiceModuleActive = true;
-  let live2dModuleState = "running";
+  let live2dModuleActive = false;
+  let voiceModuleActive = false;
+  let live2dModuleState = "stopped";
   let audioResumeInProgress = false;
   let currentAudioSource = null;
   let audioPlaying = false;
