@@ -26,8 +26,8 @@ class ApplicationRuntime:
         self._started = True
         logger.info("统一应用异步运行时已启动。")
 
-    def register_module(self, name: str, module: Any) -> None:
-        self.modules.register(name, module)
+    def register_module(self, name: str, module: Any, initial_state: str = "stopped") -> None:
+        self.modules.register(name, module, initial_state=initial_state)
 
     def publish_event(self, event: dict[str, Any]) -> None:
         if not self._started:
