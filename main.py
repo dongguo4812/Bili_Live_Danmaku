@@ -8,10 +8,14 @@ import math
 import os
 import re
 import threading
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+
+from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
@@ -23,11 +27,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("bili_live_danmaku")
 
 RUNTIME_STATE_LOCK = threading.Lock()
-SETTINGS_LOCK = threading.Lock()
+SETTINGS_LOCK = threading.RLock()
+BILIBILI_STATE_LOCK = threading.RLock()
+DANMAKU_LOCK = threading.Lock()
 RUNTIME_STATE: dict[str, str] = {
     "state": "not_started",
     "message": "OBS display has not initialized the Live2D runtime.",
 }
+BILIBILI_STATE: dict[str, Any] = {
+    "logged_in": False,
+    "connected": False,
+    "connection_state": "disconnected",
+    "message": "请先使用 B 站二维码登录。",
+    "room_id": 0,
+    "username": "",
+}
+DANMAKU_ITEMS: deque[dict[str, Any]] = deque(maxlen=300)
+DANMAKU_SEQUENCE = 0
 
 
 def load_config() -> dict[str, Any]:
@@ -42,6 +58,25 @@ def load_config() -> dict[str, Any]:
 
 CONFIG = load_config()
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
+
+
+def _credential_path() -> Path:
+    configured = CONFIG.get("bilibili", {}).get("credential_file", "credentials/bilibili.json")
+    candidate = (BASE_DIR / str(configured)).resolve()
+    try:
+        candidate.relative_to(BASE_DIR.resolve())
+    except ValueError as exc:
+        raise ValueError("credential_file 必须位于项目目录内。") from exc
+    return candidate
+
+
+QR_LOGIN = QRLogin(_credential_path())
+LIVE_CLIENT = LiveRoomClient(
+    on_event=lambda item: _append_danmaku(item),
+    on_state=lambda state, message: _set_bilibili_connection_state(state, message),
+    reconnect=bool(CONFIG.get("bilibili", {}).get("reconnect", True)),
+    reconnect_interval=int(CONFIG.get("bilibili", {}).get("reconnect_interval_seconds", 5)),
+)
 
 
 def _safe_model_dir(model_id: str) -> Path | None:
@@ -91,7 +126,7 @@ def _default_model_id() -> str:
 def _load_user_settings() -> dict[str, Any]:
     default_model = _default_model_id()
     if not USER_SETTINGS_PATH.is_file():
-        return {"model": default_model, "models": {}}
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}}
     try:
         data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -102,13 +137,20 @@ def _load_user_settings() -> dict[str, Any]:
         models = data.get("models")
         if not isinstance(models, dict):
             models = {}
-        return {"model": model_id, "models": models}
+        bilibili = data.get("bilibili")
+        if not isinstance(bilibili, dict):
+            bilibili = {}
+        try:
+            room_id = max(0, int(bilibili.get("room_id", 0)))
+        except (TypeError, ValueError):
+            room_id = 0
+        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}}
     except Exception as exc:
-        logger.warning("读取用户展示设置失败，将使用默认设置：%s", exc)
-        return {"model": default_model, "models": {}}
+        logger.warning("读取用户设置失败，将使用默认设置：%s", exc)
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}}
 
 
-def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, float]:
+def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
     raw = settings.get("models", {}).get(model_id, {})
     if not isinstance(raw, dict):
         raw = {}
@@ -122,10 +164,22 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, flo
         except (TypeError, ValueError):
             return default
 
+    def integer(key: str, default: int, low: int, high: int) -> int:
+        try:
+            return max(low, min(high, int(raw.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
     return {
         "scale": number("scale", 1.0, 0.5, 1.8),
         "x": number("x", 0.0, -1.0, 1.0),
         "y": number("y", 0.0, -1.0, 1.0),
+        "bubble_x": number("bubble_x", 50.0, 0.0, 100.0),
+        "bubble_bottom": number("bubble_bottom", 45.0, 0.0, 95.0),
+        "bubble_width": integer("bubble_width", 420, 240, 760),
+        "bubble_max_height": integer("bubble_max_height", 320, 100, 700),
+        "bubble_max_items": integer("bubble_max_items", 5, 1, 12),
+        "bubble_duration": integer("bubble_duration", 10, 2, 60),
     }
 
 
@@ -172,10 +226,9 @@ def _model_assets(model_id: str) -> tuple[bool, list[str], dict[str, Any]]:
         value = data.get(key)
         if isinstance(value, str) and value:
             references.append(value)
-    for key in ("textures",):
-        values = data.get(key, [])
-        if isinstance(values, list):
-            references.extend(item for item in values if isinstance(item, str) and item)
+    values = data.get("textures", [])
+    if isinstance(values, list):
+        references.extend(item for item in values if isinstance(item, str) and item)
     expressions = data.get("expressions", [])
     if isinstance(expressions, list):
         references.extend(item["file"] for item in expressions if isinstance(item, dict) and isinstance(item.get("file"), str))
@@ -221,6 +274,33 @@ def model_status() -> dict[str, Any]:
     }
 
 
+def _append_danmaku(item: dict[str, Any]) -> None:
+    global DANMAKU_SEQUENCE
+    with DANMAKU_LOCK:
+        DANMAKU_SEQUENCE += 1
+        record = dict(item)
+        record["id"] = DANMAKU_SEQUENCE
+        DANMAKU_ITEMS.append(record)
+
+
+def _set_bilibili_connection_state(state: str, message: str) -> None:
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["connection_state"] = state
+        BILIBILI_STATE["connected"] = state == "connected"
+        BILIBILI_STATE["message"] = message
+    logger.info("B站直播连接状态：%s - %s", state, message)
+
+
+def _login_status() -> tuple[bool, str, dict[str, str] | None]:
+    valid, message, cookies = validate_cookie_file(_credential_path())
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["logged_in"] = valid
+        if not valid and BILIBILI_STATE["connected"]:
+            BILIBILI_STATE["connected"] = False
+            BILIBILI_STATE["connection_state"] = "disconnected"
+    return valid, message, cookies
+
+
 @app.get("/")
 def index():
     return render_template("index.html")
@@ -257,7 +337,7 @@ def save_display_settings():
         return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
     model_id = payload.get("model")
     if not isinstance(model_id, str) or not any(item["id"] == model_id for item in _available_models()):
-        return jsonify({"ok": False, "error": "所选模型不存在或缺少有效的 model.json。"}), 400
+        return jsonify({"ok": False, "error": "所选模型不存在或缺少有效模型配置。"}), 400
 
     def bounded_number(key: str, default: float, low: float, high: float) -> float:
         try:
@@ -268,11 +348,23 @@ def save_display_settings():
         except (TypeError, ValueError):
             raise ValueError(f"{key} 参数无效。")
 
+    def bounded_integer(key: str, default: int, low: int, high: int) -> int:
+        try:
+            return max(low, min(high, int(payload.get(key, default))))
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} 参数无效。")
+
     try:
         preferences = {
             "scale": bounded_number("scale", 1.0, 0.5, 1.8),
             "x": bounded_number("x", 0.0, -1.0, 1.0),
             "y": bounded_number("y", 0.0, -1.0, 1.0),
+            "bubble_x": bounded_number("bubble_x", 50.0, 0.0, 100.0),
+            "bubble_bottom": bounded_number("bubble_bottom", 45.0, 0.0, 95.0),
+            "bubble_width": bounded_integer("bubble_width", 420, 240, 760),
+            "bubble_max_height": bounded_integer("bubble_max_height", 320, 100, 700),
+            "bubble_max_items": bounded_integer("bubble_max_items", 5, 1, 12),
+            "bubble_duration": bounded_integer("bubble_duration", 10, 2, 60),
         }
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -283,7 +375,7 @@ def save_display_settings():
         settings.setdefault("models", {})[model_id] = preferences
         _save_user_settings(settings)
 
-    logger.info("已保存 Live2D 展示设置：model=%s scale=%.2f x=%.2f y=%.2f", model_id, preferences["scale"], preferences["x"], preferences["y"])
+    logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
     return jsonify({"ok": True, "model": model_id, "preferences": preferences})
 
 
@@ -300,9 +392,6 @@ def model_config_file(model_id: str):
     if not isinstance(layout, dict):
         layout = {}
         data["layout"] = layout
-
-    # Apply transform through Cubism 2's native model layout matrix, not CSS
-    # scaling of the canvas. Preserve each model's own original layout values.
     original_width = layout.get("width", 2.0)
     original_height = layout.get("height")
     try:
@@ -343,21 +432,102 @@ def update_live2d_status():
     return jsonify({"ok": True})
 
 
+@app.post("/api/bilibili/qr")
+def start_qr_login():
+    try:
+        result = QR_LOGIN.start()
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("申请 B 站登录二维码失败")
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+@app.get("/api/bilibili/qr")
+def poll_qr_login():
+    return jsonify(QR_LOGIN.poll())
+
+
+@app.get("/api/bilibili/room")
+def get_room_setting():
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    return jsonify({"ok": True, "room_id": settings["bilibili"]["room_id"]})
+
+
+@app.post("/api/bilibili/room")
+def save_room_setting():
+    payload = request.get_json(silent=True)
+    try:
+        room_id = int(payload.get("room_id")) if isinstance(payload, dict) else 0
+        if room_id <= 0 or room_id > 2_147_483_647:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "请输入有效的 B 站直播间房间号。"}), 400
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+        settings["bilibili"]["room_id"] = room_id
+        _save_user_settings(settings)
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["room_id"] = room_id
+    return jsonify({"ok": True, "room_id": room_id})
+
+
+@app.post("/api/bilibili/connect")
+def connect_live_room():
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    room_id = settings["bilibili"]["room_id"]
+    if room_id <= 0:
+        return jsonify({"ok": False, "error": "请先在管理界面设置直播间房间号。"}), 400
+    valid, message, cookies = _login_status()
+    if not valid or not cookies:
+        return jsonify({"ok": False, "error": message, "need_login": True}), 401
+    try:
+        LIVE_CLIENT.start(room_id, cookies)
+    except BilibiliClientError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["room_id"] = room_id
+        BILIBILI_STATE["message"] = "连接任务已启动，正在等待 WebSocket 真实认证。"
+    return jsonify({"ok": True, "message": "连接任务已启动，等待 B 站 WebSocket 认证。"})
+
+
+@app.post("/api/bilibili/disconnect")
+def disconnect_live_room():
+    LIVE_CLIENT.stop()
+    return jsonify({"ok": True, "message": "已请求断开直播连接。"})
+
+
+@app.get("/api/danmaku")
+def get_danmaku():
+    try:
+        after = max(0, int(request.args.get("after", "0")))
+    except ValueError:
+        after = 0
+    with DANMAKU_LOCK:
+        items = [item for item in DANMAKU_ITEMS if item["id"] > after]
+    return jsonify({"ok": True, "items": items})
+
+
 @app.get("/api/status")
 def api_status():
     live2d = model_status()
+    valid, login_message, _ = _login_status()
+    with BILIBILI_STATE_LOCK:
+        bili = dict(BILIBILI_STATE)
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    bili["logged_in"] = valid
+    bili["room_id"] = settings["bilibili"]["room_id"]
+    bili["message"] = bili["message"] if bili["connected"] else login_message + " " + bili["message"]
     return jsonify({
         "application": "Bili Live Danmaku",
         "web_server": "running",
-        "bilibili": {
-            "logged_in": False,
-            "connected": False,
-            "message": "Bilibili QR login and live connection are not implemented yet.",
-        },
+        "bilibili": bili,
         "live2d": live2d,
         "features": {
-            "danmaku": False,
-            "gift_events": False,
+            "danmaku": True,
+            "gift_events": True,
             "tts": False,
             "mouth_sync": False,
             "moc2_runtime": live2d["runtime_ready"],
@@ -365,9 +535,18 @@ def api_status():
     })
 
 
+def _initialize_login_state() -> None:
+    valid, message, _ = _login_status()
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["message"] = message
+
+
+_initialize_login_state()
+
+
 if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
     logger.info("Starting local management server at http://%s:%s", host, port)
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
