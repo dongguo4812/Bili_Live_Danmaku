@@ -15,7 +15,7 @@ BASE_DIR = get_base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 _LOCK = threading.RLock()
 _SECRET_KEY = re.compile(
-    r"(?:^|_)(?:cookie|sessdata|bili_jct|password|passwd|secret|token|api_key|access_key|private_key)(?:$|_)",
+    r"(?:^|_)(?:cookie|sessdata|bili_jct|password|passwd|secret|token|api_key|access_key|private_key|authorization)(?:$|_)",
     re.IGNORECASE,
 )
 
