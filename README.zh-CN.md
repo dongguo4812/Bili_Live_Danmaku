@@ -188,7 +188,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
 - `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-旧版 `user_settings.json` 中的房间号、Live2D 和语音设置会在首次运行时迁移到对应模块配置。旧版 `config.json` 中的 OBS 明文密码可在“凭据管理”页显式迁移；迁移成功后会清理旧配置中的密码字段及其指向的旧密码文件。B 站 Cookie 不从旧文本文件自动导入，需通过二维码重新登录。普通配置可单独备份；不要把 `credentials/` 上传到 GitHub。
+旧版 `user_settings.json` 中的房间号、Live2D 和语音设置会在首次运行时迁移到对应模块配置。旧版 `config.json` 中的 OBS 明文密码可在“凭据管理”页显式迁移；迁移成功后会清理旧配置中的密码字段及其指向的旧密码文件。旧版 `obs_config.txt` 仅提示人工检查，不会被自动解析；B 站 Cookie 不从旧文本文件自动导入，需通过二维码重新登录。普通配置可单独备份；不要把 `credentials/` 上传到 GitHub。
 
 ## 统一模块与综合展示
 
