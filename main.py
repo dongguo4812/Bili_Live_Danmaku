@@ -1690,7 +1690,7 @@ def _legacy_obs_credential_candidates() -> dict[str, Any]:
                     try:
                         candidate.relative_to(BASE_DIR.resolve())
                         is_credential_path = candidate.is_relative_to((BASE_DIR / "credentials").resolve())
-                        if candidate.is_file() and not is_credential_path and candidate != LEGACY_CONFIG_PATH.resolve():
+                        if candidate.is_file() and not is_credential_path and candidate != LEGACY_CONFIG_PATH.resolve() and candidate != (BASE_DIR / "config" / "obs.json").resolve():
                             found["password_file"] = str(candidate.relative_to(BASE_DIR))
                     except ValueError:
                         pass
@@ -1741,7 +1741,7 @@ def migrate_legacy_credentials():
         if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
             candidate = (BASE_DIR / old_file).resolve()
             candidate.relative_to(BASE_DIR.resolve())
-            if candidate == LEGACY_CONFIG_PATH.resolve() or candidate.is_relative_to((BASE_DIR / "credentials").resolve()):
+            if candidate in {LEGACY_CONFIG_PATH.resolve(), (BASE_DIR / "config" / "obs.json").resolve()} or candidate.is_relative_to((BASE_DIR / "credentials").resolve()):
                 raise ValueError("旧密码文件路径不安全，拒绝迁移或删除。")
             if candidate.is_file():
                 password_file_path = candidate
