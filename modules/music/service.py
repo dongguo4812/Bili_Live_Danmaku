@@ -66,7 +66,7 @@ def load_admin_uids(path: Path = UID_FILE) -> set[int]:
 def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id: int = 0) -> None:
     """由主程序注入普通配置和统一登录态；本模块不读取/保存 Cookie。"""
     global LX_API, HTTP_TIMEOUT, ROOM_ID, COOKIE_DICT, REQUIRE_FANS_MEDAL
-    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS, SESSION
+    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS
     lx = config.get("lx_music", {}) if isinstance(config.get("lx_music"), dict) else {}
     req = config.get("requests", {}) if isinstance(config.get("requests"), dict) else {}
     search = config.get("search", {}) if isinstance(config.get("search"), dict) else {}
@@ -104,12 +104,6 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
         "buvid4": str(values.get("buvid4", "")),
         "DedeUserID": str(values.get("dedeuserid", "")),
     }
-    SESSION = requests.Session()
-    SESSION.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132 Safari/537.36",
-        "Referer": "https://live.bilibili.com/",
-    })
-    SESSION.cookies.update({k: v for k, v in COOKIE_DICT.items() if v})
     MEDAL_CACHE.clear()
 
 
@@ -190,12 +184,20 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
     if cached and now - cached[0] < MEDAL_CACHE_SECONDS:
         return cached[1], cached[2]
     try:
-        response = SESSION.get(
-            "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
-            params={"target_id": uid}, timeout=HTTP_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        # 每次查询使用独立 Session；不同观众的粉丝牌核验会在线程池并发执行，
+        # 不共享 requests.Session，避免 CookieJar/连接状态的跨线程竞争。
+        with requests.Session() as session:
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132 Safari/537.36",
+                "Referer": "https://live.bilibili.com/",
+            })
+            session.cookies.update({k: v for k, v in COOKIE_DICT.items() if v})
+            response = session.get(
+                "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
+                params={"target_id": uid}, timeout=HTTP_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
         if not isinstance(payload, dict) or payload.get("code") != 0 or not isinstance(payload.get("data"), dict):
             reason = "粉丝牌接口返回异常，无法确认粉丝牌状态"
             MEDAL_CACHE[uid] = (now, False, reason)
