@@ -154,6 +154,16 @@
     bubble.style.width = width + "px";
     bubble.style.maxHeight = p.bubble_max_height + "px";
     bubble.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
+    while (bubble.children.length > p.bubble_max_items) {
+      const oldest = bubble.firstElementChild;
+      if (!oldest) break;
+      const oldId = oldest.dataset.entryId;
+      const timer = oldId ? activeItems.get(oldId) : null;
+      if (timer) clearTimeout(timer);
+      if (oldId) activeItems.delete(oldId);
+      oldest.remove();
+    }
+    if (!bubble.children.length) bubble.hidden = true;
   }
 
   async function saveSettings() {
