@@ -177,7 +177,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
             return default
 
     return {
-        "scale": number("scale", 1.0, 0.5, 1.8),
+        "scale": number("scale", 1.0, 0.25, 1.5),
         "x": number("x", 0.0, -1.0, 1.0),
         "y": number("y", 0.0, -1.0, 1.0),
         "bubble_x": number("bubble_x", 50.0, 0.0, 100.0),
@@ -233,9 +233,21 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
     except (TypeError, ValueError):
         port, timeout = 4455, 2.5
-    password = str(obs_config.get("password", ""))
     ws = None
     try:
+        password_file = obs_config.get("password_file")
+        if password_file:
+            password_path = (BASE_DIR / str(password_file)).resolve()
+            try:
+                password_path.relative_to(BASE_DIR.resolve())
+            except ValueError as exc:
+                raise ValueError("OBS password_file 必须位于项目目录内。") from exc
+            if not password_path.is_file():
+                raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
+            password = password_path.read_text(encoding="utf-8-sig").strip()
+        else:
+            # 兼容旧版 config.json 中直接配置 password 的方式。
+            password = str(obs_config.get("password", ""))
         ws = websocket.create_connection(
             f"ws://{host}:{port}",
             timeout=timeout,
@@ -249,7 +261,7 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         authentication = hello_data.get("authentication")
         if authentication:
             if not password:
-                raise RuntimeError("OBS WebSocket 已启用密码验证，但 config.json 未配置密码。")
+                raise RuntimeError("OBS WebSocket 已启用密码验证，但密码文件为空或未配置有效密码。")
             secret = base64.b64encode(
                 hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
             ).decode("ascii")
@@ -509,7 +521,7 @@ def save_display_settings():
 
     try:
         preferences = {
-            "scale": bounded_number("scale", 1.0, 0.5, 1.8),
+            "scale": bounded_number("scale", 1.0, 0.25, 1.5),
             "x": bounded_number("x", 0.0, -1.0, 1.0),
             "y": bounded_number("y", 0.0, -1.0, 1.0),
             "bubble_x": bounded_number("bubble_x", 50.0, 0.0, 100.0),
