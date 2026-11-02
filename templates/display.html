@@ -9,6 +9,8 @@
 <body class="display-page">
   <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
 
+  <section id="danmaku-bubble" class="danmaku-bubble" aria-live="polite" aria-label="直播弹幕"></section>
+
   <button id="display-settings-toggle" class="display-settings-toggle" type="button"
           aria-expanded="false" aria-controls="display-settings-panel">⚙ 设置</button>
 
@@ -29,16 +31,49 @@
     </label>
 
     <label class="setting-field">
-      <span>水平位置 <output id="x-value">0.00</output></span>
+      <span>模型水平位置 <output id="x-value">0.00</output></span>
       <input id="x-slider" type="range" min="-100" max="100" step="1" value="0">
     </label>
 
     <label class="setting-field">
-      <span>垂直位置 <output id="y-value">0.00</output></span>
+      <span>模型垂直位置 <output id="y-value">0.00</output></span>
       <input id="y-slider" type="range" min="-100" max="100" step="1" value="0">
     </label>
 
-    <p id="settings-save-status" class="settings-save-status" role="status">设置会自动保存到本地。</p>
+    <div class="settings-divider"></div>
+    <strong class="settings-subtitle">弹幕对话框位置与大小</strong>
+
+    <label class="setting-field">
+      <span>对话框水平位置 <output id="bubble-x-value">50%</output></span>
+      <input id="bubble-x-slider" type="range" min="0" max="100" step="1" value="50">
+    </label>
+
+    <label class="setting-field">
+      <span>对话框底部位置 <output id="bubble-bottom-value">45%</output></span>
+      <input id="bubble-bottom-slider" type="range" min="0" max="95" step="1" value="45">
+    </label>
+
+    <label class="setting-field">
+      <span>对话框宽度 <output id="bubble-width-value">420px</output></span>
+      <input id="bubble-width-slider" type="range" min="240" max="760" step="10" value="420">
+    </label>
+
+    <label class="setting-field">
+      <span>对话框最大高度 <output id="bubble-height-value">320px</output></span>
+      <input id="bubble-height-slider" type="range" min="100" max="700" step="10" value="320">
+    </label>
+
+    <label class="setting-field">
+      <span>同时显示弹幕条数 <output id="bubble-items-value">5 条</output></span>
+      <input id="bubble-items-slider" type="range" min="1" max="12" step="1" value="5">
+    </label>
+
+    <label class="setting-field">
+      <span>每条弹幕显示时长 <output id="bubble-duration-value">10 秒</output></span>
+      <input id="bubble-duration-slider" type="range" min="2" max="60" step="1" value="10">
+    </label>
+
+    <p id="settings-save-status" class="settings-save-status" role="status">位置和大小会自动保存；弹幕框底边固定并向上扩展。</p>
   </section>
 
   <div id="display-placeholder" role="status">正在初始化 Live2D 模型…</div>
