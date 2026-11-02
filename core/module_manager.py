@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("bili_live_danmaku.modules")
@@ -18,6 +18,7 @@ class ModuleRecord:
     state: str = "stopped"  # stopped / running / paused / error
     generation: int = 0
     error: str = ""
+    operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
 
 class ModuleManager:
@@ -70,10 +71,13 @@ class ModuleManager:
             if record.state == "stopped":
                 return
             if record.state == "paused":
-                # 用户在断线期间再次明确点击暂停：即使模块已被自动暂停，也要记录手动意图。
+                # 若模块正等待断线恢复，串行补一次暂停，确保用户手动意图最后生效。
                 if self._disconnect_snapshot is not None and name in self._disconnect_snapshot:
-                    record.generation += 1
-                return
+                    needs_manual_pause = True
+                else:
+                    return
+            else:
+                needs_manual_pause = False
         await self._operate(name, "pause", "paused", manual=True)
 
     async def resume(self, name: str) -> None:
@@ -99,22 +103,25 @@ class ModuleManager:
             record = self._modules.get(name)
             if record is None:
                 raise KeyError(f"未知模块：{name}")
-            if manual:
-                record.generation += 1
-            instance = record.instance
-        try:
-            result = getattr(instance, method)()
-            if inspect.isawaitable(result):
-                await result
+        # 同一模块的 start/pause/resume/close 串行执行，避免重连恢复与用户操作互相覆盖。
+        async with record.operation_lock:
             with self._lock:
-                record.state = target_state
-                record.error = ""
-        except Exception as exc:
-            with self._lock:
-                record.state = "error"
-                record.error = str(exc)[:300]
-            logger.exception("模块操作失败：module=%s action=%s", name, method)
-            raise
+                if manual:
+                    record.generation += 1
+                instance = record.instance
+            try:
+                result = getattr(instance, method)()
+                if inspect.isawaitable(result):
+                    await result
+                with self._lock:
+                    record.state = target_state
+                    record.error = ""
+            except Exception as exc:
+                with self._lock:
+                    record.state = "error"
+                    record.error = str(exc)[:300]
+                logger.exception("模块操作失败：module=%s action=%s", name, method)
+                raise
 
     async def on_connection_lost(self) -> None:
         with self._lock:
@@ -133,19 +140,23 @@ class ModuleManager:
 
     async def on_connection_restored(self) -> None:
         with self._lock:
-            snapshot = self._disconnect_snapshot or {}
-            self._disconnect_snapshot = None
-            resume_names = [
-                name for name, generation in snapshot.items()
-                if name in self._modules
-                and self._modules[name].generation == generation
-                and self._modules[name].state == "paused"
-            ]
-        for name in resume_names:
+            snapshot = dict(self._disconnect_snapshot or {})
+        for name, generation in snapshot.items():
+            with self._lock:
+                record = self._modules.get(name)
+                should_resume = bool(
+                    record is not None
+                    and record.generation == generation
+                    and record.state == "paused"
+                )
+            if not should_resume:
+                continue
             try:
                 await self._operate(name, "resume", "running", manual=False)
             except Exception:
                 logger.exception("直播重连后恢复模块失败：%s", name)
+        with self._lock:
+            self._disconnect_snapshot = None
 
     async def close_all(self) -> None:
         with self._lock:
