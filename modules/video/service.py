@@ -1547,8 +1547,11 @@ class VideoModuleFacade:
         logger.info("视频模块已关闭，Chrome 会话已释放，待播队列已清空。")
 
     def update_room_id(self, room_id: int) -> None:
+        global roomid, _streamer_uid_cache, _streamer_uid_cache_at
         self.room_id = max(0, int(room_id or 0))
-        configure_video_module(self.config, None, self.room_id)
+        roomid = self.room_id
+        _streamer_uid_cache = None
+        _streamer_uid_cache_at = 0.0
 
     def queue_snapshot(self) -> dict[str, Any]:
         snapshot = build_queue_snapshot()
