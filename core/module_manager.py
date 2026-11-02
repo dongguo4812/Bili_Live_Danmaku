@@ -67,7 +67,12 @@ class ModuleManager:
             record = self._modules.get(name)
             if record is None:
                 raise KeyError(f"未知模块：{name}")
-            if record.state in {"stopped", "paused"}:
+            if record.state == "stopped":
+                return
+            if record.state == "paused":
+                # 用户在断线期间再次明确点击暂停：即使模块已被自动暂停，也要记录手动意图。
+                if self._disconnect_snapshot is not None and name in self._disconnect_snapshot:
+                    record.generation += 1
                 return
         await self._operate(name, "pause", "paused", manual=True)
 
