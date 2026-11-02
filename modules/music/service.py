@@ -1204,12 +1204,19 @@ class MusicModuleFacade:
     """持有事件总线订阅关系；不创建 B 站连接、HTTP 服务或独立日志系统。"""
 
     def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0):
-        configure_music_module(config, cookie_provider, room_id)
-        self.bot = MusicModule(config=config, cookie_provider=cookie_provider, admin_uids=set(ADMIN_UIDS))
         self.event_bus = event_bus
+        self.config = dict(config)
+        self.cookie_provider = cookie_provider
+        self.room_id = max(0, int(room_id or 0))
+        configure_music_module(self.config, self.cookie_provider, self.room_id)
+        self.bot = MusicModule(config=self.config, cookie_provider=cookie_provider, admin_uids=set(ADMIN_UIDS))
         self.event_bus.subscribe("danmaku", self.bot.on_danmu)
 
     async def start(self):
+        # 每次启动前刷新统一登录态，确保扫码登录后粉丝牌检查使用最新 Cookie。
+        configure_music_module(self.config, self.cookie_provider, self.room_id)
+        self.bot.admin_uids = set(ADMIN_UIDS)
+        self.bot._medal_enabled = REQUIRE_FANS_MEDAL == "0"
         await self.bot.start()
 
     async def pause(self):
@@ -1223,7 +1230,8 @@ class MusicModuleFacade:
         await self.bot.close()
 
     def update_room_id(self, room_id: int) -> None:
-        update_music_room_id(room_id)
+        self.room_id = max(0, int(room_id or 0))
+        update_music_room_id(self.room_id)
 
     def queue_snapshot(self) -> dict[str, Any]:
         return self.bot.queue_snapshot()
