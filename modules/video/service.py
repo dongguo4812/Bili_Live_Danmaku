@@ -1608,21 +1608,25 @@ async def on_dan_mu(msg_json):
 
             # 管理员 UID 不受每人 60 秒冷却限制；普通观众仍按原规则执行。
             if not is_admin:
-                now = time.monotonic()
-                previous_time = last_order_time.get(uid, 0)
-                elapsed = now - previous_time
+                # 只有确实存在上次点播记录时才检查冷却。
+                # 不可用默认时间 0 计算，否则程序启动后的前 60 秒，
+                # 从未点播过的观众也会被误判为冷却中。
+                previous_time = last_order_time.get(uid)
+                if previous_time is not None:
+                    now = time.monotonic()
+                    elapsed = now - previous_time
 
-                if elapsed < COOLDOWN_SEC:
-                    remaining = max(1, int(COOLDOWN_SEC - elapsed))
-                    logger.info(
-                        "忽略 %s 的点播请求：冷却中，还需 %s 秒",
-                        uname,
-                        remaining
-                    )
-                    add_operation_message(
-                        f"{uname} 点播冷却中，还需要等待 {remaining} 秒"
-                    )
-                    return
+                    if elapsed < COOLDOWN_SEC:
+                        remaining = max(1, int(COOLDOWN_SEC - elapsed))
+                        logger.info(
+                            "忽略 %s 的点播请求：冷却中，还需 %s 秒",
+                            uname,
+                            remaining
+                        )
+                        add_operation_message(
+                            f"{uname} 点播冷却中，还需要等待 {remaining} 秒"
+                        )
+                        return
 
             if len(video_queue) + len(pending_video_bvs) > MAX_QUEUE_SIZE:
                 logger.info("忽略 %s 的点播请求：队列已满", uname)
