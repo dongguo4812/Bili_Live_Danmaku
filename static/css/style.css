@@ -38,8 +38,12 @@ code {
   background: transparent !important;
 }
 #live2d-canvas {
+  /* Adjust this value to change the model's displayed size. */
+  --model-scale: 0.7;
   display: block; width: 100%; height: 100%;
   background: transparent;
+  transform: scale(var(--model-scale));
+  transform-origin: center bottom;
 }
 #display-placeholder {
   position: fixed; left: 16px; bottom: 16px; color: rgba(255,255,255,.6);
