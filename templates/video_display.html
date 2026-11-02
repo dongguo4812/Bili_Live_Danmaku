@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>点播播放显示</title>
+
+<style>
+  :root {
+    color-scheme: dark;
+    --text: #f7f8fc;
+    --muted: #bdc7d8;
+    --line: rgba(255,255,255,.16);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100%;
+    background: transparent !important;
+    color: var(--text);
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  }
+
+  body {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* 程序尚未就绪或已经退出时，整个页面彻底隐藏 */
+  body.offline {
+    visibility: hidden !important;
+    background: transparent !important;
+  }
+
+  .panel {
+    width: 100%;
+    overflow: hidden;
+    border: none;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    padding: 5px 15px;
+    background: transparent;
+  }
+
+  .brand {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: .4px;
+  }
+
+  .video {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 15px;
+    min-width: 0;
+  }
+	
+  .label-icon {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .label {
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+    color: #9fc0ff;
+  }
+
+  .next .label { color: #d5dbea; }
+
+  .icon {
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    background: rgba(115,163,255,.17);
+    color: #9fc0ff;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .next .icon {
+    background: rgba(255,255,255,.09);
+    color: #e3e8f2;
+  }
+
+  .video-line {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .title {
+    flex: 0 0 auto;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .bvid {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .empty { color: var(--muted); font-weight: 500; }
+
+  .divider {
+    height: 1px;
+    margin: 0 15px;
+    background: var(--line);
+  }
+
+  .operations {
+    padding: 3px 15px;
+    background: transparent;
+  }
+
+  .operation-item {
+    margin-top: 1px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: transparent;
+    color: #ff4d5a;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .operation-time {
+    margin-right: 6px;
+    color: var(--muted);
+    font-family: Consolas, monospace;
+    font-size: 10px;
+  }
+
+  @media (max-width: 500px) {
+    .header { padding: 5px 12px; }
+    .brand { font-size: 15px; }
+    .video { gap: 7px; padding: 5px 12px; }
+    .label-icon { gap: 5px; }
+    .label { font-size: 12px; }
+    .icon {
+        width: 22px;
+        height: 22px;
+        flex-basis: 22px;
+        font-size: 12px;
+    }
+    .video-line { gap: 6px; }
+    .title { font-size: 14px; }
+    .bvid { font-size: 10px; }
+  }
+</style>
+</head>
+
+<body class="offline">
+<div class="panel">
+  <header class="header">
+    <div class="brand">B站视频点播指令：点播 BVxxxx</div>
+  </header>
+
+  <section class="video" id="current">
+    <div class="label-icon">
+      <div class="label">正在播放</div>
+      <div class="icon">▶</div>
+    </div>
+    <div class="video-line">
+      <div class="title empty">等待点播视频</div>
+    </div>
+  </section>
+
+  <!-- 有有效日志时才显示此区域 -->
+  <section class="operations" id="operationsSection" style="display: none;">
+    <div id="operations"></div>
+  </section>
+
+  <section class="video next" id="next">
+    <div class="label-icon">
+      <div class="label">接下来播放</div>
+      <div class="icon">Ⅱ</div>
+    </div>
+    <div class="video-line">
+      <div class="title empty">暂无排队视频</div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const currentEl = document.getElementById("current");
+  const nextEl = document.getElementById("next");
+  const operationsEl = document.getElementById("operations");
+  const operationsSection = document.getElementById("operationsSection");
+
+  let queueRequestInProgress = false;
+  let statusRequestInProgress = false;
+
+  function setOnline(online) {
+    document.body.classList.toggle("offline", !online);
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    node.className = className;
+    node.textContent = text || "";
+    return node;
+  }
+
+  // 不超过15个字符完整显示，超过才添加省略号。
+  function shortTitle(text) {
+    const chars = Array.from(String(text || ""));
+    return chars.length > 15
+      ? chars.slice(0, 15).join("") + "…"
+      : chars.join("");
+  }
+
+  function draw(target, item, isNext) {
+    target.replaceChildren();
+
+    const labelIcon = document.createElement("div");
+    labelIcon.className = "label-icon";
+    labelIcon.appendChild(el("div", "label", isNext ? "接下来播放" : "正在播放"));
+    labelIcon.appendChild(el("div", "icon", isNext ? "Ⅱ" : "▶"));
+    target.appendChild(labelIcon);
+
+    const line = document.createElement("div");
+    line.className = "video-line";
+
+    if (item) {
+      line.appendChild(el("div", "title", shortTitle(item.title)));
+      if (item.bvid) line.appendChild(el("div", "bvid", item.bvid));
+    } else {
+      line.appendChild(el("div", "title empty", isNext ? "暂无排队视频" : "等待点播视频"));
+    }
+
+    target.appendChild(line);
+  }
+
+  // 只通过独立的 /api/status 判断程序生命周期，不使用 /api/video/queue 判断显隐。
+  async function refreshProgramStatus() {
+    if (statusRequestInProgress) return;
+    statusRequestInProgress = true;
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      let response;
+      try {
+        response = await fetch("/api/modules?t=" + Date.now(), {
+          cache: "no-store",
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      const state = data && data.modules && data.modules.video
+        ? data.modules.video.state
+        : "stopped";
+      setOnline(state === "running" || state === "paused");
+    } catch (error) {
+      // 状态接口不可用通常表示程序尚未启动或已退出，因此隐藏页面。
+      setOnline(false);
+    } finally {
+      statusRequestInProgress = false;
+    }
+  }
+
+  // 队列接口只负责更新播放内容；请求失败不会单独隐藏整个页面。
+  async function refresh() {
+    if (queueRequestInProgress) return;
+    queueRequestInProgress = true;
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      let response;
+      try {
+        response = await fetch("/api/video/queue?t=" + Date.now(), {
+          cache: "no-store",
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      if (!data || !Array.isArray(data.queue) || !Array.isArray(data.operations)) {
+        throw new Error("点播服务返回的队列数据无效");
+      }
+
+      draw(currentEl, data.current || null, false);
+      draw(nextEl, data.queue.length ? data.queue[0] : null, true);
+
+      // 筛选最近10秒的操作日志，最多显示10条。
+      const now = Date.now() / 1000;
+      const operations = data.operations
+        .filter(item => item &&
+          Number.isFinite(Number(item.timestamp)) &&
+          Number(item.timestamp) > 0 &&
+          now - Number(item.timestamp) >= 0 &&
+          now - Number(item.timestamp) <= 10)
+        .slice(-10);
+
+      operationsEl.replaceChildren();
+      const hasOperations = operations.length > 0;
+      operationsSection.style.display = hasOperations ? "" : "none";
+
+      if (hasOperations) {
+        operations.forEach(item => {
+          const row = el("div", "operation-item", "");
+          row.appendChild(el("span", "operation-time", item.time || ""));
+          row.appendChild(document.createTextNode(item.message || ""));
+          operationsEl.appendChild(row);
+        });
+      }
+    } catch (error) {
+      // 队列刷新失败只记录信息，不改变页面显隐状态。
+      console.log("获取点播队列数据失败：", error);
+    } finally {
+      queueRequestInProgress = false;
+    }
+  }
+
+  // 页面启动时默认隐藏；只有后端报告程序已就绪后才显示。
+  setOnline(false);
+  refreshProgramStatus();
+  refresh();
+  setInterval(refreshProgramStatus, 1000);
+  setInterval(refresh, 1000);
+</script>
+</body>
+</html>
