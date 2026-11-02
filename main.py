@@ -2,6 +2,7 @@
 """Bili Live Danmaku application entry point."""
 from __future__ import annotations
 
+import atexit
 import asyncio
 import base64
 import hashlib
@@ -447,6 +448,208 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
                 pass
 
 
+
+# OBS Live2D 来源自动控制。一个独立锁保证 watcher、设置刷新和退出清理不并发操作同一 WebSocket。
+OBS_DISPLAY_LOCK = threading.RLock()
+OBS_DISPLAY_STOP = threading.Event()
+OBS_DISPLAY_SHOWN = False
+OBS_DISPLAY_SHUTDOWN = False
+
+
+def _open_obs_websocket():
+    """连接并完成 OBS WebSocket v5 身份验证。"""
+    obs_config = CONFIG.get("obs_websocket", {})
+    if not isinstance(obs_config, dict):
+        obs_config = {}
+    host = str(obs_config.get("host", "127.0.0.1")).strip() or "127.0.0.1"
+    try:
+        port = int(obs_config.get("port", 4455))
+        timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
+    except (TypeError, ValueError):
+        port, timeout = 4455, 2.5
+
+    password_file = obs_config.get("password_file")
+    if password_file:
+        password_path = (BASE_DIR / str(password_file)).resolve()
+        try:
+            password_path.relative_to(BASE_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError("OBS password_file 必须位于项目目录内。") from exc
+        if not password_path.is_file():
+            raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
+        password = password_path.read_text(encoding="utf-8-sig").strip()
+    else:
+        password = str(obs_config.get("password", ""))
+
+    ws = websocket.create_connection(
+        f"ws://{host}:{port}", timeout=timeout, suppress_origin=True
+    )
+    try:
+        hello = json.loads(ws.recv())
+        if hello.get("op") != 0:
+            raise RuntimeError("OBS WebSocket 未返回 Hello 握手。")
+        hello_data = hello.get("d", {})
+        identify: dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}
+        authentication = hello_data.get("authentication")
+        if authentication:
+            if not password:
+                raise RuntimeError("OBS WebSocket 已启用密码验证，但未配置有效密码。")
+            secret = base64.b64encode(
+                hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
+            ).decode("ascii")
+            identify["authentication"] = base64.b64encode(
+                hashlib.sha256((secret + authentication["challenge"]).encode("utf-8")).digest()
+            ).decode("ascii")
+        ws.send(json.dumps({"op": 1, "d": identify}))
+        identified = json.loads(ws.recv())
+        if identified.get("op") != 2:
+            raise RuntimeError("OBS WebSocket 身份验证未成功。")
+        return ws
+    except Exception:
+        try:
+            ws.close()
+        except Exception:
+            pass
+        raise
+
+
+def _is_display_browser_url(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        return urlparse(value.strip()).path.rstrip("/") == "/display"
+    except Exception:
+        return False
+
+
+def _obs_set_display_sources_enabled(enabled: bool, refresh: bool = False) -> dict[str, Any]:
+    """在 OBS 所有场景（含嵌套组）中启用或隐藏全部 /display 浏览器源。"""
+    with OBS_DISPLAY_LOCK:
+        ws = None
+        try:
+            ws = _open_obs_websocket()
+            input_response = _obs_ws_request(ws, "GetInputList")
+            matching_inputs: set[str] = set()
+            for item in input_response.get("inputs", []):
+                if item.get("inputKind") != "browser_source":
+                    continue
+                input_name = item.get("inputName")
+                if not isinstance(input_name, str) or not input_name:
+                    continue
+                source_info = _obs_ws_request(ws, "GetInputSettings", {"inputName": input_name})
+                settings = source_info.get("inputSettings") or {}
+                if _is_display_browser_url(settings.get("url")):
+                    matching_inputs.add(input_name)
+
+            if not matching_inputs:
+                return {
+                    "ok": False,
+                    "matched_inputs": 0,
+                    "scene_items": 0,
+                    "message": "未找到 URL 指向 /display 的浏览器源。",
+                }
+
+            if enabled and refresh:
+                for input_name in sorted(matching_inputs):
+                    _obs_ws_request(ws, "PressInputPropertiesButton", {
+                        "inputName": input_name,
+                        "propertyName": "refreshnocache",
+                    })
+
+            scene_response = _obs_ws_request(ws, "GetSceneList")
+            scenes = scene_response.get("scenes", [])
+            targets: list[tuple[str, int]] = []
+            visited_groups: set[str] = set()
+
+            def collect_items(container_name: str, items: list[dict[str, Any]]) -> None:
+                for scene_item in items:
+                    source_name = scene_item.get("sourceName")
+                    scene_item_id = scene_item.get("sceneItemId")
+                    if source_name in matching_inputs and isinstance(scene_item_id, int):
+                        targets.append((container_name, scene_item_id))
+                    if scene_item.get("isGroup") and isinstance(source_name, str):
+                        group_key = source_name
+                        if group_key in visited_groups:
+                            continue
+                        visited_groups.add(group_key)
+                        group_response = _obs_ws_request(
+                            ws, "GetGroupSceneItemList", {"sceneName": group_key}
+                        )
+                        collect_items(group_key, group_response.get("sceneItems", []))
+
+            for scene in scenes:
+                scene_name = scene.get("sceneName")
+                if not isinstance(scene_name, str) or not scene_name:
+                    continue
+                scene_items = _obs_ws_request(
+                    ws, "GetSceneItemList", {"sceneName": scene_name}
+                ).get("sceneItems", [])
+                collect_items(scene_name, scene_items)
+
+            changed = 0
+            for scene_name, scene_item_id in targets:
+                _obs_ws_request(ws, "SetSceneItemEnabled", {
+                    "sceneName": scene_name,
+                    "sceneItemId": scene_item_id,
+                    "sceneItemEnabled": bool(enabled),
+                })
+                changed += 1
+
+            action = "显示" if enabled else "隐藏"
+            message = (
+                f"已{action} {changed} 个 /display 场景项，"
+                f"匹配到 {len(matching_inputs)} 个浏览器源。"
+            )
+            logger.info("OBS Live2D 自动控制：%s", message)
+            return {
+                "ok": True,
+                "matched_inputs": len(matching_inputs),
+                "scene_items": changed,
+                "message": message,
+            }
+        except Exception as exc:
+            message = f"OBS Live2D 来源{('显示' if enabled else '隐藏')}失败：{exc}"
+            logger.warning("%s", message)
+            return {"ok": False, "matched_inputs": 0, "scene_items": 0, "message": message}
+        finally:
+            if ws is not None:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+
+def _obs_live2d_watchdog() -> None:
+    """等待 B 站 WebSocket 与 Live2D 模型均就绪，再显示所有匹配来源；失败则定时重试。"""
+    global OBS_DISPLAY_SHOWN
+    while not OBS_DISPLAY_STOP.wait(3.0):
+        with BILIBILI_STATE_LOCK:
+            bilibili_connected = BILIBILI_STATE.get("connection_state") == "connected"
+        with RUNTIME_STATE_LOCK:
+            live2d_loaded = RUNTIME_STATE.get("state") == "loaded"
+        if not (bilibili_connected and live2d_loaded):
+            continue
+        if OBS_DISPLAY_SHOWN:
+            continue
+        result = _obs_set_display_sources_enabled(True, refresh=True)
+        if result.get("ok") and result.get("matched_inputs", 0) > 0:
+            OBS_DISPLAY_SHOWN = True
+        # OBS 未启动或尚未添加浏览器源时不置位，下一轮继续重试。
+
+
+def _shutdown_obs_live2d_sources() -> None:
+    """正常退出时隐藏 OBS 所有指向 /display 的浏览器源。"""
+    global OBS_DISPLAY_SHUTDOWN
+    with OBS_DISPLAY_LOCK:
+        if OBS_DISPLAY_SHUTDOWN:
+            return
+        OBS_DISPLAY_SHUTDOWN = True
+        OBS_DISPLAY_STOP.set()
+        # 锁为 RLock，允许本线程在持锁期间调用内部控制函数。
+        result = _obs_set_display_sources_enabled(False, refresh=False)
+        if not result.get("ok"):
+            logger.info("程序退出时未能隐藏全部 /display 浏览器源：%s", result.get("message"))
+
 def _available_models() -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     if not MODEL_ROOT.is_dir():
@@ -879,6 +1082,15 @@ if __name__ == "__main__":
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
+    atexit.register(_shutdown_obs_live2d_sources)
     _restore_saved_live_connection()
+    threading.Thread(
+        target=_obs_live2d_watchdog,
+        name="obs-live2d-watchdog",
+        daemon=True,
+    ).start()
     logger.info("Starting local management server at http://%s:%s", host, port)
-    app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
+    try:
+        app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
+    finally:
+        _shutdown_obs_live2d_sources()
