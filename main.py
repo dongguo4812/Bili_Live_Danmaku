@@ -1053,8 +1053,11 @@ def save_display_settings():
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
-    with OBS_DISPLAY_LOCK:
-        obs_refresh = _refresh_obs_browser_sources()
+    if payload.get("refresh_obs", True) is False:
+        obs_refresh = {"message": "本次保存未刷新 OBS 浏览器源。"}
+    else:
+        with OBS_DISPLAY_LOCK:
+            obs_refresh = _refresh_obs_browser_sources()
     return jsonify({
         "ok": True,
         "model": model_id,
