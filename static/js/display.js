@@ -503,8 +503,8 @@
   }
 
   function applyModuleStates(modules) {
-    const liveState = modules && modules.live2d ? modules.live2d.state : "running";
-    const voiceState = modules && modules.voice ? modules.voice.state : "running";
+    const liveState = modules && modules.live2d ? modules.live2d.state : "stopped";
+    const voiceState = modules && modules.voice ? modules.voice.state : "stopped";
     live2dModuleState = liveState || "stopped";
     const nextLive2D = live2dModuleState === "running";
     const nextVoice = voiceState === "running";
