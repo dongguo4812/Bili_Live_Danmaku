@@ -18,7 +18,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import qrcode
 import requests
@@ -214,6 +214,22 @@ class QRLogin:
                 ticket_response = session.get(ticket_url, timeout=15, allow_redirects=True)
                 ticket_response.raise_for_status()
                 cookies = _cookie_values(session)
+                if not cookies.get("sessdata"):
+                    # Retain compatibility with older QR responses that
+                    # carried cookie values in the ticket URL query string.
+                    query_cookies = parse_qs(ticket_parts.query)
+                    for name, key_name in {
+                        "SESSDATA": "sessdata",
+                        "bili_jct": "bili_jct",
+                        "buvid3": "buvid3",
+                        "buvid4": "buvid4",
+                        "DedeUserID": "dedeuserid",
+                        "ac_time_value": "ac_time_value",
+                    }.items():
+                        values = query_cookies.get(name)
+                        if values and values[0]:
+                            cookies[key_name] = values[0]
+                            session.cookies.set(name, values[0], domain=".bilibili.com")
                 if not cookies.get("sessdata"):
                     for item in [response, *ticket_response.history, ticket_response]:
                         for raw in item.headers.get("Set-Cookie", "").splitlines():
