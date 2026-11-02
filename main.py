@@ -1320,7 +1320,8 @@ def api_module_action(module_name: str, action: str):
             return jsonify({"ok": False, "error": "请先完成 B 站 WebSocket 认证连接，再启动互动模块。"}), 409
     try:
         future = APPLICATION_RUNTIME.module_action(module_name, action)
-        future.result(timeout=30)
+        timeout = 120 if module_name == "video" and action in {"start", "close"} else 30
+        future.result(timeout=timeout)
         return jsonify({
             "ok": True,
             "module": module_name,
