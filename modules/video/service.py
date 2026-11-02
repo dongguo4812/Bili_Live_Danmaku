@@ -94,7 +94,8 @@ def load_obs_config() -> dict[str, Any]:
         logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
         secret = {}
     host = str(config.get("host", "")).strip()
-    source_name = str(config.get("source_name", "")).strip()
+    video_obs = VIDEO_CONFIG.get("obs", {}) if isinstance(VIDEO_CONFIG.get("obs"), dict) else {}
+    source_name = str(config.get("source_name") or video_obs.get("source_name", "b站视频播放器")).strip()
     try:
         port = int(config.get("port", 4455))
     except (TypeError, ValueError):
