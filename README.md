@@ -1,5 +1,7 @@
 # Bili Live Danmaku
 
+[简体中文](README.zh-CN.md) | **English**
+
 A modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2D display.
 
 ## Run on Windows
@@ -104,7 +106,7 @@ MagicalDanmaku is a visual-quality reference only. This project does not copy, p
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
-Open the settings panel on the `/display` page to configure Edge TTS. Click **测试语音** once in the OBS browser display (or in a normal browser preview) to unlock audio playback; the test uses the same audio and mouth-sync path as live speech. The first test also saves the current TTS controls. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
+Open the settings panel on the `/display` page to configure Edge TTS. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
 ## Development principles
 
