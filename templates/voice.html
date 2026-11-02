@@ -25,6 +25,17 @@
       <div><p class="eyebrow">VOICE MODULE</p><h1>语音播报</h1><p class="muted">Edge TTS 语音音色、触发类型与播报限制</p></div>
     </header>
     <section class="panel">
+      <h2>语音模块控制</h2>
+      <p id="module-state" class="muted">正在读取模块状态…</p>
+      <div class="inline-controls">
+        <button type="button" data-module-action="start">启动</button>
+        <button type="button" class="secondary-button" data-module-action="pause">暂停</button>
+        <button type="button" class="secondary-button" data-module-action="resume">恢复</button>
+        <button type="button" class="secondary-button" data-module-action="close">关闭</button>
+      </div>
+      <p class="muted">语音播放由 Live2D 浏览器展示页执行；暂停或关闭语音模块不会关闭 Live2D。</p>
+    </section>
+    <section class="panel">
       <h2>播报触发设置</h2>
       <div class="tts-switches">
         <label><input id="danmaku-enabled" type="checkbox"> 普通弹幕</label>
@@ -51,9 +62,10 @@
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
 function updateLabels(){$("rate-value").textContent=$("rate").value+"%";$("volume-value").textContent=$("volume").value+"%";$("queue-value").textContent=$("queue").value+" 条"}
-async function load(){try{const d=await api("/api/tts/settings");const p=d.preferences;$("danmaku-enabled").checked=p.danmaku_enabled;$("gift-enabled").checked=p.gift_enabled;$("sc-enabled").checked=p.super_chat_enabled;$("voice").replaceChildren(...d.voices.map(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;return o}));$("voice").value=p.voice;$("rate").value=p.rate;$("volume").value=p.volume;$("queue").value=p.max_queue_length;$("gift-min").value=p.gift_min_amount;updateLabels();$("status").textContent="语音设置已加载。"}catch(e){$("status").textContent="读取失败："+e.message}}
+async function load(){try{const [d,m]=await Promise.all([api("/api/tts/settings"),api("/api/modules")]);const state=m.modules.voice?.state||"stopped";$("module-state").textContent="语音模块："+({stopped:"已关闭",running:"运行中",paused:"已暂停",error:"运行异常"}[state]||state);const p=d.preferences;$("danmaku-enabled").checked=p.danmaku_enabled;$("gift-enabled").checked=p.gift_enabled;$("sc-enabled").checked=p.super_chat_enabled;$("voice").replaceChildren(...d.voices.map(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;return o}));$("voice").value=p.voice;$("rate").value=p.rate;$("volume").value=p.volume;$("queue").value=p.max_queue_length;$("gift-min").value=p.gift_min_amount;updateLabels();$("status").textContent="语音设置已加载。"}catch(e){$("status").textContent="读取失败："+e.message}}
 async function save(){try{const payload={danmaku_enabled:$("danmaku-enabled").checked,gift_enabled:$("gift-enabled").checked,super_chat_enabled:$("sc-enabled").checked,voice:$("voice").value,rate:Number($("rate").value),volume:Number($("volume").value),max_queue_length:Number($("queue").value),gift_min_amount:Number($("gift-min").value)};const d=await api("/api/tts/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});$("status").textContent="设置已保存。";}catch(e){$("status").textContent="保存失败："+e.message}}
 async function test(){try{$("test-status").textContent="正在生成语音…";const d=await api("/api/tts/synthesize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("test-text").value})});$("audio").src=d.url;$("audio").play();$("test-status").textContent="语音已生成。";}catch(e){$("test-status").textContent="试听失败："+e.message}}
+document.querySelectorAll("[data-module-action]").forEach(button=>button.addEventListener("click",async()=>{const action=button.dataset.moduleAction;try{await api("/api/modules/voice/"+action,{method:"POST"});const m=await api("/api/modules");const state=m.modules.voice?.state||"stopped";$("module-state").textContent="语音模块："+({stopped:"已关闭",running:"运行中",paused:"已暂停",error:"运行异常"}[state]||state);}catch(e){$("module-state").textContent="模块操作失败："+e.message;}}));
 $("rate").addEventListener("input",updateLabels);$("volume").addEventListener("input",updateLabels);$("queue").addEventListener("input",updateLabels);$("save").addEventListener("click",save);$("test").addEventListener("click",test);load();
 </script>
 </body>
