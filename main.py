@@ -2,6 +2,7 @@
 """Bili Live Danmaku application entry point."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -11,6 +12,7 @@ import os
 import re
 import threading
 import time
+import tempfile
 import uuid
 from urllib.parse import urlparse
 
@@ -27,7 +29,14 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 MODEL_ROOT = BASE_DIR / "models"
 USER_SETTINGS_PATH = BASE_DIR / "user_settings.json"
+TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 DEFAULT_MODEL = "live_uu"
+TTS_VOICES = [
+    "zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural", "zh-CN-YunjianNeural",
+    "zh-CN-XiaoyiNeural", "zh-CN-YunyangNeural", "zh-CN-XiaochenNeural",
+    "zh-CN-XiaohanNeural", "zh-CN-XiaomengNeural", "zh-CN-XiaomoNeural",
+    "zh-CN-XiaoruiNeural", "zh-CN-XiaoshuangNeural",
+]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("bili_live_danmaku")
@@ -132,7 +141,7 @@ def _default_model_id() -> str:
 def _load_user_settings() -> dict[str, Any]:
     default_model = _default_model_id()
     if not USER_SETTINGS_PATH.is_file():
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}}
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}}
     try:
         data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -150,10 +159,11 @@ def _load_user_settings() -> dict[str, Any]:
             room_id = max(0, int(bilibili.get("room_id", 0)))
         except (TypeError, ValueError):
             room_id = 0
-        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}}
+        tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
+        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}, "tts": tts}
     except Exception as exc:
         logger.warning("读取用户设置失败，将使用默认设置：%s", exc)
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}}
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}}
 
 
 def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
@@ -196,6 +206,130 @@ def _save_user_settings(settings: dict[str, Any]) -> None:
     temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, USER_SETTINGS_PATH)
 
+
+
+
+def _tts_preferences(settings: dict[str, Any]) -> dict[str, Any]:
+    raw = settings.get("tts")
+    if not isinstance(raw, dict):
+        raw = {}
+    configured = CONFIG.get("tts", {}) if isinstance(CONFIG.get("tts"), dict) else {}
+
+    def bounded_int(value: Any, default: int, low: int, high: int) -> int:
+        try:
+            return max(low, min(high, int(value)))
+        except (TypeError, ValueError):
+            return default
+
+    try:
+        gift_min_amount = float(raw.get("gift_min_amount", 0))
+        if not math.isfinite(gift_min_amount):
+            gift_min_amount = 0.0
+    except (TypeError, ValueError):
+        gift_min_amount = 0.0
+    gift_min_amount = max(0.0, min(100000.0, gift_min_amount))
+    voice = str(raw.get("voice") or configured.get("voice") or "zh-CN-XiaoxiaoNeural")
+    if voice not in TTS_VOICES:
+        voice = "zh-CN-XiaoxiaoNeural"
+    return {
+        "danmaku_enabled": bool(raw.get("danmaku_enabled", True)),
+        "gift_enabled": bool(raw.get("gift_enabled", True)),
+        "super_chat_enabled": bool(raw.get("super_chat_enabled", True)),
+        "voice": voice,
+        "rate": bounded_int(raw.get("rate", 0), 0, -50, 100),
+        "volume": bounded_int(raw.get("volume", 0), 0, -50, 50),
+        "max_queue_length": bounded_int(raw.get("max_queue_length", 30), 30, 1, 200),
+        "gift_min_amount": round(gift_min_amount, 2),
+    }
+
+
+def _save_tts_preferences(payload: dict[str, Any]) -> dict[str, Any]:
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+        candidate = dict(settings.get("tts") or {})
+        candidate.update(payload)
+        settings["tts"] = candidate
+        preferences = _tts_preferences(settings)
+        settings["tts"] = preferences
+        _save_user_settings(settings)
+    return preferences
+
+
+def _cleanup_tts_cache() -> None:
+    TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - 3600
+    for path in TTS_CACHE_DIR.glob("*.mp3"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@app.get("/api/tts/settings")
+def get_tts_settings():
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    return jsonify({"ok": True, "preferences": _tts_preferences(settings), "voices": TTS_VOICES})
+
+
+@app.post("/api/tts/settings")
+def save_tts_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        preferences = _save_tts_preferences(payload)
+    except Exception as exc:
+        logger.exception("保存 TTS 设置失败")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "preferences": preferences})
+
+
+@app.post("/api/tts/synthesize")
+def synthesize_tts():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "语音内容不能为空。"}), 400
+    if len(text) > 1000:
+        return jsonify({"ok": False, "error": "单条语音内容不能超过 1000 个字符。"}), 400
+    with SETTINGS_LOCK:
+        preferences = _tts_preferences(_load_user_settings())
+    try:
+        import edge_tts
+
+        _cleanup_tts_cache()
+        filename = uuid.uuid4().hex + ".mp3"
+        target = TTS_CACHE_DIR / filename
+
+        async def generate() -> None:
+            communicate = edge_tts.Communicate(
+                text,
+                preferences["voice"],
+                rate=f'{preferences["rate"]:+d}%',
+                volume=f'{preferences["volume"]:+d}%',
+            )
+            await communicate.save(str(target))
+
+        asyncio.run(generate())
+        if not target.is_file() or target.stat().st_size <= 0:
+            raise RuntimeError("Edge TTS 未生成有效音频文件。")
+        return jsonify({"ok": True, "url": f"/api/tts/audio/{filename}"})
+    except Exception as exc:
+        logger.exception("Edge TTS 语音生成失败")
+        return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
+
+
+@app.get("/api/tts/audio/<filename>")
+def get_tts_audio(filename: str):
+    if not re.fullmatch(r"[a-f0-9]{32}\.mp3", filename):
+        abort(404)
+    if not TTS_CACHE_DIR.is_dir():
+        abort(404)
+    return send_from_directory(TTS_CACHE_DIR, filename, mimetype="audio/mpeg", max_age=0)
 
 
 def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -713,8 +847,8 @@ def api_status():
         "features": {
             "danmaku": True,
             "gift_events": True,
-            "tts": False,
-            "mouth_sync": False,
+            "tts": True,
+            "mouth_sync": True,
             "moc2_runtime": live2d["runtime_ready"],
         },
     })
