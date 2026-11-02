@@ -176,6 +176,8 @@ _streamer_uid_cache = None
 _streamer_uid_cache_at = 0.0
 STREAMER_UID_CACHE_SEC = 600
 video_titles: dict[str, str] = {}
+# 只用于展示的 BV -> 点播人映射，不参与播放与队列决策。
+video_requesters: dict[str, str] = {}
 video_durations: dict[str, int] = {}
 operation_messages: list[dict[str, Any]] = []
 OPERATION_MESSAGE_LIMIT = 10
@@ -345,12 +347,21 @@ async def ensure_video_title(bv):
 
 
 def build_queue_snapshot():
-    """生成供 OBS 网页读取的队列快照。"""
+    """生成供 OBS 网页读取的只读展示快照。"""
+    active_bvs = set(video_queue)
+    if current_bv:
+        active_bvs.add(current_bv)
+    # 清理已经不在当前播放或待播队列中的展示元数据，避免长期运行累积。
+    for stale_bv in list(video_requesters):
+        if stale_bv not in active_bvs:
+            video_requesters.pop(stale_bv, None)
+
     current = None
     if current_bv:
         current = {
             "bvid": current_bv,
             "title": video_titles.get(current_bv, "正在获取视频标题…"),
+            "uname": video_requesters.get(current_bv, ""),
         }
 
     queued = []
@@ -359,6 +370,7 @@ def build_queue_snapshot():
             "index": index,
             "bvid": bv,
             "title": video_titles.get(bv, "正在获取视频标题…"),
+            "uname": video_requesters.get(bv, ""),
         })
 
     return {
@@ -1450,6 +1462,7 @@ async def handle_panel_action(payload):
             }
 
         removed = video_queue.pop(index)
+        video_requesters.pop(removed, None)
 
         return {
             "ok": True,
@@ -1458,6 +1471,8 @@ async def handle_panel_action(payload):
 
     if action == "clear":
         count = len(video_queue)
+        for queued_bv in video_queue:
+            video_requesters.pop(queued_bv, None)
         video_queue.clear()
 
         return {
@@ -1665,6 +1680,8 @@ async def on_dan_mu(msg_json):
             ):
                 return
 
+            # 记录点播人仅供展示快照使用，不影响原有队列元素（仍为 BV 字符串）。
+            video_requesters[bv] = uname
             video_queue.append(bv)
 
             if not is_admin:
@@ -1805,6 +1822,7 @@ class VideoModuleFacade:
         except Exception as exc:
             logger.warning("隐藏 OBS 视频来源失败：%s", type(exc).__name__)
         video_queue.clear()
+        video_requesters.clear()
         is_playing = False
         current_bv = None
         if driver is not None:
