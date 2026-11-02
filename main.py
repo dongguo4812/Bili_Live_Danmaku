@@ -1851,5 +1851,7 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
+        # 先停止唯一的 B 站 WebSocket 连接，再统一关闭业务模块和异步运行时。
+        LIVE_CLIENT.stop()
         _shutdown_obs_live2d_sources()
         APPLICATION_RUNTIME.shutdown()
