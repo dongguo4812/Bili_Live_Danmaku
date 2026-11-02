@@ -391,7 +391,20 @@
   }
 
   start();
-  pollTimer = window.setInterval(pollDanmaku, 450);
+  async function initializeDanmakuCursor() {
+    try {
+      const response = await fetch("/api/danmaku?latest=1", { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        lastDanmakuId = Number(data.latest_id) || 0;
+      }
+    } catch (error) {
+      console.debug("Unable to initialize danmaku cursor:", error);
+    }
+    await pollDanmaku();
+    pollTimer = window.setInterval(pollDanmaku, 450);
+  }
+  initializeDanmakuCursor();
   window.addEventListener("resize", applyBubblePreferences, { passive: true });
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
