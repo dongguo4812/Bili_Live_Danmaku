@@ -874,10 +874,12 @@ class MusicModule:
     async def pause(self) -> None:
         if not self.enabled or self.paused:
             return
+        # 先阻止播放 worker 启动下一首，再向洛雪发送暂停；失败时恢复模块标志。
+        self.paused = True
         ok, detail = await asyncio.to_thread(_lx_control, "pause")
         if not ok:
+            self.paused = False
             raise RuntimeError(detail)
-        self.paused = True
         log.info("歌曲模块已暂停，保留当前歌曲进度和待播队列。")
 
     async def resume(self) -> None:
@@ -901,8 +903,14 @@ class MusicModule:
         self._skip_requested.set()
         worker = self._worker
         if worker and not worker.done() and worker is not asyncio.current_task():
-            worker.cancel()
-            await asyncio.gather(worker, return_exceptions=True)
+            # 不立即 cancel 正在执行的 to_thread(Scheme) 调用，避免暂停先于歌曲启动，
+            # 导致模块关闭后后台线程又把歌曲启动起来。
+            try:
+                await asyncio.wait_for(asyncio.shield(worker), timeout=12.0)
+            except asyncio.TimeoutError:
+                log.warning("等待歌曲播放工作线程收尾超时，将取消播放任务。")
+                worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
         async with self.queue_lock:
             count = len(self.queue)
             had_current_song = self.current is not None
@@ -1285,14 +1293,35 @@ class MusicModule:
                         log.warning("调用洛雪播放失败，准备回退音源：%s（%s）", candidate_song["title"], candidate_song["source"])
                         continue
 
-                    ok, verify_message = await asyncio.to_thread(
-                        verify_requested_song,
-                        candidate_song,
-                        before_status,
-                        5.0,
-                        self._skip_requested,
-                    )
-                    if self._skip_requested.is_set():
+                    # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
+                    if self.paused and self.enabled and not self._closing:
+                        pause_ok, pause_detail = await asyncio.to_thread(_lx_control, "pause")
+                        if not pause_ok:
+                            log.warning("播放启动期间补充暂停失败：%s", pause_detail)
+                        while self.paused and self.enabled and not self._closing:
+                            await asyncio.sleep(0.25)
+                    if not self.enabled or self._closing or self._skip_requested.is_set():
+                        break
+
+                    # 用户在核验过程中暂停时，等待恢复后重新核验同一个已保存 ID，
+                    # 不把“暂停状态”误判为音源播放失败并切换到下一平台。
+                    while True:
+                        ok, verify_message = await asyncio.to_thread(
+                            verify_requested_song,
+                            candidate_song,
+                            before_status,
+                            5.0,
+                            self._skip_requested,
+                        )
+                        if self._skip_requested.is_set() or not self.enabled or self._closing:
+                            break
+                        if self.paused:
+                            while self.paused and self.enabled and not self._closing:
+                                await asyncio.sleep(0.25)
+                            if self.enabled and not self._closing:
+                                continue
+                        break
+                    if self._skip_requested.is_set() or not self.enabled or self._closing:
                         break
                     if ok:
                         item["music_info"] = candidate
