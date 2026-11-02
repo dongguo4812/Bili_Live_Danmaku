@@ -152,6 +152,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   pointer-events: none;
 }
 .danmaku-bubble[hidden] { display: none; }
+.danmaku-preview {
+  z-index: 9;
+  border-style: dashed;
+  border-color: rgba(159,186,255,.85);
+}
+.danmaku-preview[hidden] { display: none; }
+.preview-entry { background: rgba(75,105,160,.28); }
 .danmaku-entry {
   flex: 0 0 auto;
   display: flex;
