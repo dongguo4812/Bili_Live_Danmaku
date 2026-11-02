@@ -1,0 +1,5 @@
+{
+  "level": "INFO",
+  "retention_days": 7,
+  "daily_rotation": true
+}
