@@ -28,6 +28,7 @@ from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, valida
 from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
+from core.logger_manager import setup_logging
 from modules.music.service import MusicModuleFacade
 from modules.video.service import VideoModuleFacade
 from modules.live2d.service import Live2DModule
@@ -48,7 +49,7 @@ TTS_VOICES = [
     "zh-CN-XiaoruiNeural", "zh-CN-XiaoshuangNeural",
 ]
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+setup_logging()
 logger = logging.getLogger("bili_live_danmaku")
 APPLICATION_RUNTIME = ApplicationRuntime()
 
