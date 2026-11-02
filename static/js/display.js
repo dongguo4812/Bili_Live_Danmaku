@@ -64,6 +64,9 @@
   let currentModel = "live_uu";
   let selectedModelConfig = null;
   let loadedModelId = null;
+  let loadedTransform = null;
+  let modelSwitchPromise = Promise.resolve();
+  let modelSwitchToken = 0;
   let isSaving = false;
   let hasUnsavedChanges = false;
   let lastDanmakuId = 0;
@@ -759,7 +762,7 @@
 
   function playSelectedModelMotion() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
-      setModelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      setModelActionStatus("模型正在加载，完成后即可操作动作和表情。", true);
       return;
     }
     const value = motionSelect && motionSelect.value;
@@ -784,7 +787,7 @@
 
   function applySelectedModelExpression() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
-      setModelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      setModelActionStatus("模型正在加载，完成后即可操作动作和表情。", true);
       return;
     }
     const name = expressionSelect && expressionSelect.value;
@@ -953,26 +956,33 @@
   async function saveSettings() {
     if (isSaving || !hasUnsavedChanges) return;
     isSaving = true;
+    let settingsSaved = false;
     if (saveButton) saveButton.disabled = true;
-    setSaveStatus("正在保存设置，并尝试刷新 OBS…");
+    setSaveStatus("正在保存设置…");
     try {
+      // 等待当前模型切换完成，避免保存与模型替换并发执行。
+      await modelSwitchPromise.catch(() => {});
+      const preferences = currentPreferences();
       const response = await fetch("/api/display/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(currentPreferences())
+        body: JSON.stringify({ ...preferences, refresh_obs: false })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "保存失败。");
+      settingsSaved = true;
       hasUnsavedChanges = false;
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
-      // A normal browser preview must reload to rebuild the Live2D model using
-      // the saved transform. OBS sources are refreshed by the backend request.
-      if (!window.obsstudio) {
-        window.setTimeout(() => window.location.reload(), 350);
+
+      // 只有缩放或位置参数变化时，才在当前 WebGL 上下文中重新载入模型。
+      // 弹幕轮询、TTS 队列、Web Audio 和空闲提示均不随模型替换重启。
+      if (transformChangedSinceLoad(preferences)) {
+        const token = ++modelSwitchToken;
+        await queueModelSwitch(modelSelect.value, token, result.preferences);
       }
     } catch (error) {
-      setSaveStatus("保存失败：" + error.message, true);
+      setSaveStatus((settingsSaved ? "设置已保存，但模型刷新失败：" : "保存失败：") + error.message, true);
     } finally {
       isSaving = false;
       if (saveButton) saveButton.disabled = false;
@@ -1007,6 +1017,7 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
+    loadedTransform = transformSnapshot(p);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1157,6 +1168,103 @@
     });
   }
 
+  function transformSnapshot(preferences = currentPreferences()) {
+    return {
+      scale: Number(preferences.scale) || 1,
+      x: Number(preferences.x) || 0,
+      y: Number(preferences.y) || 0
+    };
+  }
+
+  function transformChangedSinceLoad(preferences) {
+    if (!loadedTransform) return true;
+    return ["scale", "x", "y"].some(key =>
+      Math.abs(Number(preferences[key]) - Number(loadedTransform[key])) > 0.0001
+    );
+  }
+
+  function replaceLive2DModel(modelUrl) {
+    const manager = window.__live2dManager;
+    if (!manager || typeof manager.changeModel !== "function" ||
+        typeof manager.releaseModel !== "function" || !gl || gl.isContextLost()) {
+      throw new Error("Live2D 模型管理器或 WebGL 上下文尚未就绪。");
+    }
+
+    // 复用当前 Canvas 和 WebGL 上下文，只替换 Cubism 2 模型实例。
+    // 不再次调用 loadlive2d，避免重复注册鼠标/触摸事件和启动第二套渲染循环。
+    manager.reloadFlg = true;
+    manager.count += 1;
+    manager.changeModel(gl, modelUrl);
+  }
+
+  async function switchModelInPlace(modelId, token, modelPreferences) {
+    const previousModelId = loadedModelId;
+    let modelReplaced = false;
+    statusSent = false;
+    updateModelActionAvailability();
+    showMessage("正在切换 Live2D 模型：" + modelId + "…");
+    await reportState("loading", "正在局部切换 Live2D 模型：" + modelId);
+
+    try {
+      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+      const modelConfig = await verifyAssets(modelUrl);
+      if (token !== modelSwitchToken) return false;
+      if (!window.__live2dManager || !gl) {
+        throw new Error("Live2D 运行时尚未完成初始化。");
+      }
+
+      populateModelActions(modelConfig, modelId);
+      replaceLive2DModel(modelUrl);
+      modelReplaced = true;
+      await waitForRenderedPixels();
+
+      loadedModelId = modelId;
+      loadedTransform = transformSnapshot(modelPreferences || currentPreferences());
+      statusSent = true;
+      updateModelActionAvailability();
+      if (placeholder) placeholder.style.display = "none";
+      showMessage("");
+      await reportState("loaded", modelId + " 已在当前页面内完成模型切换。");
+      if (token === modelSwitchToken) {
+        setModelActionStatus(modelId + " 已加载，可以直接使用动作和表情。");
+      }
+      return true;
+    } catch (error) {
+      let restored = false;
+      if (modelReplaced && previousModelId) {
+        try {
+          const previousUrl = "/models/" + encodeURIComponent(previousModelId) + "/model.json";
+          await verifyAssets(previousUrl);
+          replaceLive2DModel(previousUrl);
+          await waitForRenderedPixels();
+          loadedModelId = previousModelId;
+          statusSent = true;
+          restored = true;
+          await reportState("loaded", "新模型加载失败，已恢复原模型：" + previousModelId);
+        } catch (restoreError) {
+          console.error("Unable to restore previous Live2D model:", restoreError);
+        }
+      } else if (!modelReplaced) {
+        statusSent = Boolean(loadedModelId);
+      }
+
+      updateModelActionAvailability();
+      showMessage(restored ? "新模型加载失败，已恢复原模型。" : "Live2D 模型切换失败：" + error.message);
+      if (!restored) await reportState("error", error.message);
+      if (token === modelSwitchToken) {
+        setSaveStatus("模型切换失败：" + error.message, true);
+        setModelActionStatus(restored ? "已恢复原模型：" + previousModelId : "模型切换失败：" + error.message, true);
+      }
+      throw error;
+    }
+  }
+
+  function queueModelSwitch(modelId, token, modelPreferences) {
+    const next = modelSwitchPromise.catch(() => {}).then(() => switchModelInPlace(modelId, token, modelPreferences));
+    modelSwitchPromise = next;
+    return next;
+  }
+
   async function start() {
     try {
       showMessage("正在读取展示设置…");
@@ -1189,6 +1297,7 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
+      loadedTransform = transformSnapshot();
       updateModelActionAvailability();
       showMessage("");
       if (placeholder) placeholder.style.display = "none";
@@ -1212,13 +1321,14 @@
   if (closeButton) closeButton.addEventListener("click", () => setPanelOpen(false));
 
   async function handleModelChange() {
+    const selectedModelId = modelSelect.value;
+    const token = ++modelSwitchToken;
     try {
-      const response = await fetch("/api/display/settings?model=" + encodeURIComponent(modelSelect.value), { cache: "no-store" });
+      const response = await fetch("/api/display/settings?model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
+      if (token !== modelSwitchToken) return;
       const p = data.preferences || {};
-      await loadModelActionConfig(modelSelect.value);
-      updateModelActionAvailability();
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1228,8 +1338,11 @@
       controls["bubble-height"].value = String(p.bubble_max_height ?? 320);
       controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
-    controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
+      controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
       markUnsaved();
+
+      // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
+      await queueModelSwitch(selectedModelId, token, p);
     } catch (error) {
       setSaveStatus(error.message, true);
     }
