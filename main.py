@@ -1538,8 +1538,8 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
             continue
         if not all(math.isfinite(v) for v in (x, y, w, h)):
             continue
-        w = max(10.0, min(100.0, w))
-        h = max(10.0, min(100.0, h))
+        w = max(12.0, min(100.0, w))
+        h = max(12.0, min(100.0, h))
         x = max(0.0, min(100.0 - w, x))
         y = max(0.0, min(100.0 - h, y))
         widgets.append({
@@ -1857,6 +1857,11 @@ def save_logging_settings():
         return jsonify({"ok": True, "message": "日志设置已保存并立即生效。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "日志设置保存失败。"}), 400
+
+
+@app.get("/api/display/layout/default")
+def get_default_combined_display_layout():
+    return jsonify({"ok": True, "layout": _default_display_layout()})
 
 
 @app.get("/api/display/layout")
