@@ -107,6 +107,8 @@ def _lx_control(action: str) -> tuple[bool, str]:
     try:
         response = requests.get(LX_API + endpoint, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
+        if action == "stop":
+            return True, "洛雪开放 API 没有停止接口；已暂停当前歌曲并结束机器人点播流程"
         return True, f"洛雪接口已接受 {action} 请求（HTTP {response.status_code}）"
     except Exception as exc:
         if action == "stop":
@@ -960,7 +962,11 @@ class MusicModule:
 
     async def enqueue(self, title: str, artist: str, uname: str, uid: int) -> None:
         # 先搜索并核验，只有拿到明确的歌曲 ID/音源后才继续。
+        if not self.enabled or self._closing:
+            return
         matched, reason = await asyncio.to_thread(find_matching_song, title, artist)
+        if not self.enabled or self._closing:
+            return
 
         if not matched:
             log.info(
@@ -1105,6 +1111,10 @@ class MusicModule:
     async def play_worker(self) -> None:
         async with self.play_lock:
             while True:
+                while self.paused and self.enabled and not self._closing:
+                    await asyncio.sleep(0.25)
+                if not self.enabled or self._closing:
+                    return
                 async with self.queue_lock:
                     if not self.queue:
                         self.current = None
@@ -1117,6 +1127,10 @@ class MusicModule:
                     self._restore_snapshot = await asyncio.to_thread(get_lx_status)
                 # 每首歌播放前单独保存状态，便于区分“搜索失败仍停留在旧歌”和“切换到了错误歌曲”。
                 before_status = await asyncio.to_thread(get_lx_status)
+                while self.paused and self.enabled and not self._closing:
+                    await asyncio.sleep(0.25)
+                if not self.enabled or self._closing:
+                    return
                 log.info("开始播放点歌：%s%s", item["title"], f" - {item['artist']}" if item["artist"] else "")
                 started = await asyncio.to_thread(play_song_in_lx, item)
                 if not started:
