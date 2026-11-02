@@ -1386,7 +1386,10 @@ class MusicModule:
                     )
 
                 if self._skip_requested.is_set():
-                    self._lx_playback_active = False
+                    # 关闭模块也会设置 skip_event；此时必须保留播放归属，
+                    # 让 close() 在 worker 收尾后暂停当前机器人歌曲。
+                    if not self._closing:
+                        self._lx_playback_active = False
                     log.info("检测到管理员切歌，已停止当前歌曲核验/音源回退流程。")
                     continue
                 if not verified:
@@ -1399,7 +1402,8 @@ class MusicModule:
                     continue
 
                 await self.wait_song_end()
-                self._lx_playback_active = False
+                # 正常结束/管理员切歌后，在下一轮出队或队列为空时清除归属。
+                # close() 需要保留该标志，才能在 worker 退出后暂停当前曲目。
                 log.info("机器人点播流程结束：%s", item["title"])
 
     async def wait_song_end(self) -> None:
