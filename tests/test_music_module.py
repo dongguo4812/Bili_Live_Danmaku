@@ -103,6 +103,7 @@ class FanMedalParsingTests(unittest.TestCase):
         service.ROOM_ID = 123
         service.MEDAL_CACHE.clear()
         session = MagicMock()
+        session.__enter__.return_value = session
         response = MagicMock()
         response.json.return_value = {
             "code": 0,
