@@ -505,7 +505,6 @@ def connect_live_room():
         return jsonify({"ok": False, "error": str(exc)}), 409
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["room_id"] = room_id
-        BILIBILI_STATE["message"] = "连接任务已启动，正在等待 WebSocket 真实认证。"
     return jsonify({"ok": True, "message": "连接任务已启动，等待 B 站 WebSocket 认证。"})
 
 
