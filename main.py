@@ -1681,6 +1681,7 @@ def _legacy_obs_credential_candidates() -> dict[str, Any]:
         "inline_password": False,
         "password_file": None,
         "legacy_bilibili_cookie_file": (BASE_DIR / "bili_cookie.txt").is_file(),
+        "legacy_obs_config_file": (BASE_DIR / "obs_config.txt").is_file(),
     }
     try:
         if LEGACY_CONFIG_PATH.is_file():
@@ -1719,6 +1720,7 @@ def get_credentials_status():
             "obs_password_file": legacy["password_file"],
             "migration_available": bool(legacy["inline_password"] or legacy["password_file"]),
             "legacy_bilibili_cookie_file": bool(legacy["legacy_bilibili_cookie_file"]),
+            "legacy_obs_config_file": bool(legacy["legacy_obs_config_file"]),
         },
     })
 
