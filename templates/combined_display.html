@@ -10,14 +10,21 @@
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
 body.editor-mode{background:#10131a;color:#f4f6fb}
 .toolbar{position:fixed;z-index:1000;left:0;right:0;top:0;min-height:54px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#171d29;border-bottom:1px solid #354056}
+.editor-mode .toolbar{left:218px}
 .toolbar[hidden]{display:none}
+.editor-sidebar{position:fixed;z-index:1100;left:0;top:0;bottom:0;width:218px;padding:22px 14px;background:#141b27;border-right:1px solid rgba(255,255,255,.1)}
+.editor-sidebar .brand{font-size:15px;font-weight:800;margin:0 8px 24px}
+.editor-sidebar nav{display:flex;flex-direction:column;gap:6px}
+.editor-sidebar a{display:block;padding:10px 12px;border-radius:8px;color:#c6d0e0;text-decoration:none;font-size:13px}
+.editor-sidebar a.active{background:#2c3d59;color:#fff;font-weight:700}
+.editor-sidebar a:hover{background:rgba(255,255,255,.07)}
 .toolbar strong{margin-right:12px}
 .toolbar button,.widget button{border:1px solid #53627c;border-radius:7px;padding:7px 10px;background:#29364a;color:#f4f6fb;font:inherit;font-size:12px;cursor:pointer}
 .toolbar button.primary{background:#5478bd;border-color:#7895d2}
 .toolbar button:disabled{opacity:.45;cursor:not-allowed}
 #layout-message{font-size:12px;color:#b8c4d8}
 #stage{position:absolute;inset:0;overflow:hidden;background:transparent}
-.editor-mode #stage{top:58px;inset-inline:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
+.editor-mode #stage{top:58px;left:218px;right:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
 .widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(15,20,30,.82);box-shadow:0 8px 24px rgba(0,0,0,.2);backdrop-filter:blur(7px);display:flex;flex-direction:column}
 .display-mode .widget{border-color:transparent;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .widget-header{flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:rgba(255,255,255,.07);font-size:12px;font-weight:800;cursor:move;user-select:none}
@@ -38,10 +45,25 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget .resize-handle{display:none}
 .editor-mode .widget .resize-handle{position:absolute;right:2px;bottom:2px;width:16px;height:16px;display:block;cursor:nwse-resize;background:linear-gradient(135deg,transparent 45%,#9bb8f5 46%,#9bb8f5 56%,transparent 57%)}
 .empty{color:#aeb9ca;font-size:13px}
+@media(max-width:800px){.editor-sidebar{position:relative;width:100%;height:auto;bottom:auto;padding:10px 12px}.editor-sidebar .brand{margin:0 0 8px}.editor-sidebar nav{flex-direction:row;overflow-x:auto}.editor-sidebar a{white-space:nowrap;padding:8px 10px}.editor-mode .toolbar{left:0;top:96px}.editor-mode #stage{left:0;top:160px}}
 @media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
 </style>
 </head>
 <body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}">
+{% if not display_mode %}
+<aside class="editor-sidebar">
+  <div class="brand">B站直播互动中心</div>
+  <nav>
+    <a class="active" href="/dashboard">综合展示</a>
+    <a href="/">接入中心</a>
+    <a href="/display">Live2D</a>
+    <a href="/voice">语音播报</a>
+    <a href="/music">歌曲点播</a>
+    <a href="/video">视频点播</a>
+    <a href="/settings">系统设置</a>
+  </nav>
+</aside>
+{% endif %}
 <div class="toolbar" id="toolbar" {% if display_mode %}hidden{% endif %}>
   <strong>综合展示布局</strong>
   <button type="button" data-add="live2d">添加 Live2D</button>
