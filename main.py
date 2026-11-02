@@ -142,7 +142,7 @@ def _default_model_id() -> str:
 def _load_user_settings() -> dict[str, Any]:
     default_model = _default_model_id()
     if not USER_SETTINGS_PATH.is_file():
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}}
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
     try:
         data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -161,10 +161,11 @@ def _load_user_settings() -> dict[str, Any]:
         except (TypeError, ValueError):
             room_id = 0
         tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
-        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}, "tts": tts}
+        idle_tips = data.get("idle_tips") if isinstance(data.get("idle_tips"), dict) else {}
+        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}, "tts": tts, "idle_tips": idle_tips}
     except Exception as exc:
         logger.warning("读取用户设置失败，将使用默认设置：%s", exc)
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}}
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
 
 
 def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
@@ -254,6 +255,111 @@ def _save_tts_preferences(payload: dict[str, Any]) -> dict[str, Any]:
         settings["tts"] = preferences
         _save_user_settings(settings)
     return preferences
+
+
+IDLE_TIP_DEFAULT_MESSAGES = [
+    "感谢你这么优秀还关注我！",
+    "欢迎来到东郭老贼的直播间！",
+    "感谢你的观看，感谢你的陪伴！",
+]
+IDLE_TIP_DEFAULT_TIME_MESSAGES = {
+    "early_morning": ["早安！美好的一天就要开始了。"],
+    "morning": ["上午好！保持专注，也别忘了适当放松哦。"],
+    "lunch": ["午餐时间到！记得好好吃饭，给身体充充电吧！"],
+    "after_lunch": ["午后容易犯困，不妨伸个懒腰，提提神？"],
+    "afternoon": ["下午好！不要久坐，记得起来活动一下哦！"],
+    "evening": ["傍晚了，记得放松一下，看看窗外的风景呀！"],
+    "night": ["晚上好，今天过得怎么样？"],
+    "late_night": ["深夜了，注意休息，别太累着自己哦！"],
+    "midnight": ["哇，你是夜猫子呀？这么晚还不睡觉吗？"],
+}
+
+
+def _idle_tip_preferences(settings: dict[str, Any]) -> dict[str, Any]:
+    raw = settings.get("idle_tips")
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def clean_messages(value: Any, fallback: list[str]) -> list[str]:
+        if not isinstance(value, list):
+            value = fallback
+        result = []
+        for item in value[:100]:
+            if isinstance(item, str):
+                message = item.strip()
+                if message and len(message) <= 200:
+                    result.append(message)
+        return result
+
+    try:
+        interval = max(10, min(3600, int(raw.get("interval_seconds", 60))))
+    except (TypeError, ValueError):
+        interval = 60
+
+    time_raw = raw.get("time_messages")
+    if not isinstance(time_raw, dict):
+        time_raw = {}
+    time_messages = {
+        key: clean_messages(time_raw.get(key), defaults)
+        for key, defaults in IDLE_TIP_DEFAULT_TIME_MESSAGES.items()
+    }
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "interval_seconds": interval,
+        "messages": clean_messages(raw.get("messages"), IDLE_TIP_DEFAULT_MESSAGES),
+        "time_messages": time_messages,
+    }
+
+
+@app.get("/api/idle-tips/settings")
+def get_idle_tip_settings():
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    return jsonify({"ok": True, "preferences": _idle_tip_preferences(settings)})
+
+
+@app.post("/api/idle-tips/settings")
+def save_idle_tip_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+
+    time_messages = payload.get("time_messages", {})
+    if not isinstance(time_messages, dict):
+        return jsonify({"ok": False, "error": "分时段提示语格式无效。"}), 400
+
+    candidate = {
+        "enabled": bool(payload.get("enabled", True)),
+        "interval_seconds": payload.get("interval_seconds", 60),
+        "messages": payload.get("messages", []),
+        "time_messages": time_messages,
+    }
+    try:
+        interval = int(candidate["interval_seconds"])
+        if interval < 10 or interval > 3600:
+            raise ValueError
+        candidate["interval_seconds"] = interval
+        if not isinstance(candidate["messages"], list) or len(candidate["messages"]) > 100:
+            raise ValueError
+        for message in candidate["messages"]:
+            if not isinstance(message, str) or len(message.strip()) > 200:
+                raise ValueError
+        for key in IDLE_TIP_DEFAULT_TIME_MESSAGES:
+            values = time_messages.get(key, [])
+            if not isinstance(values, list) or len(values) > 100:
+                raise ValueError
+            if any(not isinstance(value, str) or len(value.strip()) > 200 for value in values):
+                raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "提示间隔需为 10–3600 秒；每条提示语不能超过 200 个字符。"}), 400
+
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+        settings["idle_tips"] = candidate
+        preferences = _idle_tip_preferences(settings)
+        settings["idle_tips"] = preferences
+        _save_user_settings(settings)
+    return jsonify({"ok": True, "preferences": preferences})
 
 
 def _cleanup_tts_cache() -> None:
