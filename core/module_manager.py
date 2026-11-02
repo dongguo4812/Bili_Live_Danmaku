@@ -57,6 +57,12 @@ class ModuleManager:
         await self._operate(name, "resume", "running", manual=True)
 
     async def close(self, name: str) -> None:
+        with self._lock:
+            record = self._modules.get(name)
+            if record is None:
+                raise KeyError(f"未知模块：{name}")
+            if record.state == "stopped":
+                return
         await self._operate(name, "close", "stopped", manual=True)
 
     async def _operate(self, name: str, method: str, target_state: str, manual: bool) -> None:
