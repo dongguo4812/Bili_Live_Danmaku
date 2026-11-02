@@ -33,6 +33,9 @@ code {
   padding: 3px 6px; border-radius: 5px; background: #0d1118;
   color: #c7d8ff; overflow-wrap: anywhere;
 }
+html.display-root {
+  background: transparent !important;
+}
 .display-page {
   width: 100vw; height: 100vh; overflow: hidden;
   background: transparent !important;
