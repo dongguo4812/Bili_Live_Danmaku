@@ -99,7 +99,9 @@
         $("model-state").textContent = data.live2d.config_exists ? "已找到配置" : "缺少模型配置";
         $("model-name").textContent = data.live2d.name || "live_uu";
         $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
-        $("room-id").value = data.bilibili.room_id || "";
+        if (document.activeElement !== $("room-id")) {
+          $("room-id").value = data.bilibili.room_id || "";
+        }
       } catch (error) {
         pill.textContent = "服务不可用";
         pill.classList.remove("ok");
@@ -112,6 +114,8 @@
         $("bili-action-message").textContent = "正在申请二维码…";
         const data = await api("/api/bilibili/qr", { method: "POST" });
         $("qr-image").src = data.image;
+        $("qr-image").hidden = false;
+        $("qr-title").textContent = "请使用 B 站手机客户端扫码";
         $("qr-area").hidden = false;
         $("qr-message").textContent = data.message;
         $("bili-action-message").textContent = "请使用 B 站手机客户端扫码。";
