@@ -18,7 +18,7 @@ _SECRET_VALUE_PATTERN = re.compile(
     r"(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|cookie|password|passwd|token|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token)(\s*[:=]\s*)([\"']?)([^\s,;}\"']+)",
     re.IGNORECASE,
 )
-_COOKIE_HEADER_PATTERN = re.compile(r'(?i)(Cookie\s*:\s*)([^\r\n]+)', re.IGNORECASE)
+_COOKIE_HEADER_PATTERN = re.compile(r'(?i)((?:Cookie|Authorization)\s*:\s*)([^\r\n]+)', re.IGNORECASE)
 
 
 def _redact(message: str) -> str:
