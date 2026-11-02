@@ -1190,6 +1190,11 @@ def save_room_setting():
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "请输入有效的 B 站直播间房间号。"}), 400
+    # 新版统一保存到普通直播配置；同时更新旧用户设置，兼容现有页面逻辑。
+    config_manager = ConfigManager()
+    live_config = config_manager.load("live", {})
+    live_config["room_id"] = room_id
+    config_manager.save("live", live_config)
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["bilibili"]["room_id"] = room_id
