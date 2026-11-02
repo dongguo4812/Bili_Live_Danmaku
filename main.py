@@ -517,11 +517,13 @@ def disconnect_live_room():
 
 @app.get("/api/danmaku")
 def get_danmaku():
-    try:
-        after = max(0, int(request.args.get("after", "0")))
-    except ValueError:
-        after = 0
     with DANMAKU_LOCK:
+        if request.args.get("latest") == "1":
+            return jsonify({"ok": True, "items": [], "latest_id": DANMAKU_SEQUENCE})
+        try:
+            after = max(0, int(request.args.get("after", "0")))
+        except ValueError:
+            after = 0
         items = [item for item in DANMAKU_ITEMS if item["id"] > after]
     return jsonify({"ok": True, "items": items})
 
