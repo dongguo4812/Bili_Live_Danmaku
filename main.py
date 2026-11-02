@@ -267,9 +267,12 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
             if item.get("inputKind") != "browser_source":
                 continue
             input_name = item.get("inputName")
-            settings = item.get("inputSettings") or {}
+            if not isinstance(input_name, str):
+                continue
+            source_info = _obs_ws_request(ws, "GetInputSettings", {"inputName": input_name})
+            settings = source_info.get("inputSettings") or {}
             source_url = settings.get("url", "")
-            if not isinstance(input_name, str) or not isinstance(source_url, str):
+            if not isinstance(source_url, str):
                 continue
             parsed = urlparse(source_url)
             if parsed.path.rstrip("/") != "/display":
