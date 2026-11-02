@@ -33,10 +33,9 @@ code {
   padding: 3px 6px; border-radius: 5px; background: #0d1118;
   color: #c7d8ff; overflow-wrap: anywhere;
 }
-html.display-root {
-  background: transparent !important;
-}
+html.display-root { background: transparent !important; }
 .display-page {
+  position: relative;
   width: 100vw; height: 100vh; overflow: hidden;
   background: transparent !important;
 }
@@ -48,6 +47,40 @@ html.display-root {
   position: fixed; left: 16px; bottom: 16px; color: rgba(255,255,255,.6);
   font-size: 12px; text-shadow: 0 1px 3px #000;
 }
+.display-settings-toggle {
+  position: fixed; z-index: 20; top: 12px; left: 12px;
+  padding: 8px 13px; border: 1px solid rgba(255,255,255,.24);
+  border-radius: 8px; background: rgba(18,22,30,.82);
+  color: #fff; font: inherit; font-size: 13px; cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+.display-settings-toggle:hover, .settings-close:hover { background: rgba(55,65,82,.95); }
+.display-settings-panel {
+  position: fixed; z-index: 19; top: 54px; left: 12px;
+  width: min(310px, calc(100vw - 24px)); padding: 15px;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 12px;
+  background: rgba(19,23,32,.94); color: #f2f4f8;
+  box-shadow: 0 12px 36px rgba(0,0,0,.28); backdrop-filter: blur(12px);
+}
+.display-settings-panel[hidden] { display: none; }
+.display-settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; font-size: 14px;
+}
+.settings-close {
+  width: 28px; height: 28px; border: 0; border-radius: 6px;
+  background: transparent; color: #dce3ef; font-size: 22px; cursor: pointer;
+}
+.setting-field { display: grid; gap: 9px; margin: 14px 0; font-size: 13px; }
+.setting-field > span { display: flex; justify-content: space-between; gap: 12px; color: #e7ebf3; }
+.setting-field output { color: #9fbaff; font-variant-numeric: tabular-nums; }
+.setting-field select {
+  width: 100%; padding: 9px 10px; border: 1px solid #465166;
+  border-radius: 7px; background: #111722; color: #f2f4f8; font: inherit;
+}
+.setting-field input[type="range"] { width: 100%; accent-color: #8baeff; cursor: pointer; }
+.settings-save-status { min-height: 18px; margin: 14px 0 0; color: #aab5c8; font-size: 12px; line-height: 1.5; }
+.settings-save-status.error { color: #ff9b9b; }
 @media (max-width: 620px) {
   .status-grid { grid-template-columns: 1fr; }
   .page-header { align-items: flex-start; flex-direction: column; }
