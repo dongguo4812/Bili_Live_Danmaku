@@ -37,3 +37,11 @@ user_settings.json
 build/
 dist/
 *.spec
+
+# Legacy local credential/config files from standalone bots
+bili_cookie.txt
+uid.txt
+room_config.txt
+obs_config.txt
+house.txt
+chrome_profile/
