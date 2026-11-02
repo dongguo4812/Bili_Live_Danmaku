@@ -29,3 +29,6 @@ uid.txt
 *.secret
 *.key
 chrome_profile/
+
+# Legacy per-user settings are migrated into config/*.json at runtime
+user_settings.json
