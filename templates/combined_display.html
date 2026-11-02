@@ -184,10 +184,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     body.appendChild(make("div","muted","当前播放"));
     body.appendChild(make("div","primary-line",current?current.title:"暂无视频"));
     if(current&&current.bvid) body.appendChild(make("div","muted",current.bvid));
-    body.appendChild(make("div","row","接下来播放"));
     const queue=data.queue||[];
-    if(!queue.length) body.appendChild(make("div","empty","暂无待播视频"));
-    queue.slice(0,8).forEach((item,i)=>{
+    const next=queue[0]||null;
+    body.appendChild(make("div","row","接下来播放"));
+    body.appendChild(make("div",next?"primary-line":"empty",next?next.title:"暂无下一条视频"));
+    if(next&&next.bvid) body.appendChild(make("div","muted",next.bvid));
+
+    body.appendChild(make("div","row","播放队列"));
+    const waiting=queue.slice(1,9);
+    if(!waiting.length) body.appendChild(make("div","empty",queue.length?"暂无其他排队视频":"暂无待播视频"));
+    waiting.forEach((item,i)=>{
       body.appendChild(make("div","queue-item",(i+1)+". "+item.title+"  "+item.bvid));
     });
     (data.operations||[]).slice(-3).forEach(item=>{
