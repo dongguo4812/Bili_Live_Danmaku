@@ -41,12 +41,52 @@ class ConfigManagerTests(unittest.TestCase):
                 manager.save("music", {"APIKey": "must-not-be-saved"})
             with self.assertRaises(ConfigError):
                 manager.save("music", {"accessToken": "must-not-be-saved"})
+            with self.assertRaises(ConfigError):
+                manager.save("music", {"Authorization": "Bearer must-not-be-saved"})
 
     def test_round_trip_plain_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = ConfigManager(Path(directory))
             manager.save("live", {"room_id": 123456, "reconnect": True})
             self.assertEqual(manager.load("live")["room_id"], 123456)
+
+
+    def test_legacy_config_migrates_once_without_plain_obs_password(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            manager = ConfigManager(config_dir)
+            manager.save("app", {"host": "127.0.0.1", "port": 8768, "debug": False})
+            manager.save("live", {"room_id": 22851631, "connect_on_start": False})
+            manager.save("voice", {"voice": "zh-CN-XiaoxiaoNeural"})
+
+            legacy = {
+                "app": {"host": "127.0.0.2", "port": 9000},
+                "bilibili": {"room_id": 777, "reconnect": True},
+                "tts": {"voice": "zh-CN-YunxiNeural", "rate": 12},
+                "obs_websocket": {
+                    "host": "192.168.1.3",
+                    "port": 4455,
+                    "password": "must-not-be-copied",
+                    "password_file": "obs_config.txt",
+                },
+            }
+            legacy_path = root / "config.json"
+            legacy_path.write_text(__import__("json").dumps(legacy), encoding="utf-8")
+
+            migrated = manager.migrate_legacy_config(legacy_path)
+            self.assertIn("app", migrated)
+            self.assertEqual(manager.load("app")["host"], "127.0.0.2")
+            self.assertEqual(manager.load("live")["room_id"], 777)
+            self.assertEqual(manager.load("voice")["tts"]["voice"], "zh-CN-YunxiNeural")
+            obs = manager.load("obs")
+            self.assertEqual(obs["password_file"], "credentials/obs.json")
+            self.assertNotIn("password", obs)
+
+            manager.save("app", {"host": "127.0.0.9", "port": 9001})
+            manager.migrate_legacy_config(legacy_path)
+            self.assertEqual(manager.load("app")["host"], "127.0.0.9")
 
 
 class CredentialStoreTests(unittest.TestCase):
