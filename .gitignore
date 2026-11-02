@@ -10,3 +10,4 @@ credentials/
 secrets/
 !models/.gitkeep
 !models/live_uu/.gitkeep
+user_settings.json
