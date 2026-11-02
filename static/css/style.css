@@ -181,8 +181,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   border-radius: 9px;
   background: rgba(255,255,255,.09);
   color: #f8faff;
-  font-size: 18px;
-  line-height: 20px;
+  font-size: 20px;
+  line-height: 22px;
   overflow-wrap: anywhere;
   animation: danmaku-entry-in .18s ease-out both;
 }
