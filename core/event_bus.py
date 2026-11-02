@@ -44,13 +44,17 @@ class EventBus:
         }
         with self._lock:
             handlers = tuple(self._handlers.get(normalized["type"], ())) + tuple(self._handlers.get("*", ()))
-        for handler in handlers:
+        async def invoke(handler: Callable[[dict[str, Any]], Any]) -> None:
             try:
                 result = handler(normalized)
                 if inspect.isawaitable(result):
                     await result
             except Exception:
                 logger.exception("直播事件处理器执行失败：type=%s", normalized["type"])
+
+        # 各业务模块并行处理同一条弹幕，避免歌曲搜索/网络校验拖慢视频点播。
+        if handlers:
+            await asyncio.gather(*(invoke(handler) for handler in handlers))
 
     def publish_threadsafe(self, loop: asyncio.AbstractEventLoop, event: dict[str, Any]) -> None:
         if loop.is_closed():
