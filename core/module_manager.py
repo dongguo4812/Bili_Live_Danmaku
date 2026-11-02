@@ -72,12 +72,8 @@ class ModuleManager:
                 return
             if record.state == "paused":
                 # 若模块正等待断线恢复，串行补一次暂停，确保用户手动意图最后生效。
-                if self._disconnect_snapshot is not None and name in self._disconnect_snapshot:
-                    needs_manual_pause = True
-                else:
+                if self._disconnect_snapshot is None or name not in self._disconnect_snapshot:
                     return
-            else:
-                needs_manual_pause = False
         await self._operate(name, "pause", "paused", manual=True)
 
     async def resume(self, name: str) -> None:
