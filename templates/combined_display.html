@@ -216,11 +216,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   function renderWidgetContent(body,type){
     body.replaceChildren();
     if(type==="live2d"){
-      const frame=document.createElement("iframe");
-      frame.src="/display?embedded=1";
-      frame.title="Live2D 展示";
-      frame.allow="autoplay";
-      body.appendChild(frame);
+      if(displayMode){
+        const frame=document.createElement("iframe");
+        frame.src="/display?embedded=1";
+        frame.title="Live2D 展示";
+        frame.allow="autoplay";
+        body.appendChild(frame);
+      }else{
+        body.appendChild(make("div","empty","Live2D OBS 展示模块（编辑页不启动音频与模型渲染）"));
+      }
     }else if(type==="music") renderMusic(body);
     else if(type==="video") renderVideo(body);
     else if(type==="voice") renderVoice(body);
@@ -255,7 +259,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       stage.appendChild(widget);
     });
     // 若只选择语音而未添加 Live2D 画面，仍加载隐藏的音频引擎 iframe。
-    if(layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
+    if(displayMode && layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
       const engine=document.createElement("iframe");
       engine.className="voice-engine";
       engine.src="/display?embedded=1";
