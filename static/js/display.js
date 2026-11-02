@@ -265,7 +265,23 @@
 
   if (toggle) toggle.addEventListener("click", () => setPanelOpen(panel.hidden));
   if (closeButton) closeButton.addEventListener("click", () => setPanelOpen(false));
-  if (modelSelect) modelSelect.addEventListener("change", scheduleSave);
+  async function handleModelChange() {
+    try {
+      const response = await fetch("/api/display/settings?model=" + encodeURIComponent(modelSelect.value), { cache: "no-store" });
+      if (!response.ok) throw new Error("无法读取该模型的独立设置。");
+      const data = await response.json();
+      const preferences = data.preferences || {};
+      scaleSlider.value = String(Math.round((Number(preferences.scale) || 1) * 100));
+      xSlider.value = String(Math.round((Number(preferences.x) || 0) * 100));
+      ySlider.value = String(Math.round((Number(preferences.y) || 0) * 100));
+      updateSliderLabels();
+      scheduleSave();
+    } catch (error) {
+      setSaveStatus(error.message, true);
+    }
+  }
+
+  if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
   for (const slider of [scaleSlider, xSlider, ySlider]) {
     if (slider) slider.addEventListener("input", updateSliderLabels);
     if (slider) slider.addEventListener("change", scheduleSave);
