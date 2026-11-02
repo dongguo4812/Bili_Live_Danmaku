@@ -1167,6 +1167,11 @@ def system_settings_page():
     return render_template("settings.html")
 
 
+@app.get("/credentials")
+def credentials_page():
+    return render_template("credentials.html")
+
+
 @app.get("/display/combined")
 def combined_display_page():
     return render_template("combined_display.html", display_mode=True)
@@ -1668,6 +1673,96 @@ def save_video_settings():
         return jsonify({"ok": True, "message": "视频模块配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "视频配置保存失败。"}), 400
+
+
+def _legacy_obs_credential_candidates() -> dict[str, Any]:
+    """只探测旧凭据是否存在；绝不向前端返回密码或 Cookie 内容。"""
+    found = {"inline_password": False, "password_file": None}
+    try:
+        if LEGACY_CONFIG_PATH.is_file():
+            legacy = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
+            obs = legacy.get("obs_websocket", {}) if isinstance(legacy, dict) else {}
+            if isinstance(obs, dict):
+                found["inline_password"] = bool(str(obs.get("password", "") or ""))
+                old_file = str(obs.get("password_file", "") or "").strip()
+                if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
+                    candidate = (BASE_DIR / old_file).resolve()
+                    try:
+                        candidate.relative_to(BASE_DIR.resolve())
+                        if candidate.is_file():
+                            found["password_file"] = str(candidate.relative_to(BASE_DIR))
+                    except ValueError:
+                        pass
+    except Exception as exc:
+        logger.warning("检查旧 OBS 凭据失败：%s", type(exc).__name__)
+    return found
+
+
+@app.get("/api/credentials/status")
+def get_credentials_status():
+    valid, message, _ = _login_status()
+    obs_status = CredentialStore().status("obs")
+    legacy = _legacy_obs_credential_candidates()
+    return jsonify({
+        "ok": True,
+        "bilibili": {"configured": bool(valid), "message": message},
+        "obs": {"configured": bool(obs_status.get("configured"))},
+        "legacy": {
+            "obs_inline_password": bool(legacy["inline_password"]),
+            "obs_password_file": legacy["password_file"],
+            "migration_available": bool(legacy["inline_password"] or legacy["password_file"]),
+        },
+    })
+
+
+@app.post("/api/credentials/migrate")
+def migrate_legacy_credentials():
+    """显式迁移旧 OBS 密码；成功后清理旧配置中的明文值。"""
+    store = CredentialStore()
+    if store.status("obs").get("configured"):
+        return jsonify({"ok": False, "error": "OBS 凭据库中已有密码；为避免覆盖，未执行迁移。"}), 409
+    password = ""
+    password_file_path = None
+    try:
+        legacy_data = {}
+        if LEGACY_CONFIG_PATH.is_file():
+            legacy_data = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
+            if not isinstance(legacy_data, dict):
+                legacy_data = {}
+        obs = legacy_data.get("obs_websocket", {})
+        if not isinstance(obs, dict):
+            obs = {}
+        password = str(obs.get("password", "") or "")
+        old_file = str(obs.get("password_file", "") or "").strip()
+        if not password and old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
+            candidate = (BASE_DIR / old_file).resolve()
+            candidate.relative_to(BASE_DIR.resolve())
+            if candidate.is_file():
+                password_file_path = candidate
+                password = candidate.read_text(encoding="utf-8-sig").strip()
+        if not password:
+            return jsonify({"ok": False, "error": "未发现可自动迁移的旧 OBS 明文密码。"}), 404
+
+        store.save("obs", {"password": password})
+        password = ""
+        if isinstance(legacy_data.get("obs_websocket"), dict):
+            clean_obs = dict(legacy_data["obs_websocket"])
+            clean_obs.pop("password", None)
+            clean_obs["password_file"] = "credentials/obs.json"
+            legacy_data["obs_websocket"] = clean_obs
+            temporary = LEGACY_CONFIG_PATH.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(legacy_data, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
+            os.replace(temporary, LEGACY_CONFIG_PATH)
+        if password_file_path and password_file_path.exists():
+            password_file_path.unlink()
+        VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
+        return jsonify({"ok": True, "message": "旧 OBS 密码已迁移到本机凭据库，并清理旧明文配置。"})
+    except Exception as exc:
+        logger.warning("迁移旧 OBS 凭据失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "旧 OBS 凭据迁移失败；请检查旧配置文件权限和格式。"}), 500
+    finally:
+        password = ""
 
 
 @app.get("/api/settings/obs")
