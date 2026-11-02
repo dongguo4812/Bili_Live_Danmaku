@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>系统设置</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="manager-page">
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">B站直播互动中心</div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard">综合展示</a>
+      <a href="/">接入中心</a>
+      <a href="/display">Live2D</a>
+      <a href="/voice">语音播报</a>
+      <a href="/music">歌曲点播</a>
+      <a href="/video">视频点播</a>
+      <a class="active" href="/settings">系统设置</a>
+    </nav>
+  </aside>
+  <main class="manager">
+    <header class="page-header">
+      <div><p class="eyebrow">SYSTEM SETTINGS</p><h1>系统设置</h1><p class="muted">普通配置与敏感凭据分开保存</p></div>
+    </header>
+    <section class="panel">
+      <h2>B站账号</h2>
+      <p id="bili-status" class="muted">正在读取登录状态…</p>
+      <a href="/">前往接入中心进行 B 站二维码登录</a>
+    </section>
+    <section class="panel">
+      <h2>OBS 普通配置</h2>
+      <p class="muted">地址、端口和来源名称保存在 config/obs.json，不包含密码。</p>
+      <label class="setting-field"><span>OBS WebSocket 地址</span><input id="obs-host" type="text" placeholder="127.0.0.1"></label>
+      <label class="setting-field"><span>端口</span><input id="obs-port" type="number" min="1" max="65535"></label>
+      <label class="setting-field"><span>连接超时（秒）</span><input id="obs-timeout" type="number" min="0.5" max="10" step="0.5"></label>
+      <label class="setting-field"><span>视频来源名称</span><input id="obs-source" type="text" placeholder="b站视频播放器"></label>
+      <button id="save-obs" type="button">保存 OBS 普通配置</button>
+      <p id="obs-status" class="muted" role="status"></p>
+    </section>
+    <section class="panel">
+      <h2>OBS 敏感凭据</h2>
+      <p class="muted">密码使用本机安全凭据存储加密保存。页面不会读取或回显已保存的密码。</p>
+      <p id="obs-credential-state" class="muted">正在检查凭据状态…</p>
+      <label class="setting-field"><span>新的 OBS WebSocket 密码</span><input id="obs-password" type="password" autocomplete="new-password" placeholder="输入新密码；留空表示不修改"></label>
+      <button id="save-obs-password" type="button">加密保存密码</button>
+      <p id="credential-status" class="muted" role="status"></p>
+    </section>
+  </main>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
+async function load(){try{const [obs,status]=await Promise.all([api("/api/settings/obs"),api("/api/status")]);$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("obs-credential-state").textContent=obs.password_configured?"OBS 密码：已加密配置":"OBS 密码：尚未配置";$("bili-status").textContent=status.bilibili.logged_in?"B站账号：已登录":"B站账号：未登录";}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+$("save-obs").addEventListener("click",async()=>{try{const d=await api("/api/settings/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:$("obs-host").value,port:Number($("obs-port").value),timeout:Number($("obs-timeout").value),source_name:$("obs-source").value})});$("obs-status").textContent=d.message;}catch(e){$("obs-status").textContent="保存失败："+e.message}});
+$("save-obs-password").addEventListener("click",async()=>{const password=$("obs-password").value;if(!password){$("credential-status").textContent="请输入新密码。";return;}try{const d=await api("/api/credentials/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});$("obs-password").value="";$("credential-status").textContent=d.message;$("obs-credential-state").textContent="OBS 密码：已加密配置";}catch(e){$("credential-status").textContent="保存失败："+e.message}});
+load();
+</script>
+</body>
+</html>
