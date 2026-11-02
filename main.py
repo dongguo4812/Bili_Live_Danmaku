@@ -28,6 +28,7 @@ from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, valida
 from core.config_manager import ConfigManager
 from core.application import ApplicationRuntime
 from modules.music.service import MusicModuleFacade
+from modules.video.service import VideoModuleFacade
 
 BASE_DIR = Path(__file__).resolve().parent
 LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
@@ -992,6 +993,14 @@ MUSIC_MODULE = MusicModuleFacade(
 )
 APPLICATION_RUNTIME.register_module("music", MUSIC_MODULE)
 
+VIDEO_MODULE = VideoModuleFacade(
+    event_bus=APPLICATION_RUNTIME.events,
+    config=ConfigManager().load("video", {}),
+    cookie_provider=_music_cookie_provider,
+    room_id=int(_load_user_settings()["bilibili"]["room_id"]),
+)
+APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
+
 
 
 
@@ -1244,6 +1253,7 @@ def save_room_setting():
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["room_id"] = room_id
     MUSIC_MODULE.update_room_id(room_id)
+    VIDEO_MODULE.update_room_id(room_id)
     return jsonify({"ok": True, "room_id": room_id})
 
 
@@ -1310,6 +1320,25 @@ def api_music_queue():
     return jsonify(MUSIC_MODULE.queue_snapshot())
 
 
+@app.get("/api/video/queue")
+def api_video_queue():
+    return jsonify(VIDEO_MODULE.queue_snapshot())
+
+
+@app.post("/api/video/action")
+def api_video_action():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "请求内容无效。"}), 400
+    try:
+        future = APPLICATION_RUNTIME.async_runtime.submit(VIDEO_MODULE.panel_action(payload))
+        result = future.result(timeout=60)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as exc:
+        logger.exception("视频模块队列操作失败。")
+        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+
+
 @app.post("/api/music/action")
 def api_music_action():
     payload = request.get_json(silent=True)
@@ -1357,6 +1386,7 @@ def api_status():
             "mouth_sync": True,
             "moc2_runtime": live2d["runtime_ready"],
             "music": True,
+            "video": True,
         },
         "modules": APPLICATION_RUNTIME.modules.list_status(),
     })
