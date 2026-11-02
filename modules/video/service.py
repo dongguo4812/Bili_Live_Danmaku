@@ -29,6 +29,71 @@ from core.credential_store import CredentialStore
 logger = logging.getLogger("bili_live_danmaku.video")
 BASE_DIR = get_base_dir()
 CONFIG_MANAGER = ConfigManager()
+
+
+def migrate_legacy_video_room_config(
+    base_dir: Path | None = None,
+    config_manager: ConfigManager | None = None,
+) -> dict[str, Any]:
+    """首次升级时导入旧 room_config.txt 的点播限制，不覆盖统一直播间房间号。"""
+    root = (base_dir or BASE_DIR).resolve()
+    manager = config_manager or CONFIG_MANAGER
+    source = root / "room_config.txt"
+    marker = root / "data" / "video" / "legacy_room_config_migrated_v1.json"
+    if marker.is_file() or not source.is_file():
+        return {}
+
+    parsed: dict[str, str] = {}
+    for raw_line in source.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        parsed[key.strip().upper()] = value.strip()
+
+    config = manager.load("video", {})
+    requests_config = config.get("requests")
+    if not isinstance(requests_config, dict):
+        requests_config = {}
+    requests_config = dict(requests_config)
+
+    migrated: dict[str, Any] = {}
+    if "REQUIRE_FAN_MEDAL" in parsed:
+        try:
+            migrated["require_fans_medal"] = int(parsed["REQUIRE_FAN_MEDAL"]) != 0
+        except (TypeError, ValueError):
+            migrated["require_fans_medal"] = True
+    elif "require_fans_medal" not in requests_config:
+        # 旧版未填写或无效时默认要求粉丝牌，避免意外开放点播。
+        migrated["require_fans_medal"] = True
+
+    integer_fields = {
+        "MAX_VIDEO_DURATION_SEC": ("max_video_duration_seconds", 300, 1, 86400),
+        "COOLDOWN_SEC": ("cooldown_seconds", 60, 0, 86400),
+        "MAX_QUEUE_SIZE": ("queue_limit", 30, 1, 1000),
+    }
+    for old_key, (new_key, default, minimum, maximum) in integer_fields.items():
+        if old_key not in parsed:
+            continue
+        try:
+            value = int(parsed[old_key])
+        except (TypeError, ValueError):
+            continue
+        migrated[new_key] = max(minimum, min(maximum, value))
+
+    requests_config.update(migrated)
+    config["requests"] = requests_config
+    manager.save("video", config)
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        json.dumps({"source": source.name, "migrated": migrated}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return migrated
+
+
+migrate_legacy_video_room_config()
 VIDEO_CONFIG = CONFIG_MANAGER.load("video", {})
 LIVE_CONFIG = CONFIG_MANAGER.load("live", {})
 roomid = int(LIVE_CONFIG.get("room_id", 0) or 0)
