@@ -44,7 +44,12 @@ def migrate_legacy_video_room_config(
         return {}
 
     parsed: dict[str, str] = {}
-    for raw_line in source.read_text(encoding="utf-8-sig").splitlines():
+    try:
+        source_lines = source.read_text(encoding="utf-8-sig").splitlines()
+    except OSError as exc:
+        logger.warning("读取旧视频配置失败：%s", type(exc).__name__)
+        return {}
+    for raw_line in source_lines:
         line = raw_line.split("#", 1)[0].strip()
         if not line or "=" not in line:
             continue
