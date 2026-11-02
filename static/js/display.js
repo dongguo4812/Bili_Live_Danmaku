@@ -7,6 +7,12 @@
   const toggle = document.getElementById("display-settings-toggle");
   const closeButton = document.getElementById("display-settings-close");
   const modelSelect = document.getElementById("model-select");
+  const motionSelect = document.getElementById("model-motion-select");
+  const motionPlayButton = document.getElementById("model-motion-play");
+  const expressionSelect = document.getElementById("model-expression-select");
+  const expressionApplyButton = document.getElementById("model-expression-apply");
+  const expressionResetButton = document.getElementById("model-expression-reset");
+  const modelActionStatus = document.getElementById("model-action-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
@@ -56,6 +62,8 @@
   let resizePending = false;
   let statusSent = false;
   let currentModel = "live_uu";
+  let selectedModelConfig = null;
+  let loadedModelId = null;
   let isSaving = false;
   let hasUnsavedChanges = false;
   let lastDanmakuId = 0;
@@ -676,6 +684,139 @@
     if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
   }
 
+  function modelActionStatus(message, isError = false) {
+    if (!modelActionStatus) return;
+    modelActionStatus.textContent = message;
+    modelActionStatus.classList.toggle("error", isError);
+  }
+
+  function updateModelActionAvailability() {
+    const sameModel = Boolean(loadedModelId && modelSelect && modelSelect.value === loadedModelId);
+    const ready = sameModel && statusSent;
+    if (motionSelect) motionSelect.disabled = !ready || motionSelect.options.length <= 1;
+    if (motionPlayButton) motionPlayButton.disabled = !ready || !motionSelect || !motionSelect.value;
+    if (expressionSelect) expressionSelect.disabled = !ready || expressionSelect.options.length <= 1;
+    if (expressionApplyButton) expressionApplyButton.disabled = !ready || !expressionSelect || !expressionSelect.value;
+    if (expressionResetButton) expressionResetButton.disabled = !ready || !selectedModelConfig || !Array.isArray(selectedModelConfig.expressions) || !selectedModelConfig.expressions.length;
+  }
+
+  function populateModelActions(config, modelId) {
+    selectedModelConfig = config && typeof config === "object" ? config : {};
+    if (motionSelect) {
+      motionSelect.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      const groups = selectedModelConfig.motions && typeof selectedModelConfig.motions === "object"
+        ? selectedModelConfig.motions : {};
+      const entries = [];
+      for (const [group, motions] of Object.entries(groups)) {
+        if (!Array.isArray(motions)) continue;
+        motions.forEach((motion, index) => {
+          if (!motion || typeof motion.file !== "string" || !motion.file) return;
+          entries.push({ group, index, file: motion.file });
+        });
+      }
+      placeholder.textContent = entries.length ? "请选择动作" : "当前模型没有配置动作";
+      motionSelect.appendChild(placeholder);
+      for (const entry of entries) {
+        const option = document.createElement("option");
+        option.value = entry.group + "::" + entry.index;
+        option.textContent = entry.group + " / " + entry.file.split("/").pop();
+        motionSelect.appendChild(option);
+      }
+    }
+    if (expressionSelect) {
+      expressionSelect.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      const expressions = Array.isArray(selectedModelConfig.expressions)
+        ? selectedModelConfig.expressions.filter(item => item && typeof item.file === "string" && item.file)
+        : [];
+      placeholder.textContent = expressions.length ? "请选择表情" : "当前模型没有配置独立表情";
+      expressionSelect.appendChild(placeholder);
+      for (const expression of expressions) {
+        const option = document.createElement("option");
+        option.value = expression.name || expression.file;
+        option.textContent = expression.name || expression.file.split("/").pop();
+        expressionSelect.appendChild(option);
+      }
+    }
+    if (modelActionStatus) {
+      const motionCount = motionSelect ? Math.max(0, motionSelect.options.length - 1) : 0;
+      const expressionCount = expressionSelect ? Math.max(0, expressionSelect.options.length - 1) : 0;
+      modelActionStatus.textContent = modelId + "：读取到 " + motionCount + " 个动作、" + expressionCount + " 个表情。";
+    }
+    updateModelActionAvailability();
+  }
+
+  async function loadModelActionConfig(modelId) {
+    const url = "/models/" + encodeURIComponent(modelId) + "/model.json";
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error("无法读取模型动作配置（HTTP " + response.status + "）。");
+    const config = await response.json();
+    populateModelActions(config, modelId);
+  }
+
+  function playSelectedModelMotion() {
+    if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
+      modelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      return;
+    }
+    const value = motionSelect && motionSelect.value;
+    if (!value) return;
+    const separator = value.lastIndexOf("::");
+    const group = value.slice(0, separator);
+    const index = Number(value.slice(separator + 2));
+    const model = window.__live2dManager && window.__live2dManager.getModel(0);
+    if (!model || !model.initialized || typeof model.startMotion !== "function") {
+      modelActionStatus("Live2D 模型尚未完成初始化。", true);
+      return;
+    }
+    try {
+      // Cubism 2 priority 4 is FORCE: user-selected motion takes precedence
+      // over the model's low-priority automatic idle motion.
+      model.startMotion(group, index, 4);
+      modelActionStatus("已播放动作：" + group + " / " + motionSelect.selectedOptions[0].textContent);
+    } catch (error) {
+      modelActionStatus("动作播放失败：" + error.message, true);
+    }
+  }
+
+  function applySelectedModelExpression() {
+    if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
+      modelActionStatus("请先保存模型切换设置，等待新模型加载完成。", true);
+      return;
+    }
+    const name = expressionSelect && expressionSelect.value;
+    if (!name) return;
+    const model = window.__live2dManager && window.__live2dManager.getModel(0);
+    if (!model || !model.initialized || typeof model.setExpression !== "function") {
+      modelActionStatus("Live2D 模型尚未完成初始化。", true);
+      return;
+    }
+    if (!model.expressions || !model.expressions[name]) {
+      modelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
+      return;
+    }
+    try {
+      model.setExpression(name);
+      modelActionStatus("已切换表情：" + name);
+    } catch (error) {
+      modelActionStatus("表情切换失败：" + error.message, true);
+    }
+  }
+
+  function resetSelectedModelExpression() {
+    if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) return;
+    const model = window.__live2dManager && window.__live2dManager.getModel(0);
+    if (!model || !model.expressionManager || typeof model.expressionManager.stopAllMotions !== "function") {
+      modelActionStatus("当前模型不支持恢复默认表情。", true);
+      return;
+    }
+    model.expressionManager.stopAllMotions();
+    modelActionStatus("已恢复模型默认表情。");
+  }
+
   function collectModelFiles(config) {
     const files = [];
     for (const key of ["model", "physics", "pose"]) {
@@ -1023,7 +1164,8 @@
       const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
       showMessage("正在检查 " + modelId + " 模型资源…");
       await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
-      await verifyAssets(modelUrl);
+      const modelConfig = await verifyAssets(modelUrl);
+      populateModelActions(modelConfig, modelId);
       if (typeof window.loadlive2d !== "function" ||
           typeof window.Live2DModelWebGL === "undefined" ||
           typeof window.Live2D === "undefined") {
@@ -1046,6 +1188,8 @@
       window.addEventListener("resize", setCanvasResolution, { passive: true });
       await waitForRenderedPixels();
       statusSent = true;
+      loadedModelId = modelId;
+      updateModelActionAvailability();
       showMessage("");
       if (placeholder) placeholder.style.display = "none";
       await reportState("loaded", modelId + " 已由 Cubism 2 WebGL 运行时加载并检测到实际绘制内容。");
@@ -1073,6 +1217,8 @@
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
       const p = data.preferences || {};
+      await loadModelActionConfig(modelSelect.value);
+      updateModelActionAvailability();
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1090,6 +1236,11 @@
   }
 
   if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
+  if (motionPlayButton) motionPlayButton.addEventListener("click", playSelectedModelMotion);
+  if (expressionApplyButton) expressionApplyButton.addEventListener("click", applySelectedModelExpression);
+  if (expressionResetButton) expressionResetButton.addEventListener("click", resetSelectedModelExpression);
+  if (motionSelect) motionSelect.addEventListener("change", updateModelActionAvailability);
+  if (expressionSelect) expressionSelect.addEventListener("change", updateModelActionAvailability);
   if (saveButton) saveButton.addEventListener("click", saveSettings);
   for (const [key, slider] of Object.entries(controls)) {
     if (!slider) continue;
