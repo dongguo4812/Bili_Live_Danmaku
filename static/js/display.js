@@ -9,6 +9,7 @@
   const modelSelect = document.getElementById("model-select");
   const saveStatus = document.getElementById("settings-save-status");
   const bubble = document.getElementById("danmaku-bubble");
+  const bubblePreview = document.getElementById("danmaku-preview");
   if (!canvas) return;
 
   const ids = [
@@ -45,6 +46,10 @@
     if (!panel || !toggle) return;
     panel.hidden = !open;
     toggle.setAttribute("aria-expanded", String(open));
+    if (bubblePreview) {
+      bubblePreview.hidden = !open;
+      if (open) renderBubblePreview();
+    }
   }
 
   async function reportState(state, message) {
@@ -149,12 +154,15 @@
     const width = Math.min(p.bubble_width, Math.max(180, window.innerWidth - 24));
     const requestedCenter = window.innerWidth * p.bubble_x / 100;
     const left = Math.max(12, Math.min(window.innerWidth - width - 12, requestedCenter - width / 2));
-    bubble.style.left = left + "px";
-    bubble.style.transform = "none";
-    bubble.style.bottom = p.bubble_bottom + "%";
-    bubble.style.width = width + "px";
-    bubble.style.maxHeight = p.bubble_max_height + "px";
-    bubble.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
+    for (const target of [bubble, bubblePreview]) {
+      if (!target) continue;
+      target.style.left = left + "px";
+      target.style.transform = "none";
+      target.style.bottom = p.bubble_bottom + "%";
+      target.style.width = width + "px";
+      target.style.maxHeight = p.bubble_max_height + "px";
+      target.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
+    }
     while (bubble.children.length > p.bubble_max_items) {
       const oldest = bubble.firstElementChild;
       if (!oldest) break;
@@ -167,6 +175,29 @@
     if (!bubble.children.length) bubble.hidden = true;
   }
 
+  function renderBubblePreview() {
+    if (!bubblePreview || !panel || panel.hidden) return;
+    const samples = [
+      ["示例观众 A", "主播今天状态不错！"],
+      ["示例观众 B", "这个模型效果真好"],
+      ["示例观众 C", "弹幕位置和大小可以在这里调整"]
+    ];
+    const count = Math.min(samples.length, Number(controls["bubble-items"].value) || 1);
+    bubblePreview.replaceChildren();
+    for (const [name, message] of samples.slice(0, count)) {
+      const entry = document.createElement("div");
+      entry.className = "danmaku-entry preview-entry";
+      const nickname = document.createElement("span");
+      nickname.className = "danmaku-nickname";
+      nickname.textContent = name;
+      const text = document.createElement("span");
+      text.className = "danmaku-text";
+      text.textContent = message;
+      entry.append(nickname, text);
+      bubblePreview.appendChild(entry);
+    }
+    bubblePreview.hidden = false;
+  }
   async function saveSettings() {
     if (isSaving) return;
     isSaving = true;
@@ -395,6 +426,7 @@
     slider.addEventListener("input", () => {
       updateSliderLabels();
       applyBubblePreferences();
+      if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
     slider.addEventListener("change", () => {
       scheduleSave(["scale", "x", "y"].includes(key));
