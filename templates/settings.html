@@ -40,6 +40,14 @@
       <p id="obs-status" class="muted" role="status"></p>
     </section>
     <section class="panel">
+      <h2>日志设置</h2>
+      <p class="muted">日志按日期写入 logs/YYYY-MM-DD.log，保留天数到期后自动清理；设置修改后立即生效。</p>
+      <label class="setting-field"><span>日志等级</span><select id="log-level"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+      <label class="setting-field"><span>日志保留时间</span><select id="log-retention"><option value="3">3 天</option><option value="5">5 天</option><option value="7">7 天</option><option value="15">15 天</option><option value="30">30 天</option><option value="60">60 天</option><option value="90">90 天</option><option value="0">永久保留</option></select></label>
+      <button id="save-logging" type="button">保存日志设置</button>
+      <p id="logging-status" class="muted" role="status"></p>
+    </section>
+    <section class="panel">
       <h2>OBS 敏感凭据</h2>
       <p class="muted">密码使用本机安全凭据存储加密保存。页面不会读取或回显已保存的密码。</p>
       <p id="obs-credential-state" class="muted">正在检查凭据状态…</p>
@@ -52,7 +60,8 @@
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
-async function load(){try{const [obs,status]=await Promise.all([api("/api/settings/obs"),api("/api/status")]);$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("obs-credential-state").textContent=obs.password_configured?"OBS 密码：已加密配置":"OBS 密码：尚未配置";$("bili-status").textContent=status.bilibili.logged_in?"B站账号：已登录":"B站账号：未登录";}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+async function load(){try{const [obs,status,logs]=await Promise.all([api("/api/settings/obs"),api("/api/status"),api("/api/settings/logging")]);$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("obs-credential-state").textContent=obs.password_configured?"OBS 密码：已加密配置":"OBS 密码：尚未配置";$("bili-status").textContent=status.bilibili.logged_in?"B站账号：已登录":"B站账号：未登录";$("log-level").value=logs.level;$("log-retention").value=String(logs.retention_days);}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+$("save-logging").addEventListener("click",async()=>{try{const d=await api("/api/settings/logging",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({level:$("log-level").value,retention_days:Number($("log-retention").value)})});$("logging-status").textContent=d.message;}catch(e){$("logging-status").textContent="保存失败："+e.message}});
 $("save-obs").addEventListener("click",async()=>{try{const d=await api("/api/settings/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:$("obs-host").value,port:Number($("obs-port").value),timeout:Number($("obs-timeout").value),source_name:$("obs-source").value})});$("obs-status").textContent=d.message;}catch(e){$("obs-status").textContent="保存失败："+e.message}});
 $("save-obs-password").addEventListener("click",async()=>{const password=$("obs-password").value;if(!password){$("credential-status").textContent="请输入新密码。";return;}try{const d=await api("/api/credentials/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});$("obs-password").value="";$("credential-status").textContent=d.message;$("obs-credential-state").textContent="OBS 密码：已加密配置";}catch(e){$("credential-status").textContent="保存失败："+e.message}});
 load();
