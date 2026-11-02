@@ -117,7 +117,7 @@
       <button id="tts-test-button" class="secondary-button" type="button">测试语音</button>
       <button id="tts-save-button" class="settings-save-button" type="button">保存语音设置</button>
     </div>
-    <p id="tts-status" class="settings-save-status" role="status">首次使用请点击测试语音，允许 OBS 浏览器播放声音并驱动嘴型。</p>
+    <p id="tts-status" class="settings-save-status" role="status">页面启动时会自动尝试初始化 Web Audio；测试语音仅用于试听。</p>
 
     <div class="settings-footer">
       <p id="settings-save-status" class="settings-save-status" role="status">调整完成后点击保存；保存时会尝试刷新 OBS 浏览器源。</p>
@@ -129,6 +129,6 @@
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
   <script src="/static/js/live2d.min.js?v=20261102-tts-mouth-sync"></script>
-  <script src="/static/js/display.js?v=20261102-edge-tts"></script>
+  <script src="/static/js/display.js?v=20261102-auto-audio"></script>
 </body>
 </html>
