@@ -28,7 +28,8 @@ def _assert_no_secrets(value: Any, path: str = "$") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
             name = str(key)
-            normalized_name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).casefold()
+            normalized_name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+            normalized_name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized_name).casefold()
             # 文件路径字段仅表示凭据存放位置，不包含凭据值本身。
             if normalized_name.endswith(("_file", "_path")):
                 if isinstance(child, (dict, list)):
