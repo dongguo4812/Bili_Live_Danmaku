@@ -25,9 +25,10 @@ from typing import Any
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
+from core.config_manager import ConfigManager
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "config.json"
+LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
 MODEL_ROOT = BASE_DIR / "models"
 USER_SETTINGS_PATH = BASE_DIR / "user_settings.json"
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
@@ -63,13 +64,33 @@ DANMAKU_SEQUENCE = 0
 
 
 def load_config() -> dict[str, Any]:
-    if not CONFIG_PATH.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
-    with CONFIG_PATH.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-    if not isinstance(data, dict):
-        raise ValueError("config.json must contain a JSON object")
-    return data
+    """从模块独立配置文件组装运行时兼容配置。"""
+    manager = ConfigManager()
+    # 仅在新配置缺失时从旧 config.json 迁移普通字段，不复制秘密值。
+    manager.migrate_legacy_config(LEGACY_CONFIG_PATH)
+    app_config = manager.load("app", {"host": "127.0.0.1", "port": 8768, "debug": False})
+    live_config = manager.load("live", {
+        "room_id": 0, "reconnect": True, "reconnect_interval_seconds": 5,
+        "connect_on_start": False,
+    })
+    live2d_config = manager.load("live2d", {"default_model": DEFAULT_MODEL})
+    voice_config = manager.load("voice", {})
+    obs_config = manager.load("obs", {
+        "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
+        "password_file": "credentials/obs.json",
+    })
+    return {
+        "app": app_config,
+        "bilibili": {
+            "room_id": int(live_config.get("room_id", 0) or 0),
+            "credential_file": "credentials/bilibili.json",
+            "reconnect": bool(live_config.get("reconnect", True)),
+            "reconnect_interval_seconds": int(live_config.get("reconnect_interval_seconds", 5) or 5),
+        },
+        "live2d": live2d_config,
+        "tts": voice_config,
+        "obs_websocket": obs_config,
+    }
 
 
 CONFIG = load_config()
@@ -969,12 +990,17 @@ def _connect_saved_room(source: str) -> tuple[bool, str]:
 
 
 def _restore_saved_live_connection() -> None:
-    """程序启动时恢复有效登录，并自动连接已保存的直播间。"""
-    connected, message = _connect_saved_room("程序启动恢复")
-    if connected:
-        logger.info("启动恢复：%s", message)
-    else:
-        logger.info("启动恢复未连接直播间：%s", message)
+    """启动时检查登录状态并恢复房间号显示，但必须由用户手动发起连接。"""
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    room_id = int(settings["bilibili"]["room_id"])
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["room_id"] = room_id
+    valid, message, _ = _login_status()
+    logger.info(
+        "启动检查完成：登录有效=%s，已保存房间号=%s；不会在程序启动时自动连接直播间。%s",
+        valid, room_id, message,
+    )
 
 
 @app.get("/")
