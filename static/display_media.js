@@ -48,6 +48,8 @@
       root.appendChild(node("div","md-request-status","⛔ 当前已关闭点歌"));
     }else if(type==="music"&&options.showInstruction!==false){
       root.appendChild(node("div","md-instruction","B站歌曲点播指令：点歌 歌名-歌手名"));
+    }else if(type==="video"&&options.showInstruction!==false){
+      root.appendChild(node("div","md-instruction","B站视频点播指令：点播 BVxxxx"));
     }
 
     const current=data.current||null;
