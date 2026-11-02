@@ -1,10 +1,6 @@
 # Bili Live Danmaku
 
-A new, modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2D display.
-
-## Project status
-
-This repository is being built from a clean baseline. The initial scaffold is intentionally small; features will be added in verifiable stages.
+A modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2D display.
 
 ## Run on Windows
 
@@ -18,13 +14,42 @@ Requirements: Python 3.10 or newer.
 
 Keep the console window open while using the application. Press `Ctrl+C` in that window to stop the server.
 
-Manual startup is also available:
+Manual startup:
 
 ```powershell
 py -3 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe main.py
 ```
+
+## Default Live2D model
+
+The default model is `live_uu`:
+
+- Model setting: `models/live_uu/model.json`
+- Cubism 2 runtime bundle: `static/js/live2d.min.js`
+- OBS display controller: `static/js/display.js`
+
+The display page calls the legacy runtime API `loadlive2d(canvasId, modelJsonUrl)`. Flask serves model assets through `/models/<path>`. The page checks referenced model files before starting the renderer and reports success only after detecting rendered pixels in the WebGL drawing buffer.
+
+Add the OBS Browser Source URL:
+
+```text
+http://127.0.0.1:8768/display
+```
+
+For best clarity, set the OBS Browser Source resolution to the intended output resolution (normally 1920×1080) rather than stretching a small source.
+
+## MOC2 rendering quality
+
+Rendering quality is a first-class requirement. The implementation:
+
+- Sets the WebGL drawing buffer using the displayed CSS dimensions and device-pixel ratio (capped at 2).
+- Uses the bundled runtime's texture upload and mipmap path.
+- Keeps the page background transparent for OBS.
+- Checks that the model actually produces non-transparent WebGL pixels before reporting the runtime as loaded.
+
+MagicalDanmaku is a visual-quality reference only. This project does not copy, port, or derive code or assets from it.
 
 ## Planned features
 
@@ -34,37 +59,9 @@ py -3 -m venv .venv
 - Danmaku and gift event handling
 - Edge TTS speech playback with mouth movement synchronization
 - Gift-specific actions, membership expressions, and configurable danmaku emotions
-- Transparent OBS browser display and a local management page
-- MOC2 (Live2D Cubism 2) model support
-
-## Default model
-
-The planned default model is `live_uu`, expected at:
-
-```text
-models/live_uu/model.json
-```
-
-Model assets are not included in this repository. Add them locally only after confirming that their license permits the intended use and distribution.
-
-## MOC2 rendering quality
-
-Rendering quality is a first-class requirement. The implementation should:
-
-- Size the WebGL drawing buffer using the displayed CSS dimensions and device-pixel ratio.
-- Use appropriate texture filtering, mipmapping, alpha blending, and mask-buffer resolution.
-- Avoid upscaling a low-resolution OBS browser source.
-- Be validated with actual model screenshots at the target output resolution.
-
-MagicalDanmaku is a visual-quality reference only. This project will not copy, port, or derive code or assets from it. Its archived repository explicitly restricts reuse.
 
 ## Development principles
 
 - Keep modules small and independently testable.
 - Do not report a feature as implemented until it is actually working.
-- Keep credentials and model assets out of version control.
-- Prefer documented, legally usable MOC2 runtime components.
-
-## Current scaffold limitations
-
-The current version only starts the local Flask management server and serves the placeholder OBS page. Bilibili login, live-room connection, event handling, TTS, and the actual MOC2 renderer are not implemented yet.
+- Keep credentials and model assets out of version control unless their licenses permit it.
