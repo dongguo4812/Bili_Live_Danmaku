@@ -48,12 +48,34 @@ class ModuleManager:
             }
 
     async def start(self, name: str) -> None:
+        with self._lock:
+            record = self._modules.get(name)
+            if record is None:
+                raise KeyError(f"未知模块：{name}")
+            state = record.state
+        if state == "running":
+            return
+        if state == "paused":
+            await self.resume(name)
+            return
         await self._operate(name, "start", "running", manual=True)
 
     async def pause(self, name: str) -> None:
+        with self._lock:
+            record = self._modules.get(name)
+            if record is None:
+                raise KeyError(f"未知模块：{name}")
+            if record.state in {"stopped", "paused"}:
+                return
         await self._operate(name, "pause", "paused", manual=True)
 
     async def resume(self, name: str) -> None:
+        with self._lock:
+            record = self._modules.get(name)
+            if record is None:
+                raise KeyError(f"未知模块：{name}")
+            if record.state in {"stopped", "running"}:
+                return
         await self._operate(name, "resume", "running", manual=True)
 
     async def close(self, name: str) -> None:
