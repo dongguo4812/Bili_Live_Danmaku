@@ -64,6 +64,21 @@ class MusicFallbackSearchTests(unittest.TestCase):
         self.assertEqual([item["source"] for item in matches], ["tx", "kg", "wy", "kw"])
         self.assertEqual([item["songmid"] for item in matches], ["tx-id", "kg-id", "wy-id", "kw-id"])
 
+    def test_exact_artist_from_later_source_precedes_earlier_contains_match(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        providers = (
+            ("QQ音乐", "tx", lambda keyword: [{"title": "晴天", "artist": "周杰伦、乐队", "source": "tx", "songmid": "tx-id"}]),
+            ("酷狗音乐", "kg", lambda keyword: [{"title": "晴天", "artist": "周杰伦", "source": "kg", "songmid": "kg-id"}]),
+            ("网易云音乐", "wy", lambda keyword: []),
+            ("酷我音乐", "kw", lambda keyword: []),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual([item["source"] for item in matches], ["kg", "tx"])
+
 
 class FanMedalParsingTests(unittest.TestCase):
     def test_finds_nested_medal_list(self):
