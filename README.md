@@ -96,10 +96,15 @@ MagicalDanmaku is a visual-quality reference only. This project does not copy, p
 - Login validation before connecting
 - Live-room WebSocket connection, reconnection and event reception
 - Danmaku, gift and Super Chat event display in the Live2D speech bubble
+- Edge TTS speech for danmaku, gifts and Super Chat, with independent switches
+- Configurable Chinese voice, speech rate, volume, queue limit and minimum gift value
+- Super Chat and gifts share the high-priority speech tier; ordinary danmaku is lower priority
+- When the waiting queue is full, the oldest waiting ordinary-danmaku speech is discarded first; current playback is never interrupted
+- Audio-level-driven mouth synchronization through the Cubism 2 MOC2 runtime
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
-Text-to-speech playback, mouth synchronization and gift-triggered model actions are not implemented yet.
+Open the settings panel on the `/display` page to configure Edge TTS. Click **测试语音** once in the OBS browser display (or in a normal browser preview) to unlock audio playback; the test uses the same audio and mouth-sync path as live speech. The first test also saves the current TTS controls. Generated MP3 files are kept in a temporary system folder and old files are cleaned up after one hour.
 
 ## Development principles
 
