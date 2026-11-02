@@ -854,6 +854,7 @@ class MusicModule:
         self.queue: deque[dict[str, Any]] = deque()
         self.queued_keys: set[tuple[str, str]] = set()
         self.cooldowns: dict[int, float] = {}
+        self._user_request_locks: dict[int, asyncio.Lock] = {}
         self.queue_lock = asyncio.Lock()
         self.play_lock = asyncio.Lock()
         self.current: Optional[dict[str, Any]] = None
@@ -1115,20 +1116,24 @@ class MusicModule:
         )
         title, artist = parsed
         if uid not in self.admin_uids:
-            now = time.monotonic()
-            last = self.cooldowns.get(uid, 0.0)
-            if now - last < COOLDOWN_SECONDS:
-                remain = max(1, int(COOLDOWN_SECONDS - (now - last)))
-                log.info("【%s】点歌被冷却限制，剩余 %s 秒 (UID:%s)", uname, remain, uid)
-                self.add_display_event(f"【{uname}】点歌失败：请等待 {remain} 秒后再点歌", "failure")
-                return
-            if self._medal_enabled:
-                ok, reason = await check_fan_medal(uid)
-                if not ok:
-                    log.info("【%s】点歌拒绝：%s (UID:%s)", uname, reason, uid)
-                    self.add_display_event(f"【{uname}】点歌失败：{reason}", "failure")
+            # 同一 UID 的多条弹幕可能并行进入事件总线；锁住冷却检查与粉丝牌核验，
+            # 防止并发请求同时通过冷却窗口并重复点歌。
+            user_lock = self._user_request_locks.setdefault(uid, asyncio.Lock())
+            async with user_lock:
+                now = time.monotonic()
+                last = self.cooldowns.get(uid, 0.0)
+                if now - last < COOLDOWN_SECONDS:
+                    remain = max(1, int(COOLDOWN_SECONDS - (now - last)))
+                    log.info("【%s】点歌被冷却限制，剩余 %s 秒 (UID:%s)", uname, remain, uid)
+                    self.add_display_event(f"【{uname}】点歌失败：请等待 {remain} 秒后再点歌", "failure")
                     return
-            self.cooldowns[uid] = now
+                if self._medal_enabled:
+                    ok, reason = await check_fan_medal(uid)
+                    if not ok:
+                        log.info("【%s】点歌拒绝：%s (UID:%s)", uname, reason, uid)
+                        self.add_display_event(f"【{uname}】点歌失败：{reason}", "failure")
+                        return
+                self.cooldowns[uid] = time.monotonic()
         await self.enqueue(title, artist, uname, uid)
 
     async def enqueue(self, title: str, artist: str, uname: str, uid: int) -> None:
