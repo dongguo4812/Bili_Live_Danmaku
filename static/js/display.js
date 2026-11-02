@@ -145,9 +145,13 @@
   function applyBubblePreferences() {
     if (!bubble) return;
     const p = currentPreferences();
-    bubble.style.left = p.bubble_x + "%";
+    const width = Math.min(p.bubble_width, Math.max(180, window.innerWidth - 24));
+    const requestedCenter = window.innerWidth * p.bubble_x / 100;
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, requestedCenter - width / 2));
+    bubble.style.left = left + "px";
+    bubble.style.transform = "none";
     bubble.style.bottom = p.bubble_bottom + "%";
-    bubble.style.width = p.bubble_width + "px";
+    bubble.style.width = width + "px";
     bubble.style.maxHeight = p.bubble_max_height + "px";
     bubble.style.setProperty("--bubble-max-items", String(p.bubble_max_items));
   }
@@ -388,6 +392,7 @@
 
   start();
   pollTimer = window.setInterval(pollDanmaku, 450);
+  window.addEventListener("resize", applyBubblePreferences, { passive: true });
   window.addEventListener("beforeunload", () => {
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
