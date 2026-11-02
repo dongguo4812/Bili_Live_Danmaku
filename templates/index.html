@@ -94,7 +94,12 @@
         $("connection-state").textContent = data.bilibili.connected ? "已连接" : ({
           connecting: "连接中", reconnecting: "等待重连"
         }[data.bilibili.connection_state] || "未连接");
-        $("runtime-state").textContent = data.live2d.runtime_ready ? "已就绪" : "尚未接入";
+        $("runtime-state").textContent = ({
+          not_started: "等待 OBS 展示页",
+          loading: "正在加载",
+          loaded: "已就绪",
+          error: "加载失败"
+        }[data.live2d.runtime_state] || "状态未知");
         $("model-state").textContent = data.live2d.config_exists ? "已找到配置" : "缺少模型配置";
         $("model-name").textContent = data.live2d.name || "live_uu";
         $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
