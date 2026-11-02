@@ -19,6 +19,7 @@ class ModuleRecord:
     generation: int = 0
     error: str = ""
     operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    auto_start_on_connect: bool = False
 
 
 class ModuleManager:
@@ -29,7 +30,7 @@ class ModuleManager:
         self._lock = threading.RLock()
         self._disconnect_snapshot: dict[str, int] | None = None
 
-    def register(self, name: str, module: Any, initial_state: str = "stopped") -> None:
+    def register(self, name: str, module: Any, initial_state: str = "stopped", auto_start_on_connect: bool = False) -> None:
         if not name or module is None:
             raise ValueError("模块名称和实例不能为空。")
         if initial_state not in {"stopped", "running", "paused"}:
@@ -41,7 +42,10 @@ class ModuleManager:
         with self._lock:
             if name in self._modules:
                 raise ValueError(f"模块已注册：{name}")
-            self._modules[name] = ModuleRecord(name=name, instance=module, state=initial_state)
+            self._modules[name] = ModuleRecord(
+                name=name, instance=module, state=initial_state,
+                auto_start_on_connect=bool(auto_start_on_connect),
+            )
 
     def list_status(self) -> dict[str, dict[str, str]]:
         with self._lock:
@@ -136,7 +140,21 @@ class ModuleManager:
 
     async def on_connection_restored(self) -> None:
         with self._lock:
+            first_connection = self._disconnect_snapshot is None
             snapshot = dict(self._disconnect_snapshot or {})
+            auto_start_names = [
+                name for name, record in self._modules.items()
+                if first_connection and record.auto_start_on_connect and record.state == "stopped"
+            ]
+        if first_connection:
+            # 首次完成 WebSocket 认证后启动配置为自动启动的展示模块。
+            for name in auto_start_names:
+                try:
+                    await self._operate(name, "start", "running", manual=False)
+                except Exception:
+                    logger.exception("首次连接后启动模块失败：%s", name)
+            return
+
         for name, generation in snapshot.items():
             with self._lock:
                 record = self._modules.get(name)
