@@ -861,7 +861,9 @@ class MusicModule:
         self.song_request_enabled = True
 
     async def start(self) -> None:
-        if self.enabled and not self.paused:
+        if self.enabled:
+            if self.paused:
+                await self.resume()
             return
         self.loop = asyncio.get_running_loop()
         self.enabled = True
