@@ -98,7 +98,63 @@ def migrate_legacy_video_room_config(
     return migrated
 
 
+def migrate_legacy_video_obs_config(
+    base_dir: Path | None = None,
+    config_manager: ConfigManager | None = None,
+) -> dict[str, Any]:
+    """导入旧 obs_config.txt 的非敏感设置；绝不读取/保存 password 字段值。"""
+    root = (base_dir or BASE_DIR).resolve()
+    manager = config_manager or CONFIG_MANAGER
+    source = root / "obs_config.txt"
+    marker = root / "data" / "video" / "legacy_obs_config_migrated_v1.json"
+    if marker.is_file() or not source.is_file():
+        return {}
+
+    parsed: dict[str, str] = {}
+    try:
+        lines = source.read_text(encoding="utf-8-sig").splitlines()
+    except OSError as exc:
+        logger.warning("读取旧 OBS 配置失败：%s", type(exc).__name__)
+        return {}
+    for raw_line in lines:
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().casefold()
+        if key in {"host", "port", "source_name"}:
+            parsed[key] = value.strip()
+
+    current = manager.load("obs", {})
+    migrated: dict[str, Any] = {}
+    host = parsed.get("host", "").strip()
+    if host:
+        migrated["host"] = host
+    if "port" in parsed:
+        try:
+            port = int(parsed["port"])
+            if 1 <= port <= 65535:
+                migrated["port"] = port
+        except (TypeError, ValueError):
+            pass
+    source_name = parsed.get("source_name", "").strip()
+    if source_name:
+        migrated["source_name"] = source_name[:200]
+
+    current.update(migrated)
+    if migrated:
+        manager.save("obs", current)
+
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        json.dumps({"source": source.name, "migrated_keys": sorted(migrated)}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return migrated
+
+
 migrate_legacy_video_room_config()
+migrate_legacy_video_obs_config()
 VIDEO_CONFIG = CONFIG_MANAGER.load("video", {})
 LIVE_CONFIG = CONFIG_MANAGER.load("live", {})
 roomid = int(LIVE_CONFIG.get("room_id", 0) or 0)
