@@ -48,12 +48,15 @@
       <p id="logging-status" class="muted" role="status"></p>
     </section>
     <section class="panel">
-      <h2>OBS 敏感凭据</h2>
-      <p class="muted">密码使用本机安全凭据存储加密保存。页面不会读取或回显已保存的密码。</p>
-      <p id="obs-credential-state" class="muted">正在检查凭据状态…</p>
-      <label class="setting-field"><span>新的 OBS WebSocket 密码</span><input id="obs-password" type="password" autocomplete="new-password" placeholder="输入新密码；留空表示不修改"></label>
-      <button id="save-obs-password" type="button">加密保存密码</button>
-      <p id="credential-status" class="muted" role="status"></p>
+      <h2>模块设置与凭据</h2>
+      <p class="muted">各模块的业务参数分别在对应设置页维护；Cookie 和密码统一在凭据管理页维护。</p>
+      <div class="inline-controls">
+        <a href="/music/settings">歌曲模块设置</a>
+        <a href="/video/settings">视频模块设置</a>
+        <a href="/voice">语音播报设置</a>
+        <a href="/#live2d-settings">Live2D 设置</a>
+        <a href="/credentials">打开凭据管理</a>
+      </div>
     </section>
   </main>
 </div>
