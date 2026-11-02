@@ -27,6 +27,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_from_dir
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
 from core.config_manager import ConfigManager
 from core.application import ApplicationRuntime
+from modules.music.service import MusicModuleFacade
 
 BASE_DIR = Path(__file__).resolve().parent
 LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
@@ -977,6 +978,23 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
     return valid, message, cookies
 
 
+
+def _music_cookie_provider() -> dict[str, str]:
+    valid, _, cookies = _login_status()
+    return cookies if valid and isinstance(cookies, dict) else {}
+
+
+MUSIC_MODULE = MusicModuleFacade(
+    event_bus=APPLICATION_RUNTIME.events,
+    config=ConfigManager().load("music", {}),
+    cookie_provider=_music_cookie_provider,
+    room_id=int(CONFIG.get("bilibili", {}).get("room_id", 0) or 0),
+)
+APPLICATION_RUNTIME.register_module("music", MUSIC_MODULE)
+
+
+
+
 def _connect_saved_room(source: str) -> tuple[bool, str]:
     """使用已保存的有效 Cookie 连接已保存的直播间；绝不匿名连接。"""
     with SETTINGS_LOCK:
@@ -1215,6 +1233,7 @@ def save_room_setting():
         _save_user_settings(settings)
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["room_id"] = room_id
+    MUSIC_MODULE.update_room_id(room_id)
     return jsonify({"ok": True, "room_id": room_id})
 
 
@@ -1241,6 +1260,53 @@ def connect_live_room():
 def disconnect_live_room():
     LIVE_CLIENT.stop()
     return jsonify({"ok": True, "message": "已请求断开直播连接。"})
+
+
+
+
+
+@app.get("/api/modules")
+def api_modules():
+    return jsonify({"ok": True, "modules": APPLICATION_RUNTIME.modules.list_status()})
+
+
+@app.post("/api/modules/<module_name>/<action>")
+def api_module_action(module_name: str, action: str):
+    if action not in {"start", "pause", "resume", "close"}:
+        return jsonify({"ok": False, "error": "不支持的模块操作。"}), 400
+    if module_name not in APPLICATION_RUNTIME.modules.list_status():
+        return jsonify({"ok": False, "error": "模块不存在或尚未迁移。"}), 404
+    try:
+        future = APPLICATION_RUNTIME.module_action(module_name, action)
+        future.result(timeout=30)
+        return jsonify({
+            "ok": True,
+            "module": module_name,
+            "action": action,
+            "modules": APPLICATION_RUNTIME.modules.list_status(),
+        })
+    except Exception as exc:
+        logger.exception("模块控制失败：module=%s action=%s", module_name, action)
+        return jsonify({"ok": False, "error": f"模块操作失败：{type(exc).__name__}"}), 500
+
+
+@app.get("/api/music/queue")
+def api_music_queue():
+    return jsonify(MUSIC_MODULE.queue_snapshot())
+
+
+@app.post("/api/music/action")
+def api_music_action():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "请求内容无效。"}), 400
+    try:
+        future = APPLICATION_RUNTIME.async_runtime.submit(MUSIC_MODULE.panel_action(payload))
+        result = future.result(timeout=25)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as exc:
+        logger.exception("歌曲模块队列操作失败。")
+        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
 
 
 @app.get("/api/danmaku")
@@ -1275,7 +1341,9 @@ def api_status():
             "tts": True,
             "mouth_sync": True,
             "moc2_runtime": live2d["runtime_ready"],
+            "music": True,
         },
+        "modules": APPLICATION_RUNTIME.modules.list_status(),
     })
 
 
