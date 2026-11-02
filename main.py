@@ -1068,6 +1068,16 @@ def dashboard_page():
     return render_template("combined_display.html", display_mode=False)
 
 
+@app.get("/voice")
+def voice_settings_page():
+    return render_template("voice.html")
+
+
+@app.get("/settings")
+def system_settings_page():
+    return render_template("settings.html")
+
+
 @app.get("/display/combined")
 def combined_display_page():
     return render_template("combined_display.html", display_mode=True)
