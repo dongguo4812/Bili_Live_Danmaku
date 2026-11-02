@@ -1237,6 +1237,16 @@ class MusicModuleFacade:
         self.bot = MusicModule(config=self.config, cookie_provider=cookie_provider, admin_uids=set(ADMIN_UIDS))
         self.event_bus.subscribe("danmaku", self.bot.on_danmu)
 
+    def reload_config(self, config: dict[str, Any]) -> None:
+        if self.bot.enabled:
+            raise RuntimeError("请先关闭歌曲模块，再修改歌曲配置。")
+        old_handler = self.bot.on_danmu
+        self.event_bus.unsubscribe("danmaku", old_handler)
+        self.config = dict(config)
+        configure_music_module(self.config, None, self.room_id)
+        self.bot = MusicModule(config=self.config, cookie_provider=self.cookie_provider, admin_uids=set(ADMIN_UIDS))
+        self.event_bus.subscribe("danmaku", self.bot.on_danmu)
+
     async def start(self):
         # 每次启动前刷新统一登录态，确保扫码登录后粉丝牌检查使用最新 Cookie。
         configure_music_module(self.config, self.cookie_provider, self.room_id)
