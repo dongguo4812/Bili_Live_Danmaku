@@ -296,6 +296,10 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
     should_stop = False
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["logged_in"] = valid
+        if not valid:
+            BILIBILI_STATE["message"] = message
+        elif BILIBILI_STATE["connection_state"] == "disconnected":
+            BILIBILI_STATE["message"] = message
         if not valid and BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting"}:
             should_stop = True
             BILIBILI_STATE["connected"] = False
@@ -456,6 +460,7 @@ def poll_qr_login():
     elif result.get("state") in {"expired", "error"}:
         with BILIBILI_STATE_LOCK:
             BILIBILI_STATE["logged_in"] = False
+            BILIBILI_STATE["message"] = result.get("message", "二维码登录未完成。")
     return jsonify(result)
 
 
