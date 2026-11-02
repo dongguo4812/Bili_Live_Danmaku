@@ -422,8 +422,7 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
             source_url = settings.get("url", "")
             if not isinstance(source_url, str):
                 continue
-            parsed = urlparse(source_url)
-            if parsed.path.rstrip("/") != "/display":
+            if not _is_display_browser_url(source_url):
                 continue
             _obs_ws_request(ws, "PressInputPropertiesButton", {
                 "inputName": input_name,
@@ -456,7 +455,7 @@ OBS_DISPLAY_SHOWN = False
 OBS_DISPLAY_SHUTDOWN = False
 
 
-def _open_obs_websocket():
+def _open_obs_websocket(timeout_override: float | None = None):
     """连接并完成 OBS WebSocket v5 身份验证。"""
     obs_config = CONFIG.get("obs_websocket", {})
     if not isinstance(obs_config, dict):
@@ -481,6 +480,8 @@ def _open_obs_websocket():
     else:
         password = str(obs_config.get("password", ""))
 
+    if timeout_override is not None:
+        timeout = max(0.3, min(timeout, float(timeout_override)))
     ws = websocket.create_connection(
         f"ws://{host}:{port}", timeout=timeout, suppress_origin=True
     )
@@ -513,21 +514,51 @@ def _open_obs_websocket():
         raise
 
 
+def _display_service_address() -> tuple[str, int]:
+    """读取本程序 HTTP 服务的 IP 和端口，作为 OBS 浏览器源匹配基准。"""
+    app_config = CONFIG.get("app", {})
+    if not isinstance(app_config, dict):
+        app_config = {}
+    host = str(app_config.get("host", "127.0.0.1")).strip().lower() or "127.0.0.1"
+    try:
+        port = int(app_config.get("port", 8768))
+    except (TypeError, ValueError):
+        port = 8768
+    return host, port
+
+
 def _is_display_browser_url(value: Any) -> bool:
+    """只匹配当前程序 IP、端口和 /display 路径。"""
     if not isinstance(value, str) or not value.strip():
         return False
     try:
-        return urlparse(value.strip()).path.rstrip("/") == "/display"
-    except Exception:
+        parsed = urlparse(value.strip())
+        expected_host, expected_port = _display_service_address()
+        actual_host = (parsed.hostname or "").lower()
+        actual_port = parsed.port
+        if actual_port is None:
+            actual_port = 443 if parsed.scheme.lower() == "https" else 80
+        loopbacks = {"localhost", "127.0.0.1", "::1"}
+        same_host = actual_host == expected_host or (
+            actual_host in loopbacks and expected_host in loopbacks
+        )
+        return parsed.scheme.lower() in {"http", "https"} and same_host and (
+            actual_port == expected_port and parsed.path.rstrip("/") == "/display"
+        )
+    except (TypeError, ValueError):
         return False
 
 
-def _obs_set_display_sources_enabled(enabled: bool, refresh: bool = False) -> dict[str, Any]:
+def _obs_set_display_sources_enabled(
+    enabled: bool,
+    refresh: bool = False,
+    shutdown_mode: bool = False,
+) -> dict[str, Any]:
     """在 OBS 所有场景（含嵌套组）中启用或隐藏全部 /display 浏览器源。"""
     with OBS_DISPLAY_LOCK:
         ws = None
         try:
-            ws = _open_obs_websocket()
+            ws = _open_obs_websocket(timeout_override=1.0 if shutdown_mode else None)
             input_response = _obs_ws_request(ws, "GetInputList")
             matching_inputs: set[str] = set()
             for item in input_response.get("inputs", []):
@@ -620,35 +651,71 @@ def _obs_set_display_sources_enabled(enabled: bool, refresh: bool = False) -> di
 
 
 def _obs_live2d_watchdog() -> None:
-    """等待 B 站 WebSocket 与 Live2D 模型均就绪，再显示所有匹配来源；失败则定时重试。"""
+    """B 站 WebSocket 真实连接成功后，刷新并显示所有匹配来源；失败则每 3 秒重试。"""
     global OBS_DISPLAY_SHOWN
     while not OBS_DISPLAY_STOP.wait(3.0):
         with BILIBILI_STATE_LOCK:
             bilibili_connected = BILIBILI_STATE.get("connection_state") == "connected"
-        with RUNTIME_STATE_LOCK:
-            live2d_loaded = RUNTIME_STATE.get("state") == "loaded"
-        if not (bilibili_connected and live2d_loaded):
+        # 不等待 /display 报告模型加载：展示页由 OBS 浏览器源自己加载。
+        if not bilibili_connected:
             continue
         if OBS_DISPLAY_SHOWN:
             continue
         result = _obs_set_display_sources_enabled(True, refresh=True)
         if result.get("ok") and result.get("matched_inputs", 0) > 0:
             OBS_DISPLAY_SHOWN = True
-        # OBS 未启动或尚未添加浏览器源时不置位，下一轮继续重试。
+        # OBS 未启动或尚未添加匹配源时不置位，下一轮继续重试。
 
 
 def _shutdown_obs_live2d_sources() -> None:
-    """正常退出时隐藏 OBS 所有指向 /display 的浏览器源。"""
+    """程序退出或 Windows 关闭 CMD 时，隐藏所有匹配的 OBS 浏览器源。"""
     global OBS_DISPLAY_SHUTDOWN
     with OBS_DISPLAY_LOCK:
         if OBS_DISPLAY_SHUTDOWN:
             return
-        OBS_DISPLAY_SHUTDOWN = True
         OBS_DISPLAY_STOP.set()
-        # 锁为 RLock，允许本线程在持锁期间调用内部控制函数。
-        result = _obs_set_display_sources_enabled(False, refresh=False)
-        if not result.get("ok"):
-            logger.info("程序退出时未能隐藏全部 /display 浏览器源：%s", result.get("message"))
+        result = _obs_set_display_sources_enabled(
+            False, refresh=False, shutdown_mode=True
+        )
+        if result.get("ok"):
+            OBS_DISPLAY_SHUTDOWN = True
+        else:
+            # 清理失败时允许 atexit/finally 再尝试一次。
+            logger.warning("程序退出时未能隐藏全部匹配的 OBS 浏览器源：%s", result.get("message"))
+
+
+# CMD 窗口关闭事件（右上角 X）需要独立于 atexit/finally 处理。
+OBS_CONSOLE_HANDLER = None
+
+
+def _handle_windows_console_event(event_type: int) -> bool:
+    if event_type not in {2, 5, 6}:  # CTRL_CLOSE_EVENT / CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT
+        return False
+    try:
+        logger.info("检测到 Windows 控制台关闭事件，正在隐藏 OBS Live2D 来源……")
+        _shutdown_obs_live2d_sources()
+    except Exception:
+        pass
+    return True
+
+
+def _register_windows_console_handler() -> None:
+    global OBS_CONSOLE_HANDLER
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+        OBS_CONSOLE_HANDLER = handler_type(_handle_windows_console_event)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        if not kernel32.SetConsoleCtrlHandler(OBS_CONSOLE_HANDLER, True):
+            error_code = ctypes.get_last_error()
+            OBS_CONSOLE_HANDLER = None
+            raise OSError(error_code, "SetConsoleCtrlHandler 注册失败")
+        logger.info("已注册 Windows CMD 关闭事件处理。")
+    except Exception as exc:
+        logger.warning("注册 Windows CMD 关闭事件处理失败：%s", exc)
+
 
 def _available_models() -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
@@ -1084,6 +1151,7 @@ if __name__ == "__main__":
     debug = bool(CONFIG["app"].get("debug", False))
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     atexit.register(_shutdown_obs_live2d_sources)
+    _register_windows_console_handler()
     _restore_saved_live_connection()
     threading.Thread(
         target=_obs_live2d_watchdog,
