@@ -5,10 +5,6 @@ __pycache__/
 venv/
 .env
 .env.*
-config.local.json
 credentials/
-secrets/
 !models/.gitkeep
 !models/live_uu/.gitkeep
-user_settings.json
-user_settings.json.tmp
