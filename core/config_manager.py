@@ -115,11 +115,14 @@ class ConfigManager:
         # 旧 user_settings.json 保存的是用户最后确认的房间号，优先级高于旧 config.json。
         old_user_settings = source.parent / "user_settings.json"
         try:
-            has_old_user_settings = old_user_settings.is_file() and isinstance(
-                json.loads(old_user_settings.read_text(encoding="utf-8-sig")), dict
+            old_settings_data = (
+                json.loads(old_user_settings.read_text(encoding="utf-8-sig"))
+                if old_user_settings.is_file() else {}
             )
-        except Exception:
-            has_old_user_settings = False
+            old_bilibili = old_settings_data.get("bilibili", {}) if isinstance(old_settings_data, dict) else {}
+            has_old_user_room = isinstance(old_bilibili, dict) and int(old_bilibili.get("room_id", 0) or 0) > 0
+        except (OSError, ValueError, TypeError):
+            has_old_user_room = False
 
         try:
             legacy_room_id = max(0, int(bili.get("room_id", 0) or 0))
@@ -129,7 +132,7 @@ class ConfigManager:
         mapping = {
             "app": dict(app),
             "live": {
-                "room_id": 0 if has_old_user_settings else legacy_room_id,
+                "room_id": 0 if has_old_user_room else legacy_room_id,
                 "reconnect": bool(bili.get("reconnect", True)),
                 "reconnect_interval_seconds": max(
                     2, int(bili.get("reconnect_interval_seconds", 5) or 5)
