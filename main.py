@@ -1452,7 +1452,12 @@ def api_module_action(module_name: str, action: str):
 
 @app.get("/api/music/queue")
 def api_music_queue():
-    return jsonify(MUSIC_MODULE.queue_snapshot())
+    try:
+        snapshot = APPLICATION_RUNTIME.async_runtime.submit(MUSIC_MODULE.queue_snapshot()).result(timeout=5)
+        return jsonify(snapshot)
+    except Exception as exc:
+        logger.exception("读取歌曲队列快照失败。")
+        return jsonify({"ok": False, "error": f"读取歌曲队列失败：{type(exc).__name__}"}), 503
 
 
 @app.get("/api/video/queue")
