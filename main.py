@@ -26,6 +26,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_from_dir
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
 from core.config_manager import ConfigManager
+from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from modules.music.service import MusicModuleFacade
 from modules.video.service import VideoModuleFacade
@@ -490,6 +491,28 @@ def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | N
     raise TimeoutError(f"等待 OBS 请求响应超时：{request_type}")
 
 
+def _read_obs_password(password_file: str | None) -> str:
+    """读取统一凭据库中的 OBS 密码；仅兼容旧版非 JSON 明文密码文件。"""
+    if not password_file:
+        return ""
+    normalized = str(password_file).replace("\\", "/").strip("/")
+    if normalized == "credentials/obs.json":
+        try:
+            secret = CredentialStore().load("obs") or {}
+            return str(secret.get("password", "") or "")
+        except Exception as exc:
+            logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
+            return ""
+    password_path = (BASE_DIR / str(password_file)).resolve()
+    try:
+        password_path.relative_to(BASE_DIR.resolve())
+    except ValueError as exc:
+        raise ValueError("OBS password_file 必须位于项目目录内。") from exc
+    if not password_path.is_file():
+        raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
+    return password_path.read_text(encoding="utf-8-sig").strip()
+
+
 def _refresh_obs_browser_sources() -> dict[str, Any]:
     """尝试通过 OBS WebSocket 刷新指向 /display 的浏览器源；失败时不影响设置保存。"""
     obs_config = CONFIG.get("obs_websocket", {})
@@ -504,16 +527,8 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
     ws = None
     try:
         password_file = obs_config.get("password_file")
-        if password_file:
-            password_path = (BASE_DIR / str(password_file)).resolve()
-            try:
-                password_path.relative_to(BASE_DIR.resolve())
-            except ValueError as exc:
-                raise ValueError("OBS password_file 必须位于项目目录内。") from exc
-            if not password_path.is_file():
-                raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
-            password = password_path.read_text(encoding="utf-8-sig").strip()
-        else:
+        password = _read_obs_password(password_file)
+        if not password and not password_file:
             # 兼容旧版 config.json 中直接配置 password 的方式。
             password = str(obs_config.get("password", ""))
         ws = websocket.create_connection(
@@ -600,16 +615,8 @@ def _open_obs_websocket(timeout_override: float | None = None):
         port, timeout = 4455, 2.5
 
     password_file = obs_config.get("password_file")
-    if password_file:
-        password_path = (BASE_DIR / str(password_file)).resolve()
-        try:
-            password_path.relative_to(BASE_DIR.resolve())
-        except ValueError as exc:
-            raise ValueError("OBS password_file 必须位于项目目录内。") from exc
-        if not password_path.is_file():
-            raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
-        password = password_path.read_text(encoding="utf-8-sig").strip()
-    else:
+    password = _read_obs_password(password_file)
+    if not password and not password_file:
         password = str(obs_config.get("password", ""))
 
     if timeout_override is not None:
