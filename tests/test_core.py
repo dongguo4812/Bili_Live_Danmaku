@@ -61,6 +61,7 @@ class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
         video = FakeModule()
         manager.register("music", music)
         manager.register("video", video)
+        await manager.on_connection_restored()
 
         self.assertEqual(manager.list_status()["music"]["state"], "stopped")
         self.assertEqual(manager.list_status()["video"]["state"], "stopped")
@@ -74,6 +75,7 @@ class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
         manager = ModuleManager()
         music = FakeModule()
         manager.register("music", music)
+        await manager.on_connection_restored()
         await manager.start("music")
         await manager.on_connection_lost()
         self.assertEqual(manager.list_status()["music"]["state"], "paused")
@@ -90,6 +92,7 @@ class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
         video = FakeModule()
         manager.register("music", music)
         manager.register("video", video)
+        await manager.on_connection_restored()
 
         await manager.start("music")
         await manager.start("video")
