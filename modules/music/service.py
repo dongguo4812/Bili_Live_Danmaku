@@ -89,7 +89,13 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
                 continue
     admin_file = config.get("admins_file", "data/music/uid.txt")
     if admin_file:
-        ADMIN_UIDS.update(load_admin_uids(BASE_DIR / str(admin_file)))
+        admin_path = (BASE_DIR / str(admin_file)).resolve()
+        try:
+            admin_path.relative_to(BASE_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError("歌曲管理员 UID 文件必须位于项目目录内。") from exc
+        admin_path.parent.mkdir(parents=True, exist_ok=True)
+        ADMIN_UIDS.update(load_admin_uids(admin_path))
     values = cookie_provider() if callable(cookie_provider) else {}
     COOKIE_DICT = {
         "SESSDATA": str(values.get("sessdata", "")),
