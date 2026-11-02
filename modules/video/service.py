@@ -935,7 +935,7 @@ async def monitor_video_end(bv):
         };
     """
     try:
-        while is_playing and current_bv == bv:
+        while module_enabled and is_playing and current_bv == bv:
             await asyncio.sleep(1)
 
             if driver is None:
@@ -959,6 +959,11 @@ async def monitor_video_end(bv):
                 status_task = None
                 status_timeout_count = 0
                 status = completed_task.result()
+                if module_paused:
+                    if last_obs_visible:
+                        await set_obs_visibility_async(False)
+                        last_obs_visible = False
+                    continue
             except (NoSuchWindowException, InvalidSessionIdException) as exc:
                 # 当前视频标签页被用户手动关闭，或关闭标签页时导致 WebDriver 会话失效。
                 # 将当前视频从播放状态中清除，再恢复浏览器并播放队列下一条。
@@ -1124,6 +1129,14 @@ async def play_next():
                 is_playing = False
                 current_bv = None
                 return
+
+            # 暂停可能发生在 driver.get() 正在执行期间；页面加载完成后补充暂停，
+            # 并继续创建监控任务，确保恢复后仍能监测当前视频结束。
+            if module_paused:
+                await asyncio.to_thread(
+                    execute_script_sync,
+                    "const v=document.querySelector('video'); if(v){v.pause();}",
+                )
 
             logger.info("视频页面已打开：%s", bv)
 
@@ -1384,6 +1397,10 @@ async def on_dan_mu(msg_json):
                 add_operation_message(f"{uname} 点播被拒绝：{medal_reason}")
                 return
 
+            # 网络校验期间模块可能已暂停或关闭，不能让过期弹幕在其后重新入队。
+            if not module_enabled or module_paused:
+                return
+
             logger.info(
                 "粉丝勋章校验通过：用户拥有本直播间主播的粉丝勋章且当前已点亮（UID: %s）",
                 uid
@@ -1427,6 +1444,9 @@ async def on_dan_mu(msg_json):
             add_operation_message(message)
             return
 
+        if not module_enabled or module_paused:
+            return
+
         if duration <= 0:
             message = f"点播失败：{uname}，无法确认视频时长（{bv}）"
             logger.info(message)
@@ -1449,6 +1469,9 @@ async def on_dan_mu(msg_json):
             message = f"点播失败：{uname}，视频 {bv} 已经在点播队列中"
             logger.info(message)
             add_operation_message(message)
+            return
+
+        if not module_enabled or module_paused:
             return
 
         video_queue.append(bv)
@@ -1520,26 +1543,33 @@ class VideoModuleFacade:
         global module_paused
         if not module_enabled or module_paused:
             return
-        if current_bv and driver is not None:
-            await asyncio.to_thread(
-                execute_script_sync,
-                "const v=document.querySelector('video'); if(v){v.pause();}",
-            )
+        # 先标记暂停，阻止事件和播放任务继续启动下一条视频。
         module_paused = True
+        try:
+            if current_bv and driver is not None:
+                await asyncio.to_thread(
+                    execute_script_sync,
+                    "const v=document.querySelector('video'); if(v){v.pause();}",
+                )
+        except Exception:
+            module_paused = False
+            raise
         logger.info("视频模块已暂停，保留当前 BV、播放进度和待播队列。")
 
     async def resume(self):
         global module_paused
         if not module_enabled or not module_paused:
             return
-        module_paused = False
         if current_bv and driver is not None:
             await asyncio.to_thread(
                 execute_script_sync,
                 "const v=document.querySelector('video'); if(v){const p=v.play(); if(p&&p.catch)p.catch(()=>{});}",
             )
-        elif video_queue:
-            await play_next()
+            module_paused = False
+        else:
+            module_paused = False
+            if video_queue:
+                await play_next()
         logger.info("视频模块已恢复。")
 
     async def close(self):
