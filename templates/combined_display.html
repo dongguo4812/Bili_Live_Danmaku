@@ -198,7 +198,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const prefs=data.preferences||{};
     body.appendChild(make("div","primary-line","语音播报"));
     const enabled = !!(prefs.danmaku_enabled || prefs.gift_enabled || prefs.super_chat_enabled);
-    const moduleState = data.module_state || "running";
+    const moduleState = data.module_state || "stopped";
     body.appendChild(make("div","row","模块："+({running:"运行中",paused:"已暂停",stopped:"已关闭",error:"运行异常"}[moduleState]||moduleState)));
     body.appendChild(make("div","row","触发："+(enabled?"已启用":"已关闭")));
     body.appendChild(make("div","muted","音色："+(prefs.voice||"默认")));
