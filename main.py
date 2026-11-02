@@ -163,7 +163,8 @@ def _default_model_id() -> str:
 def _load_user_settings() -> dict[str, Any]:
     default_model = _default_model_id()
     if not USER_SETTINGS_PATH.is_file():
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
+        default_room_id = int(CONFIG.get("bilibili", {}).get("room_id", 0) or 0)
+        return {"model": default_model, "models": {}, "bilibili": {"room_id": default_room_id}, "tts": {}, "idle_tips": {}}
     try:
         data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -178,7 +179,7 @@ def _load_user_settings() -> dict[str, Any]:
         if not isinstance(bilibili, dict):
             bilibili = {}
         try:
-            room_id = max(0, int(bilibili.get("room_id", 0)))
+            room_id = max(0, int(bilibili.get("room_id", CONFIG.get("bilibili", {}).get("room_id", 0))))
         except (TypeError, ValueError):
             room_id = 0
         tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
