@@ -341,6 +341,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
              patch.object(video_service, "_quit_browser_sync", return_value=None), \
              patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)), \
              patch.object(video_service, "configure_video_module"), \
+             patch.object(video_service, "ensure_video_title", new=AsyncMock()), \
              patch.object(video_service, "create_browser", return_value=object()):
             play_task = asyncio.create_task(video_service.play_next())
             self.assertTrue(await asyncio.to_thread(entered.wait, 2))
