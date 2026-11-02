@@ -179,6 +179,20 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(module.current)
             self.assertFalse(module._lx_playback_active)
 
+    async def test_active_song_pause_and_resume_control_only_owned_lx_track(self):
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        module.current = {"title": "晴天", "artist": "周杰伦"}
+        module._lx_playback_active = True
+        with patch("modules.music.service._lx_control", return_value=(True, "ok")) as lx_control:
+            await module.pause()
+            await module.resume()
+        self.assertEqual(
+            [call.args[0] for call in lx_control.call_args_list],
+            ["pause", "resume"],
+        )
+
     async def test_parallel_requests_from_same_uid_obey_cooldown(self):
         import asyncio
         from unittest.mock import AsyncMock, patch
