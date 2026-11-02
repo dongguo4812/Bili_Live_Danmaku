@@ -89,10 +89,11 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 
 - Music and video have independent lifecycle controls, queues and configuration. They do not pause or resume each other.
 - Music and video start closed after each application launch.
-- The migrated music module retains four-platform search, matching, LX Music playback, playback verification, fan-medal checks, administrator skip and request gating.
-- The migrated video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. It has no LX Music control calls.
+- The music module searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to pre-saved source candidates.
+- The video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. Web fullscreen is attempted only after playback progress is detected; the module has no LX Music control calls.
 - The combined layout editor is `/dashboard`; the OBS output is `/display/combined`.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
+- Music administrator IDs belong in `data/music/uid.txt`; video administrator IDs belong in `data/video/uid.txt`. These local files are ignored by Git.
 
 ## Current scope
 
