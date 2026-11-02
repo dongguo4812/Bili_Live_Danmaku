@@ -1557,6 +1557,8 @@ class VideoModuleFacade:
         global module_paused
         if not module_enabled or not module_paused:
             return
+        # 断线重连后刷新统一登录态，避免粉丝牌查询继续使用失效 Cookie。
+        configure_video_module(self.config, self.cookie_provider, self.room_id)
         if current_bv and driver is not None:
             await asyncio.to_thread(
                 execute_script_sync,
