@@ -33,6 +33,7 @@ chrome_profile/
 # Legacy local configuration is migrated once into config/*.json at runtime
 config.json
 user_settings.json
+config/.legacy_config_migrated_v1.json
 
 # PyInstaller build output
 build/
