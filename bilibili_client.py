@@ -330,7 +330,6 @@ class LiveRoomClient:
             sessdata=cookies.get("sessdata", ""),
             bili_jct=cookies.get("bili_jct", ""),
             buvid3=cookies.get("buvid3", ""),
-            buvid4=cookies.get("buvid4", ""),
         )
         while not self.stop_event.is_set():
             self.on_state("connecting", f"正在连接直播间 {self.room_id}…")
