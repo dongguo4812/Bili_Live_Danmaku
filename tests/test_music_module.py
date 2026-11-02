@@ -33,6 +33,20 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertEqual(fallback, [])
 
 
+class FanMedalParsingTests(unittest.TestCase):
+    def test_finds_nested_medal_list(self):
+        from modules.music.service import _find_medal_list
+        medals = [{"room_id": 123, "is_light": 1}]
+        self.assertIs(_find_medal_list({"data": {"medal_list": medals}}), medals)
+
+    def test_requires_matching_room_and_explicit_light(self):
+        from modules.music.service import _medal_matches_room
+        self.assertEqual(_medal_matches_room({"room_id": 123, "is_light": 1}, 123), (True, True))
+        self.assertEqual(_medal_matches_room({"room_id": 123, "is_light": 0}, 123), (True, False))
+        self.assertEqual(_medal_matches_room({"room_id": 456, "is_light": 1}, 123), (False, True))
+        self.assertEqual(_medal_matches_room({"room_id": 123}, 123), (True, None))
+
+
 class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_starts_disabled_and_ignores_danmaku(self):
         module = MusicModule(config={}, admin_uids=set())
