@@ -33,6 +33,10 @@ class SecretRedactionFilter(logging.Filter):
         try:
             record.msg = _redact(record.getMessage())
             record.args = ()
+            if record.exc_info:
+                formatted = logging.Formatter().formatException(record.exc_info)
+                record.exc_text = _redact(formatted)
+                record.exc_info = None
         except Exception:
             record.msg = "[log message redacted]"
             record.args = ()
