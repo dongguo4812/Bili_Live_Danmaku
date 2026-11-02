@@ -369,26 +369,32 @@
 
   async function processSpeechQueue() {
     if (speaking || !speechQueue.length) return;
-    if (!audioUnlocked) {
-      const ready = await unlockSpeechAudio({ silent: true });
-      if (!ready) return;
-    }
     speaking = true;
-    while (speechQueue.length) {
-      const next = speechQueue.shift();
-      try {
-        await playSpeechText(next.text);
-      } catch (error) {
-        setTtsStatus("语音播放失败：" + error.message, true);
-        console.warn("TTS playback failed:", error);
-        if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
-          speechQueue.unshift(next);
-          audioUnlocked = false;
-          break;
+    try {
+      if (!audioUnlocked) {
+        const ready = await unlockSpeechAudio({ silent: true });
+        if (!ready) return;
+      }
+      while (speechQueue.length) {
+        const next = speechQueue.shift();
+        try {
+          await playSpeechText(next.text);
+        } catch (error) {
+          setTtsStatus("语音播放失败：" + error.message, true);
+          console.warn("TTS playback failed:", error);
+          if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
+            speechQueue.unshift(next);
+            audioUnlocked = false;
+            break;
+          }
         }
       }
+    } catch (error) {
+      audioUnlocked = false;
+      console.warn("Unable to start speech queue:", error);
+    } finally {
+      speaking = false;
     }
-    speaking = false;
   }
 
   async function testSpeech() {
