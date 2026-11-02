@@ -879,12 +879,14 @@ class MusicModule:
     async def pause(self) -> None:
         if not self.enabled or self.paused:
             return
-        # 先阻止播放 worker 启动下一首，再向洛雪发送暂停；失败时恢复模块标志。
+        # 先阻止播放 worker 启动下一首；只有机器人确实有当前点播时才控制洛雪，
+        # 避免暂停空队列时误暂停用户自己播放的歌曲。
         self.paused = True
-        ok, detail = await asyncio.to_thread(_lx_control, "pause")
-        if not ok:
-            self.paused = False
-            raise RuntimeError(detail)
+        if self.current is not None:
+            ok, detail = await asyncio.to_thread(_lx_control, "pause")
+            if not ok:
+                self.paused = False
+                raise RuntimeError(detail)
         log.info("歌曲模块已暂停，保留当前歌曲进度和待播队列。")
 
     async def resume(self) -> None:
@@ -893,9 +895,11 @@ class MusicModule:
             return
         if not self.paused:
             return
-        ok, detail = await asyncio.to_thread(_lx_control, "resume")
-        if not ok:
-            raise RuntimeError(detail)
+        # 当前没有机器人点播歌曲时，只解除模块暂停，不触碰洛雪中其他来源的歌曲。
+        if self.current is not None:
+            ok, detail = await asyncio.to_thread(_lx_control, "resume")
+            if not ok:
+                raise RuntimeError(detail)
         self.paused = False
         log.info("歌曲模块已恢复播放。")
         if self.queue and (self._worker is None or self._worker.done()):
