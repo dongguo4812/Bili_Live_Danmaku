@@ -137,8 +137,30 @@
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
+      <div class="inline-controls action-controls">
+        <strong id="live2d-module-state">运行中</strong>
+        <button type="button" onclick="moduleAction('live2d','start')">启动</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('live2d','pause')">暂停</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('live2d','resume')">恢复</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('live2d','close')">关闭</button>
+      </div>
       <p class="muted">模型目录：<code>models/live_uu/</code></p>
       <p class="muted">请自行放入具有合法使用授权的模型文件；模型资源不会随项目自动分发。</p>
+    </section>
+
+    <section class="panel">
+      <h2>语音播报模块</h2>
+      <div class="model-row">
+        <strong id="voice-module-state">运行中</strong>
+        <a href="/voice">语音设置</a>
+      </div>
+      <div class="inline-controls action-controls">
+        <button type="button" onclick="moduleAction('voice','start')">启动</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('voice','pause')">暂停</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('voice','resume')">恢复</button>
+        <button type="button" class="secondary-button" onclick="moduleAction('voice','close')">关闭</button>
+      </div>
+      <p class="muted">语音由 Live2D 浏览器展示页播放；关闭语音模块不会关闭 Live2D 模型。</p>
     </section>
 
     <section class="panel">
@@ -207,6 +229,16 @@
     $("video-close").addEventListener("click", () => videoModuleAction("close"));
     $("video-next").addEventListener("click", () => videoQueueAction({ action: "next" }));
     $("video-clear").addEventListener("click", () => videoQueueAction({ action: "clear" }));
+
+    async function moduleAction(moduleName, action) {
+      try {
+        await api("/api/modules/" + moduleName + "/" + action, { method: "POST" });
+        refreshStatus();
+      } catch (error) {
+        $("status-message").textContent = error.message;
+      }
+    }
+    window.moduleAction = moduleAction;
 
     async function refreshMusicQueue() {
       try {
@@ -293,6 +325,14 @@
         $("video-state").textContent = ({
           stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
         }[video.state] || "状态未知");
+        const live2d = (data.modules || {}).live2d || { state: "stopped" };
+        const voice = (data.modules || {}).voice || { state: "stopped" };
+        $("live2d-module-state").textContent = ({
+          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
+        }[live2d.state] || "状态未知");
+        $("voice-module-state").textContent = ({
+          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
+        }[voice.state] || "状态未知");
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }
