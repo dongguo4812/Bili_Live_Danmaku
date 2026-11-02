@@ -76,7 +76,6 @@
     const $ = id => document.getElementById(id);
     let qrTimer = null;
     let qrPolling = false;
-    let connectAfterLogin = false;
 
     async function api(url, options = {}) {
       const response = await fetch(url, { cache: "no-store", ...options });
@@ -137,19 +136,11 @@
           clearInterval(qrTimer);
           qrTimer = null;
           $("qr-title").textContent = "登录成功";
-          $("bili-action-message").textContent = data.message + " 现在可以连接直播间。";
+          $("bili-action-message").textContent = data.auto_connect
+            ? "扫码成功，正在自动连接直播间…"
+            : "扫码登录成功：" + (data.auto_connect_message || data.message);
           $("qr-image").hidden = true;
           refreshStatus();
-          if (connectAfterLogin) {
-            connectAfterLogin = false;
-            try {
-              await api("/api/bilibili/connect", { method: "POST" });
-              $("bili-action-message").textContent = "扫码成功，正在自动连接直播间…";
-              refreshStatus();
-            } catch (error) {
-              $("bili-action-message").textContent = "登录成功，但自动连接失败：" + error.message;
-            }
-          }
         } else if (["expired", "error"].includes(data.state)) {
           clearInterval(qrTimer);
           qrTimer = null;
@@ -196,7 +187,6 @@
       } catch (error) {
         $("bili-action-message").textContent = error.message;
         if (error.message.includes("登录") || error.message.includes("Cookie")) {
-          connectAfterLogin = true;
           startQr();
         }
       }
