@@ -243,7 +243,7 @@ class ConfigManager:
                 merged[key] = value
                 continue
             existing = merged[key]
-            default_value = defaults.get(key, object())
+            default_value = defaults.get(key, _MISSING)
             if isinstance(existing, dict) and isinstance(value, dict):
                 nested_defaults = default_value if isinstance(default_value, dict) else {}
                 merged[key] = cls._merge_legacy_values(existing, value, nested_defaults)
