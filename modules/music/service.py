@@ -113,7 +113,8 @@ def update_music_room_id(room_id: int) -> None:
 
 
 def _lx_control(action: str) -> tuple[bool, str]:
-    endpoint = {"pause": "/pause", "resume": "/resume", "stop": "/stop"}.get(action)
+    # 洛雪官方开放 API：播放使用 /play，暂停使用 /pause；没有独立停止接口。
+    endpoint = {"pause": "/pause", "resume": "/play", "stop": "/pause"}.get(action)
     if not endpoint:
         return False, "不支持的洛雪控制操作"
     try:
@@ -123,14 +124,6 @@ def _lx_control(action: str) -> tuple[bool, str]:
             return True, "洛雪开放 API 没有停止接口；已暂停当前歌曲并结束机器人点播流程"
         return True, f"洛雪接口已接受 {action} 请求（HTTP {response.status_code}）"
     except Exception as exc:
-        if action == "stop":
-            # 兼容未提供 /stop 的洛雪版本：至少停止继续播放并释放当前点播流程。
-            try:
-                response = requests.get(LX_API + "/pause", timeout=HTTP_TIMEOUT)
-                response.raise_for_status()
-                return True, "洛雪未提供可用停止接口，已暂停当前歌曲"
-            except Exception as pause_exc:
-                return False, f"停止/暂停请求失败：{type(pause_exc).__name__}"
         return False, f"洛雪 {action} 请求失败：{type(exc).__name__}"
 
 
