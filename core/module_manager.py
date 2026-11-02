@@ -28,9 +28,11 @@ class ModuleManager:
         self._lock = threading.RLock()
         self._disconnect_snapshot: dict[str, int] | None = None
 
-    def register(self, name: str, module: Any) -> None:
+    def register(self, name: str, module: Any, initial_state: str = "stopped") -> None:
         if not name or module is None:
             raise ValueError("模块名称和实例不能为空。")
+        if initial_state not in {"stopped", "running", "paused"}:
+            raise ValueError("模块初始状态无效。")
         required = ("start", "pause", "resume", "close")
         missing = [method for method in required if not callable(getattr(module, method, None))]
         if missing:
@@ -38,7 +40,7 @@ class ModuleManager:
         with self._lock:
             if name in self._modules:
                 raise ValueError(f"模块已注册：{name}")
-            self._modules[name] = ModuleRecord(name=name, instance=module)
+            self._modules[name] = ModuleRecord(name=name, instance=module, state=initial_state)
 
     def list_status(self) -> dict[str, dict[str, str]]:
         with self._lock:
