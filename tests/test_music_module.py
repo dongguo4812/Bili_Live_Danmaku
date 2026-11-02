@@ -93,6 +93,33 @@ class FanMedalParsingTests(unittest.TestCase):
         self.assertEqual(_medal_matches_room({"room_id": 456, "is_light": 1}, 123), (False, True))
         self.assertEqual(_medal_matches_room({"room_id": 123}, 123), (True, None))
 
+    def test_medal_check_uses_shared_login_cookie(self):
+        from unittest.mock import MagicMock, patch
+        import modules.music.service as service
+
+        old_cookie = service.COOKIE_DICT
+        old_room = service.ROOM_ID
+        service.COOKIE_DICT = {"SESSDATA": "test-session"}
+        service.ROOM_ID = 123
+        service.MEDAL_CACHE.clear()
+        session = MagicMock()
+        response = MagicMock()
+        response.json.return_value = {
+            "code": 0,
+            "data": {"list": [{"room_id": 123, "is_light": 1}]},
+        }
+        session.get.return_value = response
+        try:
+            with patch("modules.music.service.requests.Session", return_value=session):
+                ok, reason = service.check_fan_medal_sync(999)
+            self.assertTrue(ok, reason)
+            self.assertIn("已点亮", reason)
+            self.assertEqual(session.cookies.update.call_args.args[0]["SESSDATA"], "test-session")
+        finally:
+            service.COOKIE_DICT = old_cookie
+            service.ROOM_ID = old_room
+            service.MEDAL_CACHE.clear()
+
 
 class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_starts_disabled_and_ignores_danmaku(self):
