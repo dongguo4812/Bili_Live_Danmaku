@@ -79,7 +79,7 @@ class ConfigManagerTests(unittest.TestCase):
             self.assertIn("app", migrated)
             self.assertEqual(manager.load("app")["host"], "127.0.0.2")
             self.assertEqual(manager.load("live")["room_id"], 777)
-            self.assertEqual(manager.load("voice")["tts"]["voice"], "zh-CN-YunxiNeural")
+            self.assertEqual(manager.load("voice")["voice"], "zh-CN-YunxiNeural")
             obs = manager.load("obs")
             self.assertEqual(obs["password_file"], "credentials/obs.json")
             self.assertNotIn("password", obs)
