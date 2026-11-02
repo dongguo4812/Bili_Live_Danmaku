@@ -239,7 +239,7 @@ class ModuleManager:
         for name in names:
             with self._lock:
                 record = self._modules[name]
-                if record.state in {"stopped", "closing"}:
+                if record.state == "stopped":
                     continue
             try:
                 await self._operate(name, "close", "stopped", manual=False)
