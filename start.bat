@@ -61,7 +61,9 @@ if errorlevel 1 (
 
 echo [3/3] 正在启动服务...
 echo 管理页面：http://127.0.0.1:8768/
-echo OBS 页面：http://127.0.0.1:8768/display
+echo Live2D OBS 页面：http://127.0.0.1:8768/display
+echo 综合展示 OBS 页面：http://127.0.0.1:8768/display/combined
+echo 综合展示布局编辑：http://127.0.0.1:8768/dashboard
 echo 按 Ctrl+C 可停止服务。
 echo.
 start "" http://127.0.0.1:8768/
