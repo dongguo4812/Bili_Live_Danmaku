@@ -225,6 +225,9 @@ def get_display_settings():
         settings = _load_user_settings()
     model_id = settings["model"]
     available = _available_models()
+    requested_model = request.args.get("model")
+    if isinstance(requested_model, str) and any(item["id"] == requested_model for item in available):
+        model_id = requested_model
     if not any(item["id"] == model_id for item in available):
         model_id = _default_model_id()
     return jsonify({
