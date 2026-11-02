@@ -1508,6 +1508,7 @@ class VideoModuleFacade:
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
             return
+        await set_obs_visibility_async(False)
         driver = await asyncio.to_thread(create_browser)
         module_enabled = True
         module_paused = False
