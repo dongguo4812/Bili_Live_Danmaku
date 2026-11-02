@@ -414,7 +414,7 @@ def check_fan_medal_sync(viewer_uid):
     """
     cookies = load_cookie_values_for_api()
     if not cookies:
-        return False, "没有可用 Cookie（bili_cookie.txt 缺失或必需字段不完整）"
+        return False, "主程序没有提供有效的 B 站登录 Cookie"
 
     try:
         streamer_uid = fetch_streamer_uid_sync()
