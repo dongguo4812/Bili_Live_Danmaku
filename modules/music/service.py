@@ -128,6 +128,106 @@ def _lx_control(action: str) -> tuple[bool, str]:
         return False, f"洛雪 {action} 请求失败：{type(exc).__name__}"
 
 
+
+def _find_medal_list(data: Any) -> Optional[list]:
+    """仅在响应结构明确包含勋章列表时返回列表；无法确认则返回 None。"""
+    if not isinstance(data, dict):
+        return None
+    for key in ("list", "medal_list", "fans_medal_list"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+    # 有些响应把列表放在 data.data 下
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        return _find_medal_list(nested)
+    return None
+
+
+def _medal_matches_room(item: dict[str, Any], room_id: int) -> tuple[bool, Optional[bool]]:
+    """返回(房间匹配, 是否明确点亮)。缺少点亮字段视为无法确认。"""
+    candidates = [item]
+    for key in ("medal", "medal_info", "fans_medal", "target_medal"):
+        value = item.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    room_values = []
+    light_values = []
+    for obj in candidates:
+        for key in ("roomid", "room_id", "target_roomid", "target_room_id"):
+            if key in obj and obj[key] not in (None, ""):
+                try:
+                    room_values.append(int(obj[key]))
+                except (TypeError, ValueError):
+                    pass
+        for key in ("is_light", "is_lighted", "light_status", "is_wearing"):
+            if key in obj:
+                val = obj[key]
+                if isinstance(val, bool):
+                    light_values.append(val)
+                elif str(val).strip() in ("0", "1"):
+                    light_values.append(str(val).strip() == "1")
+    room_matches = room_id in room_values
+    # 若同一条记录中任一明确点亮字段为 false，则按未点亮处理；必须明确 true 才通过。
+    is_lit: Optional[bool] = None
+    if light_values:
+        is_lit = all(light_values)
+    return room_matches, is_lit
+
+
+def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
+    """检查当前直播间粉丝牌且处于点亮状态。失败关闭，绝不因接口异常放行。"""
+    if not COOKIE_DICT.get("SESSDATA"):
+        return False, "主程序登录凭据缺少有效的 SESSDATA，无法核验粉丝牌"
+    now = time.time()
+    cached = MEDAL_CACHE.get(uid)
+    if cached and now - cached[0] < MEDAL_CACHE_SECONDS:
+        return cached[1], cached[2]
+    try:
+        response = SESSION.get(
+            "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
+            params={"target_id": uid}, timeout=HTTP_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("code") != 0 or not isinstance(payload.get("data"), dict):
+            reason = "粉丝牌接口返回异常，无法确认粉丝牌状态"
+            MEDAL_CACHE[uid] = (now, False, reason)
+            return False, reason
+        medals = _find_medal_list(payload["data"])
+        if medals is None:
+            reason = "粉丝牌接口缺少完整勋章列表，拒绝点歌"
+            MEDAL_CACHE[uid] = (now, False, reason)
+            return False, reason
+        found_room_medal = False
+        found_lit_medal = False
+        for item in medals:
+            if not isinstance(item, dict):
+                continue
+            matches, is_lit = _medal_matches_room(item, ROOM_ID)
+            if matches:
+                found_room_medal = True
+                if is_lit is True:
+                    found_lit_medal = True
+                    break
+        if found_lit_medal:
+            result = (now, True, "已确认拥有本直播间且已点亮的粉丝牌")
+        elif found_room_medal:
+            result = (now, False, "检测到本直播间粉丝牌，但无法确认其处于点亮状态")
+        else:
+            result = (now, False, "未找到本直播间粉丝牌")
+        MEDAL_CACHE[uid] = result
+        return result[1], result[2]
+    except Exception as exc:
+        reason = f"粉丝牌查询失败：{type(exc).__name__}，拒绝点歌"
+        MEDAL_CACHE[uid] = (now, False, reason)
+        log.warning("UID %s %s", uid, reason)
+        return False, reason
+
+
+async def check_fan_medal(uid: int) -> tuple[bool, str]:
+    return await asyncio.to_thread(check_fan_medal_sync, uid)
+
 def normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
 
