@@ -23,10 +23,11 @@ except ImportError:
     obsws_python = None
 
 from core.config_manager import ConfigManager
+from core.paths import get_base_dir
 from core.credential_store import CredentialStore
 
 logger = logging.getLogger("bili_live_danmaku.video")
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = get_base_dir()
 CONFIG_MANAGER = ConfigManager()
 VIDEO_CONFIG = CONFIG_MANAGER.load("video", {})
 LIVE_CONFIG = CONFIG_MANAGER.load("live", {})
