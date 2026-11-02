@@ -98,7 +98,7 @@ class ModuleManager:
                 return
         await self._operate(name, "close", "stopped", manual=True)
 
-    async def _operate(self, name: str, method: str, target_state: str, manual: bool) -> None:
+    async def _operate(self, name: str, method: str, target_state: str, manual: bool, expected_generation: int | None = None) -> None:
         with self._lock:
             record = self._modules.get(name)
             if record is None:
