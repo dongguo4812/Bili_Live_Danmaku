@@ -1276,6 +1276,11 @@ def api_module_action(module_name: str, action: str):
         return jsonify({"ok": False, "error": "不支持的模块操作。"}), 400
     if module_name not in APPLICATION_RUNTIME.modules.list_status():
         return jsonify({"ok": False, "error": "模块不存在或尚未迁移。"}), 404
+    if action in {"start", "resume"}:
+        with BILIBILI_STATE_LOCK:
+            connected = BILIBILI_STATE["connected"]
+        if not connected:
+            return jsonify({"ok": False, "error": "请先完成 B 站 WebSocket 认证连接，再启动互动模块。"}), 409
     try:
         future = APPLICATION_RUNTIME.module_action(module_name, action)
         future.result(timeout=30)
