@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+.env
+.env.*
+config.local.json
+credentials/
+secrets/
+models/*
+!models/.gitkeep
+!models/live_uu/
+models/live_uu/*
+!models/live_uu/.gitkeep
