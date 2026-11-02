@@ -167,6 +167,18 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
             lx_control.assert_not_called()
             self.assertIsNone(module.current)
 
+    async def test_close_pauses_confirmed_bot_playback(self):
+        from unittest.mock import patch
+        module = MusicModule(config={}, admin_uids=set())
+        module.enabled = True
+        module.current = {"title": "晴天", "artist": "周杰伦"}
+        module._lx_playback_active = True
+        with patch("modules.music.service._lx_control", return_value=(True, "paused")) as lx_control:
+            await module.close()
+            lx_control.assert_called_once_with("stop")
+            self.assertIsNone(module.current)
+            self.assertFalse(module._lx_playback_active)
+
     async def test_parallel_requests_from_same_uid_obey_cooldown(self):
         import asyncio
         from unittest.mock import AsyncMock, patch
