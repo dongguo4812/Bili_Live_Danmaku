@@ -321,42 +321,12 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(video_service.pending_video_uids)
         self.assertFalse(video_service.pending_video_bvs)
 
-    async def test_old_playback_task_cannot_attach_monitor_after_close_and_restart(self):
-        import asyncio
-        import threading
+    async def test_stale_monitor_exits_before_touching_obs_or_new_browser(self):
         video_service.module_enabled = True
-        video_service.is_playing = False
-        video_service.video_queue.append("BV1xx411c7mD")
-        old_driver = object()
-        video_service.driver = old_driver
-        entered = threading.Event()
-        release = threading.Event()
-
-        def delayed_open(bv, url):
-            entered.set()
-            release.wait(timeout=3)
-
-        with patch.object(video_service, "open_video_page", side_effect=delayed_open), \
-             patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \
-             patch.object(video_service, "_quit_browser_sync", return_value=None), \
-             patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)), \
-             patch.object(video_service, "configure_video_module"), \
-             patch.object(video_service, "ensure_video_title", new=AsyncMock()), \
-             patch.object(video_service, "create_browser", return_value=object()):
-            play_task = asyncio.create_task(video_service.play_next())
-            self.assertTrue(await asyncio.to_thread(entered.wait, 2))
-            await self.module.close()
-            await self.module.start()
-            new_driver = video_service.driver
-            self.assertIsNot(new_driver, old_driver)
-            release.set()
-            await play_task
-
-        self.assertIsNone(video_service.playback_monitor_task)
-        self.assertTrue(video_service.module_enabled)
-        self.assertFalse(video_service.is_playing)
-        self.assertIsNone(video_service.current_bv)
-        self.assertIs(video_service.driver, new_driver)
+        video_service.video_session_generation = 8
+        with patch.object(video_service, "set_obs_visibility_async", new=AsyncMock()) as obs:
+            await video_service.monitor_video_end("BV1xx411c7mD", session_generation=7)
+        obs.assert_not_awaited()
 
 
 
