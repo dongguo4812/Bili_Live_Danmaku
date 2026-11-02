@@ -80,6 +80,9 @@
   let audioContext = null;
   let connectionTimer = null;
   let lastConnectionState = null;
+  let live2dModuleActive = true;
+  let voiceModuleActive = true;
+  let live2dModuleState = "running";
   let audioResumeInProgress = false;
   let currentAudioSource = null;
   let audioPlaying = false;
@@ -212,7 +215,7 @@
   }
 
   function enqueueSpeech(item) {
-    if (!ttsSettings || !item || !item.text) return;
+    if (!voiceModuleActive || !ttsSettings || !item || !item.text) return;
     if (item.type === "danmaku" && !ttsSettings.danmaku_enabled) return;
     if (item.type === "gift") {
       if (!ttsSettings.gift_enabled) return;
@@ -473,7 +476,7 @@
       clearTimeout(idleTimer);
       idleTimer = null;
     }
-    if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) {
+    if (!live2dModuleActive || !idleConnected || !idleTipSettings || idleTipSettings.enabled === false) {
       removeIdleTip();
       return;
     }
@@ -481,7 +484,7 @@
     const interval = Math.max(10, Number(idleTipSettings.interval_seconds) || 60) * 1000;
     idleTimer = window.setTimeout(() => {
       idleTimer = null;
-      if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
+      if (!live2dModuleActive || !idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
       showIdleTip();
       syncIdleTipTimer(true);
     }, interval);
@@ -499,12 +502,42 @@
     syncIdleTipTimer(true);
   }
 
+  function applyModuleStates(modules) {
+    const liveState = modules && modules.live2d ? modules.live2d.state : "running";
+    const voiceState = modules && modules.voice ? modules.voice.state : "running";
+    live2dModuleState = liveState || "stopped";
+    const nextLive2D = live2dModuleState === "running";
+    const nextVoice = voiceState === "running";
+
+    if (live2dModuleActive !== nextLive2D) {
+      live2dModuleActive = nextLive2D;
+      if (!live2dModuleActive) {
+        removeIdleTip();
+        if (bubble) bubble.hidden = true;
+        if (bubblePreview) bubblePreview.hidden = true;
+      }
+    }
+    if (canvas) canvas.style.visibility = live2dModuleState === "stopped" ? "hidden" : "visible";
+
+    if (voiceModuleActive && !nextVoice) {
+      speechQueue.length = 0;
+      if (currentAudioSource) {
+        try { currentAudioSource.stop(); } catch (_) {}
+      }
+      audioPlaying = false;
+      stopMouthSync();
+    }
+    voiceModuleActive = nextVoice;
+    if (voiceModuleActive && audioUnlocked) processSpeechQueue();
+  }
+
   async function checkLiveConnectionForAudio() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       const connected = Boolean(data.bilibili && data.bilibili.connected);
+      applyModuleStates(data.modules || {});
       setIdleConnectionState(connected);
       if (connected !== lastConnectionState) {
         lastConnectionState = connected;
@@ -573,7 +606,7 @@
   }
 
   async function processSpeechQueue() {
-    if (speaking || !speechQueue.length) return;
+    if (!voiceModuleActive || speaking || !speechQueue.length) return;
     speaking = true;
     try {
       if (!audioUnlocked) {
@@ -1089,12 +1122,12 @@
         lastDanmakuId = Math.max(lastDanmakuId, Number(item.id) || 0);
         // 弹幕显示与 TTS 完全独立；语音处理异常不得中断后续弹幕显示。
         try {
-          addDanmaku(item);
+          if (live2dModuleActive) addDanmaku(item);
         } catch (displayError) {
           console.warn("Unable to display danmaku:", displayError);
         }
         try {
-          enqueueSpeech(item);
+          if (voiceModuleActive) enqueueSpeech(item);
         } catch (speechError) {
           console.warn("Unable to enqueue danmaku speech:", speechError);
         }
