@@ -1117,6 +1117,12 @@ async def play_next():
             # 必须放到工作线程，避免 Chrome 无响应时堵住 asyncio 事件循环。
             await asyncio.to_thread(open_video_page, bv, url)
 
+            if not module_enabled:
+                await asyncio.to_thread(_pause_video_for_close_sync)
+                is_playing = False
+                current_bv = None
+                return
+
             logger.info("视频页面已打开：%s", bv)
 
             # 若此前有旧视频监控任务，先取消；只保留当前 BV 的监控。
