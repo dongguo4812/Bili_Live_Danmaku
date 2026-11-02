@@ -23,6 +23,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "pending_bvs": set(video_service.pending_video_bvs),
             "require_medal": video_service.REQUIRE_FAN_MEDAL,
             "cooldown": video_service.COOLDOWN_SEC,
+            "max_queue": video_service.MAX_QUEUE_SIZE,
         }
         video_service.module_enabled = False
         video_service.module_paused = False
@@ -58,6 +59,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.pending_video_bvs.update(self.old_state["pending_bvs"])
         video_service.REQUIRE_FAN_MEDAL = self.old_state["require_medal"]
         video_service.COOLDOWN_SEC = self.old_state["cooldown"]
+        video_service.MAX_QUEUE_SIZE = self.old_state["max_queue"]
 
     async def test_disabled_module_ignores_danmaku(self):
         await video_service.on_dan_mu({
