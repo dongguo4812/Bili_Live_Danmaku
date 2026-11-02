@@ -52,7 +52,7 @@ def load_admin_uids(path: Path = UID_FILE) -> set[int]:
         for raw in path.read_text(encoding="utf-8-sig").splitlines():
             line = raw.split("#", 1)[0].strip()
             if line:
-                for part in re.split(r"[,;\\s]+", line):
+                for part in re.split(r"[,;\s]+", line):
                     if part.isdigit():
                         values.add(int(part))
     except FileNotFoundError:
