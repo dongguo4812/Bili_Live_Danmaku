@@ -541,7 +541,7 @@
       }
       syncIdleTipTimer(true);
     }
-    if (canvas) canvas.style.visibility = showLive2D && live2dModuleState !== "stopped" ? "visible" : "hidden";
+    if (canvas) canvas.style.visibility = showLive2D && (silentPreview || live2dModuleState !== "stopped") ? "visible" : "hidden";
 
     if (voiceModuleActive && !nextVoice) {
       speechQueue.length = 0;
