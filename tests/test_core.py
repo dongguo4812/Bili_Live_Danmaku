@@ -44,6 +44,10 @@ class ConfigManagerTests(unittest.TestCase):
                 {"Authorization": "Bearer secret"},
                 {"SESSDATA": "secret"},
                 {"biliJct": "secret"},
+                {"sessData": "secret"},
+                {"acTimeValue": "secret"},
+                {"buvid3": "secret"},
+                {"buvid4": "secret"},
                 {"cookieValue": "secret"},
                 {"nested": [{"refresh_token": "secret"}]},
             ]
