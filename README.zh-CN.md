@@ -208,7 +208,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
 - OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
 
-GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置/凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置迁移回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
+GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置退役回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
 ## 常见问题
 
