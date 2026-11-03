@@ -241,14 +241,18 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
         self.assertNotIn('bubble.style.clipPath', script)
 
-    def test_live2d_transform_is_applied_by_model_layout_after_save(self):
+    def test_live2d_transform_updates_model_matrix_in_realtime(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
-        self.assertNotIn("function applyLive2DTransform()", script)
+        self.assertIn("function captureLive2DTransformBase(", script)
+        self.assertIn("function applyLive2DTransform(", script)
+        self.assertIn("base.matrix.scale(base.scaleX * ratio, base.scaleY * ratio)", script)
+        self.assertIn("base.matrix.centerX(", script)
+        self.assertIn("base.matrix.centerY(", script)
+        self.assertIn('if (key === "scale" || key === "x" || key === "y") applyLive2DTransform();', script)
+        self.assertNotIn("transformChangedSinceLoad", script)
         self.assertNotIn("canvas.style.transform", script)
-        self.assertIn('if (transformChangedSinceLoad(preferences))', script)
-        self.assertIn('await queueModelSwitch(modelSelect.value, token, result.preferences)', script)
-        self.assertIn('applyLive2DCrop();', script)
+        self.assertIn("保存只负责持久化", script)
 
 
 if __name__ == "__main__":
