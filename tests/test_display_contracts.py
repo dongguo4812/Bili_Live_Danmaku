@@ -249,10 +249,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         # Cubism 2 stores its transform in Float32Array, not a plain JavaScript Array.
         self.assertIn("ArrayBuffer.isView(matrix.tr)", script)
         self.assertNotIn("Array.isArray(matrix.tr)", script)
-        self.assertIn("base.matrix.scale(base.scaleX * current.scale, base.scaleY * current.scale)", script)
-        self.assertIn("base.matrix.centerX(base.centerX + current.x)", script)
-        self.assertIn("base.matrix.centerY(base.centerY + current.y)", script)
-        self.assertNotIn("base.preferences", script)
+        # The server has already applied saved layout preferences in model.json.
+        # Live preview must apply only the delta from that saved baseline.
+        self.assertIn("preferences: transformSnapshot()", script)
+        self.assertIn("const saved = base.preferences || { scale: 1, x: 0, y: 0 }", script)
+        self.assertIn("const scaleRatio = current.scale / saved.scale", script)
+        self.assertIn("base.matrix.scale(base.scaleX * scaleRatio, base.scaleY * scaleRatio)", script)
+        self.assertIn("base.matrix.centerX(base.centerX + current.x - saved.x)", script)
+        self.assertIn("base.matrix.centerY(base.centerY + current.y - saved.y)", script)
         self.assertIn("base.matrix.centerX(", script)
         self.assertIn("base.matrix.centerY(", script)
         self.assertIn('if (key === "scale" || key === "x" || key === "y") applyLive2DTransform();', script)
