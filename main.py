@@ -77,7 +77,6 @@ def load_config() -> dict[str, Any]:
     app_config = manager.load("app", {"host": "127.0.0.1", "port": 8768, "debug": False})
     live_config = manager.load("live", {
         "room_id": 0, "reconnect": True, "reconnect_interval_seconds": 5,
-        "connect_on_start": False,
     })
     live2d_config = manager.load("live2d", {"default_model": DEFAULT_MODEL})
     voice_config = manager.load("voice", {})
