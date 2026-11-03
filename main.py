@@ -997,7 +997,7 @@ def _music_cookie_provider() -> dict[str, str]:
 
 LIVE2D_MODULE = Live2DModule()
 VOICE_MODULE = VoiceModule()
-APPLICATION_RUNTIME.register_module("live2d", LIVE2D_MODULE, initial_state="stopped", auto_start_on_connect=True)
+APPLICATION_RUNTIME.register_module("live2d", LIVE2D_MODULE, initial_state="running")
 APPLICATION_RUNTIME.register_module("voice", VOICE_MODULE, initial_state="stopped", auto_start_on_connect=True)
 
 
