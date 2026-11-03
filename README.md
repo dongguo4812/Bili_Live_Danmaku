@@ -91,9 +91,11 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - Music and video start closed after each application launch.
 - The music module searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to pre-saved source candidates.
 - The video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. Web fullscreen is attempted only after playback progress is detected; the module has no LX Music control calls.
-- The combined layout editor is `/dashboard`; the OBS output is `/display/combined`.
+- The combined layout editor is `/dashboard`. It supports multiple named layouts; each layout has its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
-- Music administrator IDs belong in `data/music/uid.txt`; video administrator IDs belong in `data/video/uid.txt`. These local files are ignored by Git.
+- Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
+- Dedicated transparent display URLs are available: `/display/live2d`, `/display/danmaku`, `/display/tts`, `/display/music`, `/display/video` and `/display/music-widget`. The legacy `/display` remains the complete Live2D + danmaku + TTS display. Existing `/music/display`, `/music/widget` and `/video/display` URLs remain supported.
+- Live2D settings APIs use the `/api/live2d/` namespace. The former `/api/display/settings` endpoints remain as compatibility aliases.
 
 ## Current scope
 
