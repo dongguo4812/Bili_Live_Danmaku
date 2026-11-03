@@ -37,6 +37,10 @@ The credential directory and local settings file are excluded by \`.gitignore\`.
 
 The WEB QR login implementation explicitly follows Bilibili's cross-domain ticket URL after a successful poll. This is necessary for the newer QR-login response format, where login cookies are delivered through response headers rather than the old URL query parameters.
 
+## Danmaku settings
+
+The `/danmaku` management page controls idle random prompts and reports Bilibili login/live-room connection status. Prompts are shown only while the live connection is authenticated and no new event arrives. Incoming danmaku, gifts or Super Chats immediately clear the prompt. Idle prompts are plain text: they do not trigger Live2D motions or enter the TTS queue. Settings are stored in `config/local/danmaku.json`; existing idle-tip settings in older `live2d.json` files are migrated automatically on first startup.
+
 ## Live danmaku speech bubble
 
 The \`/live2d/display\` page polls the local event queue and displays incoming danmaku above the Live2D model. The bubble is manually positioned by the user:
@@ -85,7 +89,7 @@ MagicalDanmaku is a visual-quality reference only. This project does not copy, p
 
 ## Unified modules and combined display
 
-The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the access center, Live2D, voice, music, video, system settings and the combined display editor.
+The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the access center, Live2D, danmaku settings, voice, music, video, system settings and the combined display editor.
 
 - Music and video have independent lifecycle controls, queues and configuration. They do not pause or resume each other.
 - Music and video start closed after each application launch.
@@ -111,7 +115,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
-Open the settings panel on the `/live2d/display` page to configure Edge TTS. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
+Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
 ## Development principles
 
