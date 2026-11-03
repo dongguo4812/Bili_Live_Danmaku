@@ -75,7 +75,19 @@ class CombinedDisplayContractTests(unittest.TestCase):
         )
         for route in canonical_routes:
             self.assertIn(f'@app.get("{route}")', main)
-        self.assertIn('frame.src="/live2d/display?embedded=1"', (root / "templates" / "combined_display.html").read_text(encoding="utf-8"))
+
+        legacy_display_routes = (
+            "/display", "/display/live2d", "/display/danmaku",
+            "/display/tts", "/display/music", "/display/music-widget",
+            "/display/video",
+        )
+        for route in legacy_display_routes:
+            self.assertNotIn(f'@app.get("{route}")', main)
+
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('frame.src="/live2d/display?embedded=1"', combined)
+        self.assertIn('/api/voice/tts/settings', combined)
+        self.assertNotIn('/api/tts/settings', combined)
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
             self.assertIn(mode, template)
         self.assertIn('const showLive2D =', script)
@@ -124,6 +136,11 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/danmaku?latest=1', source)
         self.assertIn('/api/danmaku?after="+encodeURIComponent(danmakuAfter)', source)
         self.assertNotIn('/api/danmaku?after=0', source)
+
+    def test_combined_display_uses_canonical_tts_settings_api(self):
+        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('/api/voice/tts/settings', source)
+        self.assertNotIn('/api/tts/settings', source)
 
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")

@@ -46,7 +46,7 @@ The \`/live2d/display\` page polls the local event queue and displays incoming d
 - The bottom edge remains fixed while new messages are added from the bottom and the bubble grows upward.
 - The maximum number of visible entries and each entry's display duration are adjustable.
 - Older entries are removed when the configured item limit is exceeded.
-- Each Live2D model stores its own model transform and speech-bubble settings in `config/live2d.json`.
+- Each Live2D model stores its own model transform and speech-bubble settings in `config/local/live2d.json`.
 
 Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/live2d/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
 

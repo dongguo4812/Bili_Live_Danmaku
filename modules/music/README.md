@@ -24,6 +24,6 @@
 - `POST /api/music/action`（skip/delete/clear/set_song_request）
 
 配置与管理员：
-- 普通设置：`config/music.json`。
-- 管理员 UID：统一在系统设置页 `/settings` 配置，保存在 `config/app.json`，歌曲和视频模块共用。
+- 普通设置：`config/local/music.json`。
+- 管理员 UID：统一在系统设置页 `/settings` 配置，保存在 `config/local/app.json`，歌曲和视频模块共用。
 - 每次主程序进程启动时点歌请求开关默认开启；关闭请求开关只阻止普通观众新增请求，不清空已有队列，也不影响管理员切歌。

@@ -92,7 +92,7 @@ py -3 -m venv .venv
 
 ## B站登录与直播间连接
 
-1. 在管理页面填写直播间房间号，点击“保存房间号”。直播间号保存在 `config/live.json`。
+1. 在管理页面填写直播间房间号，点击“保存房间号”。直播间号保存在 `config/local/live.json`。
 2. 点击“扫码登录”，使用 B 站手机客户端扫描二维码并确认登录。
 3. 登录成功后，程序从 B 站二维码登录流程取得 Cookie，并保存到本地凭据文件。
 4. 程序启动时会检查已有登录凭据；连接直播间前也会再次验证。
@@ -175,7 +175,7 @@ http://127.0.0.1:8768/live2d/display
 - 正常退出程序时，尝试隐藏匹配的展示来源。
 - 会遍历场景及嵌套分组中的场景项目，处理匹配浏览器源对应的场景项。
 
-OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、超时和来源名称。密码统一在凭据管理页录入，保存在 `credentials/obs.json`；Windows 使用当前 Windows 用户上下文的 DPAPI 加密，页面不会回显密码原文。非 Windows 开发环境使用仅本机文件权限保护的存储格式，不应将该环境的凭据文件复制到其他设备；正式 Windows 使用时应由目标 Windows 用户重新保存凭据。
+OBS WebSocket 普通配置保存在 `config/local/obs.json`，包含地址、端口、超时和来源名称。密码统一在凭据管理页录入，保存在 `credentials/obs.json`；Windows 使用当前 Windows 用户上下文的 DPAPI 加密，页面不会回显密码原文。非 Windows 开发环境使用仅本机文件权限保护的存储格式，不应将该环境的凭据文件复制到其他设备；正式 Windows 使用时应由目标 Windows 用户重新保存凭据。
 
 系统设置页面：`http://127.0.0.1:8768/settings`；统一凭据入口：`http://127.0.0.1:8768/credentials`。请在 OBS 的“工具 → WebSocket 服务器设置”中启用 WebSocket 服务器，并确认地址、端口和来源名称正确。
 
@@ -188,7 +188,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
 - `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。请直接维护 `config/` 中的模块配置；直播间号位于 `config/live.json`，Live2D 模型和展示偏好位于 `config/live2d.json`，语音播报偏好位于 `config/voice.json`，OBS 普通设置位于 `config/obs.json`。系统管理员 UID 只保存在 `config/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
+当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。当前本机配置统一位于 `config/local/`；直播间号位于 `config/local/live.json`，Live2D 模型和展示偏好位于 `config/local/live2d.json`，语音播报偏好位于 `config/local/voice.json`，OBS 普通设置位于 `config/local/obs.json`。系统管理员 UID 只保存在 `config/local/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
 
 ## 统一模块与综合展示
 
@@ -226,7 +226,7 @@ GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与凭据回归�
 
 ### OBS 没有自动显示 Live2D
 
-确认 OBS 正在运行、OBS WebSocket 服务器已启用、地址和端口正确、密码文件内容正确，并确认浏览器源 URL 指向当前程序的 `/live2d/display` 页面。自动显示以 B 站直播间 WebSocket 连接成功为触发条件。
+确认 OBS 正在运行、OBS WebSocket 服务器已启用、地址和端口正确、凭据管理页中已正确保存 OBS 密码，并确认浏览器源 URL 指向当前程序的 `/live2d/display` 页面。自动显示以 B 站直播间 WebSocket 连接成功为触发条件。
 
 ### OBS 没有语音
 

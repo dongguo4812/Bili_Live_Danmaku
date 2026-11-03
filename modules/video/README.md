@@ -3,7 +3,7 @@
 从原独立视频点播项目迁移，保留：
 - B 站 BV 号格式校验、公开视频信息查询、标题/时长缓存。
 - 默认 30 条待播队列、普通观众 60 秒冷却、普通观众最长 300 秒视频限制。
-- 按 `config/video.json` 的 `requests.require_fans_medal` 开关执行本直播间粉丝勋章严格校验；仓库默认关闭，与旧版 `room_config.txt` 的默认配置一致。管理员 UID 豁免粉丝牌、冷却和视频时长限制。
+- 按 `config/local/video.json` 的 `requests.require_fans_medal` 开关执行本直播间粉丝勋章严格校验；仓库默认关闭，与旧版 `room_config.txt` 的默认配置一致。管理员 UID 豁免粉丝牌、冷却和视频时长限制。
 - Selenium + Chrome 独立 Profile，打开 B 站视频、重置播放位置。
 - 仅在 HTML5 视频确认产生播放进度后，尝试点击 B 站播放器网页全屏 W；不使用 F/F11。
 - HTML5 video 播放状态监控、结束自动切换、合集自动跳转识别。
@@ -24,7 +24,7 @@
 - `POST /api/video/action`（next/delete/clear）
 
 配置与管理员：
-- 普通设置：`config/video.json`；默认冷却 60 秒、队列 30 条、普通观众最长 300 秒、默认不要求粉丝牌。
-- 管理员 UID：统一在系统设置页 `/settings` 配置，保存在 `config/app.json`，歌曲和视频模块共用。
-- 视频限制：直接配置 `config/video.json`；OBS 普通地址、端口和来源名称配置在 `config/obs.json`。
-- OBS 密码由 `CredentialStore` 从 `credentials/obs.json` 读取；普通 OBS 地址、端口和来源名称来自 `config/obs.json`。
+- 普通设置：`config/local/video.json`；默认冷却 60 秒、队列 30 条、普通观众最长 300 秒、默认不要求粉丝牌。
+- 管理员 UID：统一在系统设置页 `/settings` 配置，保存在 `config/local/app.json`，歌曲和视频模块共用。
+- 视频限制：直接配置 `config/local/video.json`；OBS 普通地址、端口和来源名称配置在 `config/local/obs.json`。
+- OBS 密码由 `CredentialStore` 从 `credentials/obs.json` 读取；普通 OBS 地址、端口和来源名称来自 `config/local/obs.json`。
