@@ -1,0 +1,14 @@
+{
+  "lx_music": {
+    "base_url": "http://127.0.0.1:23330",
+    "timeout_seconds": 5
+  },
+  "search": {
+    "max_results_per_platform": 20
+  },
+  "requests": {
+    "cooldown_seconds": 10,
+    "queue_limit": 100,
+    "require_fans_medal": false
+  }
+}
