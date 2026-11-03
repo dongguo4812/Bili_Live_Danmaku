@@ -33,8 +33,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget-actions button{padding:2px 6px;font-size:11px}
 .widget-body{flex:1;min-height:0;overflow:auto;padding:10px 12px;font-size:14px;line-height:1.55}
 .display-mode .widget-body{padding:5px 8px}
-.widget.live2d .widget-body{padding:0;overflow:hidden}
-.widget.live2d iframe{width:100%;height:100%;border:0;background:transparent}
+.widget.live2d .widget-body,.widget.music_widget .widget-body{padding:0;overflow:hidden}
+.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
 .widget video,.widget .video-frame{display:none!important}
 .voice-engine{position:absolute;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;border:0}
 .widget .muted{color:#b8c3d4;font-size:12px}
@@ -88,7 +88,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   const displayMode = document.body.dataset.displayMode === "1";
   const stage = document.getElementById("stage");
   const message = document.getElementById("layout-message");
-  const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",video:"视频点播",danmaku:"直播弹幕"};
+  const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",music_widget:"歌曲信息",video:"视频点播",danmaku:"直播弹幕"};
   let layout = {version:1,widgets:[]};
   let danmakuAfter = 0;
   let danmakuCursorReady = false;
@@ -189,6 +189,18 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
   }
 
+  function renderMusicWidget(body){
+    if(displayMode){
+      const frame=document.createElement("iframe");
+      frame.src="/music/widget?embedded=1";
+      frame.title="歌曲信息展示组件";
+      frame.loading="eager";
+      body.appendChild(frame);
+    }else{
+      body.appendChild(make("div","empty","源点歌项目原版歌曲信息组件；展示封面、歌曲名称、歌手、播放进度和动态波形"));
+    }
+  }
+
   function renderVideo(body){
     // 综合展示仅呈现视频信息，不加载或嵌入实际视频画面。
     MediaDisplay.render(body,"video",latestData.video||{},{compact:true,showInstruction:false});
@@ -226,7 +238,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       }else{
         body.appendChild(make("div","empty","Live2D OBS 展示模块（编辑页不启动音频与模型渲染）"));
       }
-    }else if(type==="music") renderMusic(body);
+    }else if(type==="music_widget") renderMusicWidget(body);
+    else if(type==="music") renderMusic(body);
     else if(type==="video") renderVideo(body);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
@@ -334,7 +347,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
       layout.widgets.forEach(item=>{
         const node=stage.querySelector('[data-widget="'+item.type+'"] .widget-body');
-        if(node && item.type!=="live2d") renderWidgetContent(node,item.type);
+        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type);
       });
     }catch(error){
       if(displayMode) console.debug("综合展示数据刷新失败",error);
@@ -353,7 +366,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   const openOutput=document.getElementById("open-output");
   if(openOutput) openOutput.addEventListener("click",()=>window.open("/display/combined","_blank","noopener"));
 
-  loadLayout().then(refreshData);
+  loadLayout().then(()=>{
+    const requestedWidget=new URLSearchParams(window.location.search).get("add");
+    if(requestedWidget==="music_widget"){
+      addWidget("music_widget");
+      window.history.replaceState({},document.title,window.location.pathname);
+    }
+    refreshData();
+  });
   setInterval(refreshData,2000);
 })();
 </script>
