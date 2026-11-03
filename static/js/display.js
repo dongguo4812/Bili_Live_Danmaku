@@ -1271,7 +1271,17 @@
               reject(new Error("浏览器无法将模型画面编码为 PNG。"));
               return;
             }
-            resolve(blob);
+            resolve({
+              blob,
+              frame: {
+                canvas_width: width,
+                canvas_height: height,
+                left,
+                top,
+                width: croppedWidth,
+                height: croppedHeight
+              }
+            });
           }, "image/png");
         } catch (error) {
           reject(error);
@@ -1290,10 +1300,15 @@
     previewExportButton.disabled = true;
     setPreviewExportStatus("正在从当前 Live2D 实例捕获画面…");
     try {
-      const blob = await captureLive2DCanvasPng();
+      const capture = await captureLive2DCanvasPng();
+      const preferences = currentPreferences();
       const form = new FormData();
       form.append("model_id", modelId);
-      form.append("image", blob, modelId + ".png");
+      form.append("image", capture.blob, modelId + ".png");
+      form.append("frame", JSON.stringify(capture.frame));
+      form.append("preferences", JSON.stringify({
+        scale: preferences.scale, x: preferences.x, y: preferences.y
+      }));
       const response = await fetch("/api/live2d/preview", {
         method: "POST",
         body: form,
