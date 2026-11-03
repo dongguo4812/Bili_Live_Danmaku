@@ -151,12 +151,17 @@ def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, An
     if not prefix:
         return data
 
+    # 当前 Cubism 2 运行库会把 modelHomeDir 与模型、物理、姿势和动作文件路径直接拼接。
+    # 配置入口仍通过 /models/<model_id>/model.json 提供，因此资源路径必须相对该入口
+    # 回退到真实目录；不能写成 /models/... 绝对路径，否则 .moc 等文件会被重复拼接。
+    relative_prefix = "../" + prefix.removeprefix("/models/")
+
     def prefixed(value: Any) -> Any:
         if not isinstance(value, str) or not value:
             return value
         if value.startswith(("/", "http://", "https://", "data:")):
             return value
-        return prefix + value.lstrip("./")
+        return relative_prefix + value.lstrip("./")
 
     for key in ("model", "physics", "pose"):
         if isinstance(data.get(key), str):
