@@ -170,6 +170,12 @@ class CombinedDisplayContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
 
         self.assertIn('frame.src="/live2d/display?embedded=1"', template)
+        self.assertIn("function syncLive2DFrame(widget)", template)
+        self.assertIn("frame.style.width=stage.clientWidth+\"px\"", template)
+        self.assertIn("frame.style.height=stage.clientHeight+\"px\"", template)
+        self.assertIn("frame.style.left=-(bodyRect.left-stageRect.left)+\"px\"", template)
+        self.assertIn("frame.style.top=-(bodyRect.top-stageRect.top)+\"px\"", template)
+        self.assertIn("new ResizeObserver(syncAllLive2DFrames)", template)
         self.assertNotIn('silent=1', template)
         self.assertNotIn('live2d-preview-toggle', template)
         self.assertNotIn('live2dPreviewEnabled', template)
