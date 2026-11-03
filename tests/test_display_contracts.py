@@ -290,7 +290,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('roots = (MODEL_ROOT / "moc2", MODEL_ROOT)', main)
         self.assertIn('moc2_root = MODEL_ROOT / "moc2"', main)
-        self.assertIn('directories.setdefault(directory.name, directory)', main)
+        self.assertIn('directories.extend(', main)
         self.assertIn('"version": "moc2"', main)
 
     def test_versioned_model_assets_are_served_from_their_new_directory(self):
