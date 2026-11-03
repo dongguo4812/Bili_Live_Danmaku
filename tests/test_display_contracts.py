@@ -236,7 +236,10 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('#live2d-viewport {', css)
         self.assertIn('target.style.clipPath = clip', script)
         self.assertIn('target.style.webkitClipPath = clip', script)
-        self.assertIn('viewport.style.clipPath="inset("+crop.join(" ")+")"', combined)
+        # The model viewport crop stays inside Live2D; the combined widget clips the full iframe (model + bubble).
+        self.assertIn('.widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;', combined)
+        self.assertIn('.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}', combined)
+        self.assertIn('frame.src="/live2d/display?embedded=1&silent=1"', combined)
         self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
         self.assertNotIn('bubble.style.clipPath', script)
 
