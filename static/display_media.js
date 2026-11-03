@@ -29,6 +29,38 @@
     parent.appendChild(node("div","md-primary",item.title|| (type==="video"?item.bvid:"未知歌曲")));
     details(parent,item,type);
   }
+  function renderSongWidget(parent,widget){
+    if(!widget||widget.available===false) return;
+    const title=String(widget.name||widget.title||"").trim();
+    const artist=String(widget.singer||widget.artist||"").trim();
+    const cover=String(widget.picUrl||widget.cover||"").trim();
+    if(!title&&!artist&&!cover) return;
+    const card=node("div","md-song-widget");
+    if(/^https?:\\/\\//i.test(cover)){
+      const image=node("img","md-song-cover");
+      image.src=cover;
+      image.alt=title?title+" 封面":"歌曲封面";
+      image.loading="eager";
+      image.referrerPolicy="no-referrer";
+      image.addEventListener("error",()=>{image.remove();});
+      card.appendChild(image);
+    }
+    const info=node("div","md-song-info");
+    info.appendChild(node("div","md-song-title",title||"未知歌曲"));
+    if(artist) info.appendChild(node("div","md-song-artist","歌手："+artist));
+    const album=String(widget.albumName||widget.album||"").trim();
+    if(album) info.appendChild(node("div","md-song-album","专辑："+album));
+    const duration=Number(widget.duration);
+    const progress=Number(widget.progress);
+    if(Number.isFinite(duration)&&duration>0){
+      const progressText=Number.isFinite(progress)&&progress>=0
+        ? Math.floor(progress/1000)+" / "+Math.floor(duration/1000)+" 秒"
+        : "时长："+Math.floor(duration/1000)+" 秒";
+      info.appendChild(node("div","md-song-progress",progressText));
+    }
+    card.appendChild(info);
+    parent.appendChild(card);
+  }
   function normalizeNotices(data,type){
     const raw=type==="music"?(data.events||[]):(data.operations||[]);
     const now=Date.now()/1000;
@@ -55,6 +87,11 @@
     const current=data.current||null;
     const queue=Array.isArray(data.queue)?data.queue:[];
     const next=queue.length?queue[0]:null;
+
+    if(type==="music"&&data.widget){
+      const widgetBox=section(root,"当前歌曲信息","widget");
+      renderSongWidget(widgetBox,data.widget);
+    }
 
     const currentBox=section(root,"正在播放 ▶","current");
     titleLine(currentBox,current,type,type==="music"?"暂无机器人点播歌曲":"等待点播视频");
