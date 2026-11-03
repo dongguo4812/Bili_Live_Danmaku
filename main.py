@@ -1197,7 +1197,23 @@ def index():
 
 @app.get("/display")
 def display():
-    return render_template("display.html")
+    # 兼容旧地址：保留 Live2D、弹幕和 TTS 的完整组合展示。
+    return render_template("display.html", display_mode="all")
+
+
+@app.get("/display/live2d")
+def live2d_display_page():
+    return render_template("display.html", display_mode="live2d")
+
+
+@app.get("/display/danmaku")
+def danmaku_display_page():
+    return render_template("display.html", display_mode="danmaku")
+
+
+@app.get("/display/tts")
+def tts_display_page():
+    return render_template("display.html", display_mode="tts")
 
 
 @app.get("/live2d")
@@ -1252,10 +1268,13 @@ def music_settings_page():
 
 
 @app.get("/music/display")
+@app.get("/display/music")
 def music_display_page():
     return render_template("music_display.html")
 
+
 @app.get("/music/widget")
+@app.get("/display/music-widget")
 def music_widget_page():
     """独立歌曲信息展示页。"""
     return render_template("music_widget.html")
@@ -1272,10 +1291,12 @@ def video_settings_page():
 
 
 @app.get("/video/display")
+@app.get("/display/video")
 def video_display_page():
     return render_template("video_display.html")
 
 
+@app.get("/api/live2d/settings")
 @app.get("/api/display/settings")
 def get_display_settings():
     with SETTINGS_LOCK:
@@ -1295,6 +1316,7 @@ def get_display_settings():
     })
 
 
+@app.post("/api/live2d/settings")
 @app.post("/api/display/settings")
 def save_display_settings():
     payload = request.get_json(silent=True)
@@ -1392,7 +1414,15 @@ def model_asset(filename: str):
     return send_from_directory(MODEL_ROOT, filename, conditional=True)
 
 
+@app.get("/api/live2d/status")
+def get_live2d_status():
+    with RUNTIME_STATE_LOCK:
+        state = dict(RUNTIME_STATE)
+    return jsonify({"ok": True, **state})
+
+
 @app.post("/api/live2d/status")
+@app.post("/api/display/live2d/status")
 def update_live2d_status():
     payload = request.get_json(silent=True) or {}
     state = payload.get("state")
