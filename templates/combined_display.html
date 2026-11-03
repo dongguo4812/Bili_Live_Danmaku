@@ -339,10 +339,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderLive2DPreview(body){
-    if(!live2dPreviewEnabled){
-      body.appendChild(make("div","live2d-preview-placeholder","静音预览已关闭；点击上方“开启静音预览”可重新显示。"));
-      return;
-    }
+    // 关闭预览时让 Live2D 模块保持空白，不在模型展示区域放置提示文字。
+    if(!live2dPreviewEnabled) return;
     const frame=document.createElement("iframe");
     frame.src="/live2d/display?embedded=1&silent=1";
     frame.title="Live2D 静音预览（包含模型和弹幕框）";
