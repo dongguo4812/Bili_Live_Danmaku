@@ -1240,7 +1240,7 @@ def save_live2d_preview():
         return jsonify({"ok": False, "error": "PNG 图片过大，不能超过 32 MB。"}), 413
     if (
         len(png_data) < 33
-        or png_data[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+        or png_data[:8] != bytes.fromhex("89504e470d0a1a0a")
         or png_data[12:16] != b"IHDR"
         or png_data[25] != 6
         or b"IEND" not in png_data[-16:]
