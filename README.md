@@ -95,7 +95,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
 - Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
 - Dedicated transparent display URLs: the complete Live2D + danmaku + TTS display is `/live2d/display`; the MOC2-only display is `/live2d/moc2/display`; standalone danmaku and voice displays are `/danmaku/display` and `/voice/display`. Music queue, video queue and music-widget displays are `/music/display`, `/video/display` and `/music/widget`.
-- Live2D settings APIs use the `/api/live2d/` namespace. The former `/api/display/settings` endpoints remain as compatibility aliases.
+- Live2D settings APIs use the `/api/live2d/` namespace.
 
 ## Current scope
 
