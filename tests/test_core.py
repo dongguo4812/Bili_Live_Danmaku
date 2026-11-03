@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from core.config_manager import ConfigError, ConfigManager
+import core.config_manager as config_manager_module
 from core.credential_store import CredentialStore
 from core.module_manager import ModuleManager
 
@@ -61,6 +62,64 @@ class ConfigManagerTests(unittest.TestCase):
             manager = ConfigManager(Path(directory))
             manager.save("live", {"room_id": 123456, "reconnect": True})
             self.assertEqual(manager.load("live")["room_id"], 123456)
+
+
+    def test_default_and_local_configuration_are_separated_and_merged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "default"
+            local = root / "local"
+            legacy = root / "config"
+            defaults.mkdir()
+            local.mkdir()
+            legacy.mkdir()
+            (defaults / "music.json").write_text(
+                json.dumps({
+                    "requests": {
+                        "cooldown_seconds": 10,
+                        "queue_limit": 100,
+                        "require_fans_medal": False,
+                    }
+                }),
+                encoding="utf-8",
+            )
+            # 模拟升级前的旧点歌配置：0 表示要求粉丝牌。
+            (legacy / "music.json").write_text(
+                json.dumps({"requests": {"cooldown_seconds": 25, "require_fans_medal": 0}}),
+                encoding="utf-8",
+            )
+            with (
+                unittest.mock.patch.object(config_manager_module, "LOCAL_CONFIG_DIR", local),
+                unittest.mock.patch.object(config_manager_module, "DEFAULT_CONFIG_DIR", defaults),
+                unittest.mock.patch.object(config_manager_module, "CONFIG_ROOT", legacy),
+            ):
+                manager = ConfigManager()
+                loaded = manager.load("music")
+                self.assertEqual(loaded["requests"]["cooldown_seconds"], 25)
+                self.assertEqual(loaded["requests"]["queue_limit"], 100)
+                self.assertIs(loaded["requests"]["require_fans_medal"], True)
+                saved = json.loads((local / "music.json").read_text(encoding="utf-8"))
+                self.assertIs(saved["requests"]["require_fans_medal"], True)
+
+    def test_new_local_configuration_uses_boolean_default_without_medal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "default"
+            local = root / "local"
+            legacy = root / "config"
+            defaults.mkdir()
+            (defaults / "music.json").write_text(
+                json.dumps({"requests": {"require_fans_medal": False}}),
+                encoding="utf-8",
+            )
+            with (
+                unittest.mock.patch.object(config_manager_module, "LOCAL_CONFIG_DIR", local),
+                unittest.mock.patch.object(config_manager_module, "DEFAULT_CONFIG_DIR", defaults),
+                unittest.mock.patch.object(config_manager_module, "CONFIG_ROOT", legacy),
+            ):
+                loaded = ConfigManager().load("music")
+                self.assertIs(loaded["requests"]["require_fans_medal"], False)
+                self.assertTrue((local / "music.json").is_file())
 
     def test_legacy_config_migration_support_is_retired(self):
         self.assertFalse(hasattr(ConfigManager, "migrate_legacy_config"))
