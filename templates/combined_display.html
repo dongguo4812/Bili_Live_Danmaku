@@ -390,7 +390,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
           }
         }
       },{once:true});
-      image.src="/static/live2d_preview/"+encodeURIComponent(modelId)+".png";
+      image.src="/static/live2d_preview/"+encodeURIComponent(modelId)+".png?v="+Date.now();
       body.appendChild(image);
     }catch(error){
       placeholder.textContent="无法读取 Live2D 模型预览："+error.message;
