@@ -138,7 +138,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   let refreshInFlight = false;
   let dragState = null;
   let selectedWidgetType = "";
-  let latestData = {};
+  let latestData = {voiceSpeech:{current:"",queue:[]}};
+  window.addEventListener("message",event=>{
+    if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-tts-state") return;
+    latestData.voiceSpeech={
+      current:String(event.data.current||""),
+      queue:Array.isArray(event.data.queue)?event.data.queue.map(value=>String(value)):[]
+    };
+    const body=stage.querySelector('[data-widget="voice"] .widget-body');
+    if(body) renderVoice(body);
+  });
 
   async function api(url, options={}) {
     const response = await fetch(url,{cache:"no-store",...options});
@@ -309,6 +318,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const moduleState = data.module_state || "stopped";
     body.appendChild(make("div","row","模块："+({running:"运行中",paused:"已暂停",stopped:"已关闭",error:"运行异常"}[moduleState]||moduleState)));
     body.appendChild(make("div","row","触发："+(enabled?"已启用":"已关闭")));
+    const speech=latestData.voiceSpeech||{current:"",queue:[]};
+    body.appendChild(make("div","primary-line","正在播报"));
+    body.appendChild(make("div","queue-item",speech.current||"当前没有语音播报"));
+    body.appendChild(make("div","primary-line","等待播报（"+speech.queue.length+"）"));
+    if(speech.queue.length){
+      speech.queue.forEach((text,index)=>body.appendChild(make("div","queue-item",(index+1)+". "+text)));
+    }else{
+      body.appendChild(make("div","muted","等待队列为空"));
+    }
     body.appendChild(make("div","muted","音色："+(prefs.voice||"默认")));
     body.appendChild(make("div","muted","语速："+(prefs.rate||"+0%")+" · 音量："+(prefs.volume||"+0%")));
   }
