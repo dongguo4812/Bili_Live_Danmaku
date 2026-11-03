@@ -17,7 +17,5 @@
     "cooldown_seconds": 10,
     "queue_limit": 100,
     "require_fans_medal": 0
-  },
-  "admins_file": "data/music/uid.txt",
-  "admin_uids": []
+  }
 }
