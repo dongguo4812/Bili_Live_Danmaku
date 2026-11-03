@@ -81,6 +81,7 @@
   const activeItems = new Map();
   let ttsSettings = null;
   let speechQueue = [];
+  let currentSpeech = null;
   let speechSequence = 0;
   let speaking = false;
   let audioUnlocked = false;
@@ -198,6 +199,19 @@
     return String(n);
   }
 
+  function publishSpeechState() {
+    if (window.parent === window) return;
+    try {
+      window.parent.postMessage({
+        type: "combined-tts-state",
+        current: currentSpeech ? currentSpeech.text : "",
+        queue: speechQueue.map(entry => entry.text)
+      }, window.location.origin);
+    } catch (error) {
+      console.debug("Unable to publish TTS display state:", error);
+    }
+  }
+
   function speechTextFor(item) {
     const nickname = item.nickname || "观众";
     if (item.type === "danmaku") return nickname + "说：" + item.text;
@@ -249,6 +263,7 @@
       type: item.type
     });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    publishSpeechState();
     processSpeechQueue();
   }
 
@@ -616,6 +631,7 @@
   async function processSpeechQueue() {
     if (!voiceModuleActive || speaking || !speechQueue.length) return;
     speaking = true;
+    publishSpeechState();
     try {
       if (!audioUnlocked) {
         const ready = await unlockSpeechAudio({ silent: true });
@@ -623,9 +639,15 @@
       }
       while (speechQueue.length) {
         const next = speechQueue.shift();
+        currentSpeech = next;
+        publishSpeechState();
         try {
           await playSpeechText(next.text);
+          currentSpeech = null;
+          publishSpeechState();
         } catch (error) {
+          currentSpeech = null;
+          publishSpeechState();
           setTtsStatus("语音播放失败：" + error.message, true);
           console.warn("TTS playback failed:", error);
           if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
@@ -640,6 +662,8 @@
       console.warn("Unable to start speech queue:", error);
     } finally {
       speaking = false;
+      currentSpeech = null;
+      publishSpeechState();
     }
   }
 
