@@ -4,6 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Now Playing</title>
+<script>
+(() => {
+  const scaleParam = new URLSearchParams(location.search).get("scale");
+  const raw = scaleParam === null ? 1 : Number(scaleParam);
+  const scale = Number.isFinite(raw) ? Math.max(0.5, Math.min(2, raw)) : 1;
+  document.documentElement.style.setProperty("--widget-scale", String(scale));
+  window.addEventListener("message", event => {
+    if (event.origin !== window.location.origin || !event.data || event.data.type !== "music-widget-scale") return;
+    const next = Number(event.data.scale);
+    if (Number.isFinite(next)) {
+      document.documentElement.style.setProperty("--widget-scale", String(Math.max(0.5, Math.min(2, next))));
+    }
+  });
+})();
+</script>
 
 <style>
 :root {
@@ -41,6 +56,8 @@ body {
 /* 默认隐藏，只有明确播放时才显示 */
 #widget {
     width: min(405px, 100vw);
+    transform: scale(var(--widget-scale, 1));
+    transform-origin: top left;
     display: none;
     flex-direction: column;
     gap: 8px;

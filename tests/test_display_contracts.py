@@ -163,6 +163,59 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/voice/tts/settings', source)
         self.assertNotIn('/api/tts/settings', source)
 
+    def test_combined_live2d_editor_uses_full_display_preview_without_silent_toggle(self):
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        main = (root / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn('frame.src="/live2d/display?embedded=1"', template)
+        self.assertIn('return render_template("combined_display.html", display_mode=False)', main)
+        self.assertIn("function syncLive2DFrame(widget)", template)
+        self.assertIn("frame.style.width=stage.clientWidth+\"px\"", template)
+        self.assertIn("frame.style.height=stage.clientHeight+\"px\"", template)
+        self.assertIn('frame.style.left=((body.clientWidth-stage.clientWidth)/2)+"px"', template)
+        self.assertIn('frame.style.top=((body.clientHeight-stage.clientHeight)/2)+"px"', template)
+        self.assertNotIn("bodyRect.left-stageRect.left", template)
+        self.assertNotIn("bodyRect.top-stageRect.top", template)
+        self.assertIn("new ResizeObserver(syncAllLive2DFrames)", template)
+        self.assertNotIn('silent=1', template)
+        self.assertNotIn('live2d-preview-toggle', template)
+        self.assertNotIn('live2dPreviewEnabled', template)
+        self.assertNotIn('silentPreview', display_script)
+        self.assertIn('const showTts = displayMode === "all" || displayMode === "tts";', display_script)
+        self.assertNotIn("live2d-preview-export", display_script)
+        self.assertNotIn('/api/live2d/preview', main)
+        self.assertNotIn('static/live2d_preview', template + display_script + main)
+
+    def test_combined_layout_supports_independent_content_scales_and_edge_resize(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        media_css = (root / "static" / "display_media.css").read_text(encoding="utf-8")
+        music_widget = (root / "templates" / "music_widget.html").read_text(encoding="utf-8")
+        self.assertIn('"font_scale": round(font_scale, 1)', main)
+        self.assertIn('"content_scale": round(content_scale, 1)', main)
+        for direction in ('"n"', '"s"', '"e"', '"w"', '"ne"', '"nw"', '"se"', '"sw"'):
+            self.assertIn(direction, combined)
+        self.assertIn('id="font-scale"', combined)
+        self.assertIn('id="content-scale"', combined)
+        self.assertIn('.editor-control[hidden]{display:none!important}', combined)
+        self.assertIn('font_scale', combined)
+        self.assertIn('content_scale', combined)
+        self.assertIn('var(--content-scale, 1)', media_css)
+        self.assertIn('var(--widget-scale, 1)', music_widget)
+
+    def test_combined_tts_exposes_current_and_pending_speech(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('type: "combined-tts-state"', display_script)
+        self.assertIn('speechQueue.map(entry => entry.text)', display_script)
+        self.assertIn('正在播报', combined)
+        self.assertIn('等待播报（', combined)
+        self.assertIn('combined-tts-state', combined)
+
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         start = source.index("function renderVideo(")
@@ -170,6 +223,57 @@ class CombinedDisplayContractTests(unittest.TestCase):
         video_renderer = source[start:end]
         self.assertNotIn("<video", video_renderer.lower())
         self.assertNotIn("<iframe", video_renderer.lower())
+
+
+    def test_live2d_custom_crop_is_independent_from_danmaku(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+
+        for side in ("top", "right", "bottom", "left"):
+            self.assertIn(f'id="crop-{side}-slider"', page)
+            self.assertIn(f'"crop_{side}": number("crop_{side}", 0.0, 0.0, 45.0)', main)
+            self.assertIn(f'"crop_{side}": bounded_number("crop_{side}", 0.0, 0.0, 45.0)', main)
+            self.assertIn(f'controls["crop-{side}"]', script)
+
+        self.assertIn('id="live2d-viewport"', page)
+        self.assertIn('#live2d-viewport {', css)
+        self.assertIn('target.style.clipPath = clip', script)
+        self.assertIn('target.style.webkitClipPath = clip', script)
+        # The model viewport crop stays inside Live2D; the combined widget clips the full iframe (model + bubble).
+        self.assertIn('.widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;', combined)
+        self.assertIn('.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}', combined)
+        self.assertIn('frame.src="/live2d/display?embedded=1"', combined)
+        self.assertNotIn('frame.src="/live2d/display?embedded=1&silent=1"', combined)
+        self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
+        self.assertNotIn('bubble.style.clipPath', script)
+
+    def test_live2d_transform_updates_model_matrix_in_realtime(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("function captureLive2DTransformBase(", script)
+        self.assertIn("function applyLive2DTransform(", script)
+        # Cubism 2 stores its transform in Float32Array, not a plain JavaScript Array.
+        self.assertIn("ArrayBuffer.isView(matrix.tr)", script)
+        self.assertNotIn("Array.isArray(matrix.tr)", script)
+        # The server has already applied saved layout preferences in model.json.
+        # Live preview must apply only the delta from that saved baseline.
+        self.assertIn("preferences: transformSnapshot()", script)
+        self.assertIn("const saved = base.preferences || { scale: 1, x: 0, y: 0 }", script)
+        self.assertIn("const scaleRatio = current.scale / saved.scale", script)
+        self.assertIn("base.matrix.scale(base.scaleX * scaleRatio, base.scaleY * scaleRatio)", script)
+        self.assertIn("base.matrix.centerX(base.centerX + current.x - saved.x)", script)
+        self.assertIn("base.matrix.centerY(base.centerY + current.y - saved.y)", script)
+        self.assertIn("base.matrix.centerX(", script)
+        self.assertIn("base.matrix.centerY(", script)
+        self.assertIn('if (key === "scale" || key === "x" || key === "y") applyLive2DTransform();', script)
+        self.assertNotIn("transformChangedSinceLoad", script)
+        self.assertNotIn("canvas.style.transform", script)
+        self.assertIn("保存只负责持久化", script)
+        self.assertIn("window.location.reload()", script)
 
 
 if __name__ == "__main__":

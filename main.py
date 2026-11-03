@@ -221,6 +221,10 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
         "scale": number("scale", 1.0, 0.25, 1.5),
         "x": number("x", 0.0, -1.0, 1.0),
         "y": number("y", 0.0, -1.0, 1.0),
+        "crop_top": number("crop_top", 0.0, 0.0, 45.0),
+        "crop_right": number("crop_right", 0.0, 0.0, 45.0),
+        "crop_bottom": number("crop_bottom", 0.0, 0.0, 45.0),
+        "crop_left": number("crop_left", 0.0, 0.0, 45.0),
         "bubble_x": number("bubble_x", 50.0, 0.0, 100.0),
         "bubble_bottom": number("bubble_bottom", 45.0, 0.0, 95.0),
         "bubble_width": integer("bubble_width", 420, 240, 760),
@@ -1252,6 +1256,10 @@ def save_display_settings():
             "scale": bounded_number("scale", 1.0, 0.25, 1.5),
             "x": bounded_number("x", 0.0, -1.0, 1.0),
             "y": bounded_number("y", 0.0, -1.0, 1.0),
+            "crop_top": bounded_number("crop_top", 0.0, 0.0, 45.0),
+            "crop_right": bounded_number("crop_right", 0.0, 0.0, 45.0),
+            "crop_bottom": bounded_number("crop_bottom", 0.0, 0.0, 45.0),
+            "crop_left": bounded_number("crop_left", 0.0, 0.0, 45.0),
             "bubble_x": bounded_number("bubble_x", 50.0, 0.0, 100.0),
             "bubble_bottom": bounded_number("bubble_bottom", 45.0, 0.0, 95.0),
             "bubble_width": bounded_integer("bubble_width", 420, 240, 760),
@@ -1602,10 +1610,23 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
         h = max(12.0, min(100.0, h))
         x = max(0.0, min(100.0 - w, x))
         y = max(0.0, min(100.0 - h, y))
+        try:
+            font_scale = float(item.get("font_scale", 100))
+            content_scale = float(item.get("content_scale", 100))
+        except (TypeError, ValueError):
+            font_scale, content_scale = 100.0, 100.0
+        if not math.isfinite(font_scale):
+            font_scale = 100.0
+        if not math.isfinite(content_scale):
+            content_scale = 100.0
+        font_scale = max(50.0, min(200.0, font_scale))
+        content_scale = max(50.0, min(200.0, content_scale))
         widgets.append({
             "id": widget_type, "type": widget_type,
             "x": round(x, 2), "y": round(y, 2),
             "w": round(w, 2), "h": round(h, 2),
+            "font_scale": round(font_scale, 1),
+            "content_scale": round(content_scale, 1),
         })
         used_types.add(widget_type)
     return {"version": 1, "widgets": widgets}

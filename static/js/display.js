@@ -2,6 +2,7 @@
   "use strict";
 
   const canvas = document.getElementById("live2d-canvas");
+  const live2dViewport = document.getElementById("live2d-viewport");
   const placeholder = document.getElementById("display-placeholder");
   const panel = document.getElementById("display-settings-panel");
   const toggle = document.getElementById("display-settings-toggle");
@@ -55,7 +56,8 @@
   const showTts = displayMode === "all" || displayMode === "tts";
 
   const ids = [
-    "scale", "x", "y", "bubble-x", "bubble-bottom", "bubble-width",
+    "scale", "x", "y", "crop-top", "crop-right", "crop-bottom", "crop-left",
+    "bubble-x", "bubble-bottom", "bubble-width",
     "bubble-height", "bubble-items", "bubble-duration", "bubble-font"
   ];
   const controls = Object.fromEntries(ids.map(key => [key, document.getElementById(key + "-slider")]));
@@ -69,7 +71,7 @@
   let currentModel = "live_uu";
   let selectedModelConfig = null;
   let loadedModelId = null;
-  let loadedTransform = null;
+  let live2dTransformBase = null;
   let modelSwitchPromise = Promise.resolve();
   let modelSwitchToken = 0;
   let isSaving = false;
@@ -79,6 +81,7 @@
   const activeItems = new Map();
   let ttsSettings = null;
   let speechQueue = [];
+  let currentSpeech = null;
   let speechSequence = 0;
   let speaking = false;
   let audioUnlocked = false;
@@ -196,6 +199,19 @@
     return String(n);
   }
 
+  function publishSpeechState() {
+    if (window.parent === window) return;
+    try {
+      window.parent.postMessage({
+        type: "combined-tts-state",
+        current: currentSpeech ? currentSpeech.text : "",
+        queue: speechQueue.map(entry => entry.text)
+      }, window.location.origin);
+    } catch (error) {
+      console.debug("Unable to publish TTS display state:", error);
+    }
+  }
+
   function speechTextFor(item) {
     const nickname = item.nickname || "观众";
     if (item.type === "danmaku") return nickname + "说：" + item.text;
@@ -247,6 +263,7 @@
       type: item.type
     });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    publishSpeechState();
     processSpeechQueue();
   }
 
@@ -527,6 +544,8 @@
 
     if (voiceModuleActive && !nextVoice) {
       speechQueue.length = 0;
+      currentSpeech = null;
+      publishSpeechState();
       if (currentAudioSource) {
         try { currentAudioSource.stop(); } catch (_) {}
       }
@@ -614,6 +633,7 @@
   async function processSpeechQueue() {
     if (!voiceModuleActive || speaking || !speechQueue.length) return;
     speaking = true;
+    publishSpeechState();
     try {
       if (!audioUnlocked) {
         const ready = await unlockSpeechAudio({ silent: true });
@@ -621,13 +641,20 @@
       }
       while (speechQueue.length) {
         const next = speechQueue.shift();
+        currentSpeech = next;
+        publishSpeechState();
         try {
           await playSpeechText(next.text);
+          currentSpeech = null;
+          publishSpeechState();
         } catch (error) {
+          currentSpeech = null;
+          publishSpeechState();
           setTtsStatus("语音播放失败：" + error.message, true);
           console.warn("TTS playback failed:", error);
           if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
             speechQueue.unshift(next);
+            publishSpeechState();
             audioUnlocked = false;
             break;
           }
@@ -638,6 +665,8 @@
       console.warn("Unable to start speech queue:", error);
     } finally {
       speaking = false;
+      currentSpeech = null;
+      publishSpeechState();
     }
   }
 
@@ -676,6 +705,7 @@
       type: "test"
     });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    publishSpeechState();
     processSpeechQueue();
     return true;
   }
@@ -908,6 +938,10 @@
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
+      crop_top: Number(controls["crop-top"].value),
+      crop_right: Number(controls["crop-right"].value),
+      crop_bottom: Number(controls["crop-bottom"].value),
+      crop_left: Number(controls["crop-left"].value),
       bubble_x: Number(controls["bubble-x"].value),
       bubble_bottom: Number(controls["bubble-bottom"].value),
       bubble_width: Number(controls["bubble-width"].value),
@@ -922,6 +956,9 @@
     outputs.scale.textContent = controls.scale.value + "%";
     outputs.x.textContent = (Number(controls.x.value) / 100).toFixed(2);
     outputs.y.textContent = (Number(controls.y.value) / 100).toFixed(2);
+    for (const key of ["crop-top", "crop-right", "crop-bottom", "crop-left"]) {
+      outputs[key].textContent = controls[key].value + "%";
+    }
     outputs["bubble-x"].textContent = controls["bubble-x"].value + "%";
     outputs["bubble-bottom"].textContent = controls["bubble-bottom"].value + "%";
     outputs["bubble-width"].textContent = controls["bubble-width"].value + "px";
@@ -929,6 +966,18 @@
     outputs["bubble-items"].textContent = controls["bubble-items"].value + " 条";
     outputs["bubble-duration"].textContent = controls["bubble-duration"].value + " 秒";
     outputs["bubble-font"].textContent = controls["bubble-font"].value + "px";
+  }
+
+  function applyLive2DCrop() {
+    if (!canvas) return;
+    const p = currentPreferences();
+    const inset = [p.crop_top, p.crop_right, p.crop_bottom, p.crop_left]
+      .map(value => Math.max(0, Math.min(45, Number(value) || 0)) + "%")
+      .join(" ");
+    const clip = "inset(" + inset + ")";
+    const target = live2dViewport || canvas;
+    target.style.clipPath = clip;
+    target.style.webkitClipPath = clip;
   }
 
   function applyBubblePreferences() {
@@ -1012,14 +1061,11 @@
       settingsSaved = true;
       hasUnsavedChanges = false;
       const obs = result.obs_refresh || {};
-      setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
+      setSaveStatus("设置已保存，正在刷新展示页面。" + (obs.message ? " " + obs.message : ""));
+      // 让页面从服务器重新读取已保存配置，确保刷新后看到持久化后的最终效果。
+      window.setTimeout(() => window.location.reload(), 350);
 
-      // 只有缩放或位置参数变化时，才在当前 WebGL 上下文中重新载入模型。
-      // 弹幕轮询、TTS 队列、Web Audio 和空闲提示均不随模型替换重启。
-      if (transformChangedSinceLoad(preferences)) {
-        const token = ++modelSwitchToken;
-        await queueModelSwitch(modelSelect.value, token, result.preferences);
-      }
+      // 保存只负责持久化；不要重置当前模型的原始矩阵基准。
     } catch (error) {
       setSaveStatus((settingsSaved ? "设置已保存，但模型刷新失败：" : "保存失败：") + error.message, true);
     } finally {
@@ -1031,6 +1077,8 @@
   function markUnsaved() {
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DCrop();
+    applyLive2DTransform();
     hasUnsavedChanges = true;
     setSaveStatus("有未保存的更改；点击下方“保存设置”后才会保存并尝试刷新 OBS。");
   }
@@ -1056,10 +1104,13 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
-    loadedTransform = transformSnapshot(p);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
+    controls["crop-top"].value = String(p.crop_top ?? 0);
+    controls["crop-right"].value = String(p.crop_right ?? 0);
+    controls["crop-bottom"].value = String(p.crop_bottom ?? 0);
+    controls["crop-left"].value = String(p.crop_left ?? 0);
     controls["bubble-x"].value = String(p.bubble_x ?? 50);
     controls["bubble-bottom"].value = String(p.bubble_bottom ?? 45);
     controls["bubble-width"].value = String(p.bubble_width ?? 420);
@@ -1069,6 +1120,7 @@
     controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DCrop();
     return currentModel;
   }
 
@@ -1215,11 +1267,59 @@
     };
   }
 
-  function transformChangedSinceLoad(preferences) {
-    if (!loadedTransform) return true;
-    return ["scale", "x", "y"].some(key =>
-      Math.abs(Number(preferences[key]) - Number(loadedTransform[key])) > 0.0001
-    );
+  function captureLive2DTransformBase() {
+    const manager = window.__live2dManager;
+    const model = manager && typeof manager.getModel === "function" ? manager.getModel(0) : null;
+    const matrix = model && typeof model.getModelMatrix === "function" ? model.getModelMatrix() : null;
+    if (!matrix || !ArrayBuffer.isView(matrix.tr) || matrix.tr.length < 16 ||
+        typeof matrix.getScaleX !== "function" || typeof matrix.getScaleY !== "function" ||
+        typeof matrix.scale !== "function" || typeof matrix.centerX !== "function" ||
+        typeof matrix.centerY !== "function") {
+      live2dTransformBase = null;
+      console.warn("Live2D 实时变换基准尚不可用：模型矩阵接口不完整。");
+      return false;
+    }
+
+    const width = Number(matrix.width);
+    const height = Number(matrix.height);
+    const scaleX = Number(matrix.getScaleX());
+    const scaleY = Number(matrix.getScaleY());
+    if (![width, height, scaleX, scaleY, Number(matrix.tr[12]), Number(matrix.tr[13])]
+      .every(Number.isFinite) || width <= 0 || height <= 0) {
+      live2dTransformBase = null;
+      console.warn("Live2D 实时变换基准尚不可用：模型矩阵数据无效。");
+      return false;
+    }
+
+    // /models/<id>/model.json 已经把已保存的 scale/x/y 写入 layout，
+    // Cubism 2 加载时也已经应用过一次。这里必须同时记录这组基准设置，
+    // 后续实时预览只应用“当前值相对已保存值的差量”，不能重复应用完整设置。
+    live2dTransformBase = {
+      matrix,
+      scaleX,
+      scaleY,
+      centerX: Number(matrix.tr[12]) + width * scaleX / 2,
+      centerY: Number(matrix.tr[13]) + height * scaleY / 2,
+      preferences: transformSnapshot()
+    };
+    return true;
+  }
+
+  function applyLive2DTransform(preferences = currentPreferences()) {
+    const base = live2dTransformBase;
+    if (!base || !base.matrix) return false;
+    const current = transformSnapshot(preferences);
+    if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
+
+    // 模型矩阵已经包含后端应用的已保存设置，因此只叠加相对差量。
+    // 每次都从加载完成时的矩阵计算，避免拖动滑块时累计误差。
+    const saved = base.preferences || { scale: 1, x: 0, y: 0 };
+    const scaleRatio = current.scale / saved.scale;
+    if (!Number.isFinite(scaleRatio) || scaleRatio <= 0) return false;
+    base.matrix.scale(base.scaleX * scaleRatio, base.scaleY * scaleRatio);
+    base.matrix.centerX(base.centerX + current.x - saved.x);
+    base.matrix.centerY(base.centerY + current.y - saved.y);
+    return true;
   }
 
   function replaceLive2DModel(modelUrl) {
@@ -1258,7 +1358,8 @@
       await waitForRenderedPixels();
 
       loadedModelId = modelId;
-      loadedTransform = transformSnapshot(modelPreferences || currentPreferences());
+      captureLive2DTransformBase();
+      applyLive2DTransform(currentPreferences());
       statusSent = true;
       updateModelActionAvailability();
       if (placeholder) placeholder.style.display = "none";
@@ -1336,7 +1437,8 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
-      loadedTransform = transformSnapshot();
+      captureLive2DTransformBase();
+      applyLive2DTransform(currentPreferences());
       updateModelActionAvailability();
       showMessage("");
       if (placeholder) placeholder.style.display = "none";
@@ -1371,6 +1473,10 @@
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
+      controls["crop-top"].value = String(p.crop_top ?? 0);
+      controls["crop-right"].value = String(p.crop_right ?? 0);
+      controls["crop-bottom"].value = String(p.crop_bottom ?? 0);
+      controls["crop-left"].value = String(p.crop_left ?? 0);
       controls["bubble-x"].value = String(p.bubble_x ?? 50);
       controls["bubble-bottom"].value = String(p.bubble_bottom ?? 45);
       controls["bubble-width"].value = String(p.bubble_width ?? 420);
@@ -1378,6 +1484,8 @@
       controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
       controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
+      updateSliderLabels();
+      applyLive2DCrop();
       markUnsaved();
 
       // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
@@ -1399,6 +1507,8 @@
     slider.addEventListener("input", () => {
       updateSliderLabels();
       applyBubblePreferences();
+      applyLive2DCrop();
+      if (key === "scale" || key === "x" || key === "y") applyLive2DTransform();
       if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
     slider.addEventListener("change", markUnsaved);

@@ -23,13 +23,16 @@
     html[data-display-mode="tts"] #display-placeholder { display: none !important; }
   </style>
   <script>
-    if (new URLSearchParams(location.search).get("embedded") === "1") {
+    // Hide interactive controls only when explicitly embedded by another display page.
+    if (new URLSearchParams(window.location.search).get("embedded") === "1") {
       document.documentElement.classList.add("embedded-live2d");
     }
   </script>
 </head>
 <body class="display-page">
-  <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
+  <div id="live2d-viewport">
+    <canvas id="live2d-canvas" aria-label="Live2D model display"></canvas>
+  </div>
 
   <section id="danmaku-bubble" class="danmaku-bubble" aria-live="polite" aria-label="直播弹幕" hidden></section>
   <section id="danmaku-preview" class="danmaku-bubble danmaku-preview" aria-hidden="true" hidden></section>
@@ -86,6 +89,27 @@
     </label>
 
     <div class="settings-divider"></div>
+    <strong class="settings-subtitle">Live2D 自定义裁剪</strong>
+    <p class="settings-save-status">设置各边缘需要裁掉的比例，只影响模型画面，不影响弹幕对话框。</p>
+
+    <label class="setting-field">
+      <span>裁剪上边缘 <output id="crop-top-value">0%</output></span>
+      <input id="crop-top-slider" type="range" min="0" max="45" step="1" value="0">
+    </label>
+    <label class="setting-field">
+      <span>裁剪右边缘 <output id="crop-right-value">0%</output></span>
+      <input id="crop-right-slider" type="range" min="0" max="45" step="1" value="0">
+    </label>
+    <label class="setting-field">
+      <span>裁剪下边缘 <output id="crop-bottom-value">0%</output></span>
+      <input id="crop-bottom-slider" type="range" min="0" max="45" step="1" value="0">
+    </label>
+    <label class="setting-field">
+      <span>裁剪左边缘 <output id="crop-left-value">0%</output></span>
+      <input id="crop-left-slider" type="range" min="0" max="45" step="1" value="0">
+    </label>
+
+    <div class="settings-divider"></div>
     <strong class="settings-subtitle">弹幕对话框位置与大小</strong>
 
     <label class="setting-field">
@@ -134,6 +158,6 @@
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
   <script src="/static/js/live2d.min.js?v=20261102-tts-mouth-sync"></script>
-  <script src="/static/js/display.js?v=20261102-hot-model-switch"></script>
+  <script src="/static/js/display.js?v=20261103-live2d-preview-transform-metadata"></script>
 </body>
 </html>

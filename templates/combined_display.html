@@ -23,6 +23,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .toolbar button.primary{background:#5478bd;border-color:#7895d2}
 .toolbar button:disabled{opacity:.45;cursor:not-allowed}
 #layout-message{font-size:12px;color:#b8c4d8}
+.editor-control{display:flex;align-items:center;gap:6px;font-size:12px;color:#d6deeb}
+.editor-control[hidden]{display:none!important}
+.editor-control select,.editor-control input{accent-color:#789be0}
+.editor-control input[type=range]{width:110px}
+.editor-control output{min-width:42px;color:#ffd66b;font-variant-numeric:tabular-nums}
 #stage{position:absolute;inset:0;overflow:hidden;background:transparent}
 .editor-mode #stage{top:58px;left:218px;right:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
 .widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(15,20,30,.82);box-shadow:0 8px 24px rgba(0,0,0,.2);backdrop-filter:blur(7px);display:flex;flex-direction:column}
@@ -31,24 +36,42 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .display-mode .widget-header{background:transparent;padding:2px 5px}
 .widget-actions{display:flex;gap:5px}
 .widget-actions button{padding:2px 6px;font-size:11px}
-.widget-body{flex:1;min-height:0;overflow:auto;padding:10px 12px;font-size:14px;line-height:1.55}
+.widget-body{flex:1;min-height:0;overflow:hidden;padding:10px 12px;font-size:14px;line-height:1.55}
+.widget .media-display{overflow:hidden}
 .display-mode .widget-body{padding:5px 8px}
 .widget.live2d .widget-body,.widget.music_widget .widget-body{padding:0;overflow:hidden}
+.widget.live2d .widget-body{position:relative;display:flex;align-items:center;justify-content:center;background:rgba(15,20,30,.35)}
+.editor-mode .widget.live2d .widget-header,.editor-mode .widget.music_widget .widget-header{position:absolute;z-index:10;top:0;left:0;right:0}
+.editor-mode .widget.live2d .widget-body,.editor-mode .widget.music_widget .widget-body{position:absolute;inset:0;width:auto;height:auto;padding:0;overflow:hidden}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .display-mode .widget.music_widget .widget-header{display:none}
 .display-mode .widget.music_widget .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}
+/* Live2D 使用模块自身的完整视口；隐藏标题栏，避免压缩 iframe 的可用高度。 */
+.display-mode .widget.live2d .widget-header{display:none}
+.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden;background:transparent}
 .widget video,.widget .video-frame{display:none!important}
 .voice-engine{position:absolute;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;border:0}
-.widget .muted{color:#b8c3d4;font-size:12px}
-.widget .primary-line{font-size:17px;font-weight:800;overflow-wrap:anywhere}
-.widget .row{display:flex;gap:8px;align-items:baseline;justify-content:space-between;margin:5px 0}
-.widget .queue-item{padding:5px 0;border-top:1px solid rgba(255,255,255,.1);font-size:12px;overflow-wrap:anywhere}
-.widget .notice{margin-top:6px;padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.widget .muted{color:#b8c3d4;font-size:calc(12px * var(--content-scale, 1))}
+.widget .primary-line{font-size:calc(17px * var(--content-scale, 1));font-weight:800;overflow-wrap:anywhere}
+.widget .row{display:flex;gap:8px;align-items:baseline;justify-content:space-between;margin:5px 0;font-size:calc(14px * var(--content-scale, 1))}
+.widget .queue-item{padding:5px 0;border-top:1px solid rgba(255,255,255,.1);font-size:calc(12px * var(--content-scale, 1));overflow-wrap:anywhere}
+.widget .notice{margin-top:6px;padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.07);font-size:calc(12px * var(--content-scale, 1))}
 .widget .notice.error{color:#ffb1b1}
-.widget .resize-handle{display:none}
-.editor-mode .widget .resize-handle{position:absolute;right:2px;bottom:2px;width:18px;height:18px;display:block;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 45%,#9bb8f5 46%,#9bb8f5 56%,transparent 57%)}
+.resize-handle{display:none}
+.editor-mode .widget .resize-handle{position:absolute;z-index:5;display:block;touch-action:none}
+.editor-mode .widget .resize-e,.editor-mode .widget .resize-w{top:18px;bottom:18px;width:8px;cursor:ew-resize}
+.editor-mode .widget .resize-e{right:0}
+.editor-mode .widget .resize-w{left:0}
+.editor-mode .widget .resize-n,.editor-mode .widget .resize-s{left:18px;right:18px;height:8px;cursor:ns-resize}
+.editor-mode .widget .resize-n{top:0}
+.editor-mode .widget .resize-s{bottom:0}
+.editor-mode .widget .resize-ne,.editor-mode .widget .resize-nw,.editor-mode .widget .resize-se,.editor-mode .widget .resize-sw{width:14px;height:14px}
+.editor-mode .widget .resize-ne{right:0;top:0;cursor:nesw-resize}
+.editor-mode .widget .resize-nw{left:0;top:0;cursor:nwse-resize}
+.editor-mode .widget .resize-se{right:0;bottom:0;cursor:nwse-resize;background:linear-gradient(135deg,transparent 45%,#9bb8f5 46%,#9bb8f5 56%,transparent 57%)}
+.editor-mode .widget .resize-sw{left:0;bottom:0;cursor:nesw-resize}
 .empty{color:#aeb9ca;font-size:13px}
 @media(max-width:800px){.editor-sidebar{position:relative;width:100%;height:auto;bottom:auto;padding:10px 12px}.editor-sidebar .brand{margin:0 0 8px}.editor-sidebar nav{flex-direction:row;overflow-x:auto}.editor-sidebar a{white-space:nowrap;padding:8px 10px}.editor-mode .toolbar{left:0;top:96px}.editor-mode #stage{left:0;top:160px}}
 @media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
@@ -90,7 +113,18 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   <button type="button" class="primary" id="save-layout">保存当前布局</button>
   <button type="button" id="reset-layout">恢复默认布局</button>
   <button type="button" id="open-output">打开 OBS 展示页</button>
-  <span id="layout-message">拖动模块标题栏移动，拖动右下角调整大小。</span>
+  <label class="editor-control">当前模块
+    <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
+  </label>
+  <label class="editor-control" id="font-scale-control">字体大小
+    <input id="font-scale" type="range" min="50" max="200" step="5" value="100">
+    <output id="font-scale-value">100%</output>
+  </label>
+  <label class="editor-control" id="content-scale-control" hidden>整体缩放
+    <input id="content-scale" type="range" min="50" max="200" step="5" value="100">
+    <output id="content-scale-value">100%</output>
+  </label>
+  <span id="layout-message">拖动模块内部移动；拖动边缘调整单一方向，拖动角点同时调整宽高。</span>
 </div>
 <div id="stage"></div>
 <script src="{{ url_for('static', filename='display_media.js') }}"></script>
@@ -105,7 +139,17 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   let danmakuCursorReady = false;
   let refreshInFlight = false;
   let dragState = null;
-  let latestData = {};
+  let selectedWidgetType = "";
+  let latestData = {voiceSpeech:{current:"",queue:[]}};
+  window.addEventListener("message",event=>{
+    if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-tts-state") return;
+    latestData.voiceSpeech={
+      current:String(event.data.current||""),
+      queue:Array.isArray(event.data.queue)?event.data.queue.map(value=>String(value)):[]
+    };
+    const body=stage.querySelector('[data-widget="voice"] .widget-body');
+    if(body) renderVoice(body);
+  });
 
   async function api(url, options={}) {
     const response = await fetch(url,{cache:"no-store",...options});
@@ -154,17 +198,77 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     renderLayout();
   }
 
+  function syncLive2DFrame(widget){
+    if(!widget || widget.dataset.widget!=="live2d") return;
+    const body=widget.querySelector(".widget-body");
+    const frame=body?.querySelector("iframe");
+    if(!body || !frame) return;
+
+    // 保留完整舞台尺寸的 Live2D 视口，避免模块尺寸改变模型缩放。
+    // 将完整视口居中放在模块内部：模型默认位于视口中心，因此无论模块
+    // 放在舞台哪个位置，模型中心都会落在模块可见区域，而不会被裁到模块外。
+    frame.style.position="absolute";
+    frame.style.width=stage.clientWidth+"px";
+    frame.style.height=stage.clientHeight+"px";
+    frame.style.maxWidth="none";
+    frame.style.maxHeight="none";
+    frame.style.left=((body.clientWidth-stage.clientWidth)/2)+"px";
+    frame.style.top=((body.clientHeight-stage.clientHeight)/2)+"px";
+    frame.style.border="0";
+  }
+
+  function syncAllLive2DFrames(){
+    stage.querySelectorAll('[data-widget="live2d"]').forEach(syncLive2DFrame);
+  }
+
   function positionWidget(node,item){
     node.style.left=item.x+"%";
     node.style.top=item.y+"%";
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
+    node.style.setProperty("--content-scale",String((Number(item.font_scale)||100)/100));
+    syncLive2DFrame(node);
+  }
+
+  function selectWidget(type){
+    selectedWidgetType=type||"";
+    const item=layout.widgets.find(w=>w.type===selectedWidgetType);
+    const select=document.getElementById("selected-widget");
+    const fontControl=document.getElementById("font-scale-control");
+    const overallControl=document.getElementById("content-scale-control");
+    const fontSlider=document.getElementById("font-scale");
+    const overallSlider=document.getElementById("content-scale");
+    if(select) select.value=selectedWidgetType;
+    const fontEnabled=!!item && ["music","video","danmaku","voice"].includes(item.type);
+    const overallEnabled=!!item && item.type==="music_widget";
+    if(fontControl) fontControl.hidden=!fontEnabled;
+    if(overallControl) overallControl.hidden=!overallEnabled;
+    if(fontSlider) fontSlider.value=String(item?.font_scale??100);
+    if(overallSlider) overallSlider.value=String(item?.content_scale??100);
+    const fontValue=document.getElementById("font-scale-value");
+    const overallValue=document.getElementById("content-scale-value");
+    if(fontValue) fontValue.textContent=(item?.font_scale??100)+"%";
+    if(overallValue) overallValue.textContent=(item?.content_scale??100)+"%";
+  }
+
+  function applyContentScale(item){
+    const widget=stage.querySelector('[data-widget="'+item.type+'"]');
+    if(widget) positionWidget(widget,item);
+    const body=widget?.querySelector(".widget-body");
+    if(item.type==="music_widget" && body){
+      const frame=body.querySelector("iframe");
+      if(frame){
+        const scale=(Number(item.content_scale)||100)/100;
+        frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
+      }
+    }
   }
 
   function startPointerEdit(event,item,mode){
     if(displayMode || event.button!==0) return;
     if(event.target.closest("button")) return;
     event.preventDefault();
+    selectWidget(item.type);
     const rect=stage.getBoundingClientRect();
     dragState={item,mode,startX:event.clientX,startY:event.clientY,original:{x:item.x,y:item.y,w:item.w,h:item.h},rect};
     window.addEventListener("pointermove",movePointerEdit);
@@ -181,8 +285,19 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       item.x=Math.max(0,Math.min(100-item.w,original.x+dx));
       item.y=Math.max(0,Math.min(100-item.h,original.y+dy));
     }else{
-      item.w=Math.max(12,Math.min(100-item.x,original.w+dx));
-      item.h=Math.max(12,Math.min(100-item.y,original.h+dy));
+      const minSize=12;
+      if(mode.includes("e")) item.w=Math.max(minSize,Math.min(100-original.x,original.w+dx));
+      if(mode.includes("s")) item.h=Math.max(minSize,Math.min(100-original.y,original.h+dy));
+      if(mode.includes("w")){
+        const right=original.x+original.w;
+        const nextX=Math.max(0,Math.min(right-minSize,original.x+dx));
+        item.x=nextX; item.w=right-nextX;
+      }
+      if(mode.includes("n")){
+        const bottom=original.y+original.h;
+        const nextY=Math.max(0,Math.min(bottom-minSize,original.y+dy));
+        item.y=nextY; item.h=bottom-nextY;
+      }
     }
     const node=stage.querySelector('[data-widget="'+item.type+'"]');
     if(node) positionWidget(node,item);
@@ -200,10 +315,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
   }
 
-  function renderMusicWidget(body){
+  function renderMusicWidget(body,item){
     // 编辑模式与 OBS 展示模式均加载独立歌曲信息页面，确保预览与最终显示一致。
     const frame=document.createElement("iframe");
-    frame.src="/music/widget?embedded=1";
+    frame.src="/music/widget?embedded=1&scale="+encodeURIComponent((Number(item?.content_scale)||100)/100);
     frame.title="歌曲信息展示组件";
     frame.loading="eager";
     frame.setAttribute("allowtransparency", "true");
@@ -224,6 +339,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const moduleState = data.module_state || "stopped";
     body.appendChild(make("div","row","模块："+({running:"运行中",paused:"已暂停",stopped:"已关闭",error:"运行异常"}[moduleState]||moduleState)));
     body.appendChild(make("div","row","触发："+(enabled?"已启用":"已关闭")));
+    const speech=latestData.voiceSpeech||{current:"",queue:[]};
+    body.appendChild(make("div","primary-line","正在播报"));
+    body.appendChild(make("div","queue-item",speech.current||"当前没有语音播报"));
+    body.appendChild(make("div","primary-line","等待播报（"+speech.queue.length+"）"));
+    if(speech.queue.length){
+      speech.queue.forEach((text,index)=>body.appendChild(make("div","queue-item",(index+1)+". "+text)));
+    }else{
+      body.appendChild(make("div","muted","等待队列为空"));
+    }
     body.appendChild(make("div","muted","音色："+(prefs.voice||"默认")));
     body.appendChild(make("div","muted","语速："+(prefs.rate||"+0%")+" · 音量："+(prefs.volume||"+0%")));
   }
@@ -236,7 +360,19 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     });
   }
 
-  function renderWidgetContent(body,type){
+  function renderLive2DPreview(body){
+    // 编辑器始终使用完整 Live2D 展示页预览，不提供静音开关。
+    body.replaceChildren();
+    const frame=document.createElement("iframe");
+    frame.src="/live2d/display?embedded=1";
+    frame.title="Live2D 展示预览（包含模型和弹幕框）";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    body.appendChild(frame);
+  }
+
+  function renderWidgetContent(body,type,item){
     body.replaceChildren();
     if(type==="live2d"){
       if(displayMode){
@@ -246,9 +382,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         frame.allow="autoplay";
         body.appendChild(frame);
       }else{
-        body.appendChild(make("div","empty","Live2D OBS 展示模块（编辑页不启动音频与模型渲染）"));
+        renderLive2DPreview(body);
       }
-    }else if(type==="music_widget") renderMusicWidget(body);
+    }else if(type==="music_widget") renderMusicWidget(body,item);
     else if(type==="music") renderMusic(body);
     else if(type==="video") renderVideo(body);
     else if(type==="voice") renderVoice(body);
@@ -271,16 +407,24 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       }
       header.appendChild(actions);
       header.addEventListener("pointerdown",event=>startPointerEdit(event,item,"move"));
+      widget.addEventListener("pointerdown",event=>{
+        if(event.target.closest(".resize-handle,button,select,input,textarea,iframe,.widget-header")) return;
+        startPointerEdit(event,item,"move");
+      });
       const body=make("div","widget-body");
-      renderWidgetContent(body,item.type);
+      renderWidgetContent(body,item.type,item);
       widget.appendChild(header);
       widget.appendChild(body);
       if(!displayMode){
-        const handle=make("div","resize-handle");
-        handle.addEventListener("pointerdown",event=>startPointerEdit(event,item,"resize"));
-        widget.appendChild(handle);
+        ["n","s","e","w","ne","nw","se","sw"].forEach(direction=>{
+          const handle=make("div","resize-handle resize-"+direction);
+          handle.dataset.resize=direction;
+          handle.addEventListener("pointerdown",event=>startPointerEdit(event,item,direction));
+          widget.appendChild(handle);
+        });
       }
       stage.appendChild(widget);
+      syncLive2DFrame(widget);
     });
     // 若只选择语音而未添加 Live2D 画面，仍加载隐藏的音频引擎 iframe。
     if(displayMode && layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
@@ -295,6 +439,18 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       document.querySelectorAll("[data-add]").forEach(button=>{
         button.disabled=layout.widgets.some(w=>w.type===button.dataset.add);
       });
+      const select=document.getElementById("selected-widget");
+      if(select){
+        const previous=selectedWidgetType;
+        select.replaceChildren();
+        layout.widgets.forEach(item=>{
+          const option=document.createElement("option");
+          option.value=item.type; option.textContent=labels[item.type]||item.type;
+          select.appendChild(option);
+        });
+        if(layout.widgets.some(w=>w.type===previous)) selectWidget(previous);
+        else selectWidget(layout.widgets[0]?.type||"");
+      }
     }
   }
 
@@ -357,7 +513,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
       layout.widgets.forEach(item=>{
         const node=stage.querySelector('[data-widget="'+item.type+'"] .widget-body');
-        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type);
+        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type,item);
       });
     }catch(error){
       if(displayMode) console.debug("综合展示数据刷新失败",error);
@@ -368,6 +524,22 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
   document.querySelectorAll("[data-add]").forEach(button=>{
     button.addEventListener("click",()=>addWidget(button.dataset.add));
+  });
+  const selectedWidgetSelect=document.getElementById("selected-widget");
+  if(selectedWidgetSelect) selectedWidgetSelect.addEventListener("change",()=>selectWidget(selectedWidgetSelect.value));
+  const fontScaleSlider=document.getElementById("font-scale");
+  if(fontScaleSlider) fontScaleSlider.addEventListener("input",()=>{
+    const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
+    item.font_scale=Number(fontScaleSlider.value);
+    const value=document.getElementById("font-scale-value"); if(value)value.textContent=item.font_scale+"%";
+    applyContentScale(item);
+  });
+  const contentScaleSlider=document.getElementById("content-scale");
+  if(contentScaleSlider) contentScaleSlider.addEventListener("input",()=>{
+    const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
+    item.content_scale=Number(contentScaleSlider.value);
+    const value=document.getElementById("content-scale-value"); if(value)value.textContent=item.content_scale+"%";
+    applyContentScale(item);
   });
   const saveButton=document.getElementById("save-layout");
   if(saveButton) saveButton.addEventListener("click",saveLayout);
@@ -498,6 +670,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     }catch(error){setMessage("读取布局失败："+error.message,true);}
   })();
   setInterval(refreshData,2000);
+
+  // 舞台尺寸变化时同步调整 iframe 的完整视口，避免综合展示窗口尺寸
+  // 改变后 Live2D 仍使用旧画布尺寸。
+  if(typeof ResizeObserver!=="undefined"){
+    const live2dStageObserver=new ResizeObserver(syncAllLive2DFrames);
+    live2dStageObserver.observe(stage);
+  }
+  window.addEventListener("resize",syncAllLive2DFrames);
 })();
 </script>
 </body>
