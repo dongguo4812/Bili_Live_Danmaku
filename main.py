@@ -1742,7 +1742,7 @@ def get_video_settings():
             "cooldown_seconds": req.get("cooldown_seconds", 60),
             "queue_limit": req.get("queue_limit", 30),
             "max_video_duration_seconds": req.get("max_video_duration_seconds", 300),
-            "require_fan_medal": bool(req.get("require_fan_medal", True)),
+            "require_fan_medal": bool(req.get("require_fans_medal", False)),
         },
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state", "stopped"),
     })
@@ -1767,7 +1767,7 @@ def save_video_settings():
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 60)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 30)))
         max_duration = int(payload.get("max_video_duration_seconds", req.get("max_video_duration_seconds", 300)))
-        require_medal = bool(payload.get("require_fan_medal", req.get("require_fan_medal", True)))
+        require_medal = bool(payload.get("require_fan_medal", req.get("require_fans_medal", False)))
         if not 10 <= timeout <= 180 or not 0 <= cooldown <= 3600:
             raise ValueError("页面加载超时应为 10–180 秒，冷却时间应为 0–3600 秒。")
         if not 1 <= queue_limit <= 1000 or not 1 <= max_duration <= 3600:
@@ -1781,7 +1781,7 @@ def save_video_settings():
             "cooldown_seconds": cooldown,
             "queue_limit": queue_limit,
             "max_video_duration_seconds": max_duration,
-            "require_fan_medal": require_medal,
+            "require_fans_medal": require_medal,
         })
         ConfigManager().save("video", config)
         runtime_config = dict(config)
