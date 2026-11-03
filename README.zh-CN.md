@@ -188,7 +188,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
 - `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-旧版 `user_settings.json` 中的房间号、Live2D 和语音设置会在首次运行时迁移到对应模块配置。旧版 `config.json` 中的 OBS 明文密码可在“凭据管理”页显式迁移；迁移成功后会清理旧配置中的密码字段及其指向的旧密码文件。旧版 `obs_config.txt` 仅提示人工检查，不会被自动解析；B 站 Cookie 不从旧文本文件自动导入，需通过二维码重新登录。普通配置可单独备份；不要把 `credentials/` 上传到 GitHub。
+当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。请直接维护 `config/` 中的模块配置；直播间号位于 `config/live.json`，Live2D 模型和展示偏好位于 `config/live2d.json`，语音播报偏好位于 `config/voice.json`，OBS 普通设置位于 `config/obs.json`。系统管理员 UID 只保存在 `config/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
 
 ## 统一模块与综合展示
 
@@ -208,7 +208,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
 - OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
 
-GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置/凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置迁移回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
+GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置退役回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
 ## 常见问题
 

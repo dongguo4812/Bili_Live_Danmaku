@@ -68,7 +68,6 @@ if exist "models" xcopy "models" "%OUT%\models" /E /I /Y >nul
 if exist "config" xcopy "config" "%OUT%\config" /E /I /Y >nul
 if exist "README.md" copy /Y "README.md" "%OUT%\README.md" >nul
 if exist "README.zh-CN.md" copy /Y "README.zh-CN.md" "%OUT%\README.zh-CN.md" >nul
-if exist "user_settings.json" copy /Y "user_settings.json" "%OUT%\user_settings.json" >nul
 if not exist "%OUT%\credentials" mkdir "%OUT%\credentials"
 if not exist "%OUT%\data" mkdir "%OUT%\data"
 if not exist "%OUT%\logs" mkdir "%OUT%\logs"

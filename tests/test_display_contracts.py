@@ -2,6 +2,7 @@
 """Static contracts for the unified OBS display page."""
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -32,6 +33,41 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const showLive2D =', script)
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
+
+    def test_video_fan_medal_setting_uses_one_persisted_config_key(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        service = (root / "modules" / "video" / "service.py").read_text(encoding="utf-8")
+        self.assertIn('"require_fan_medal": bool(req.get("require_fans_medal", False))', main)
+        self.assertIn('"require_fans_medal": require_medal', main)
+        self.assertIn('requests_config.get("require_fans_medal", False)', service)
+
+    def test_shipped_config_templates_exclude_unused_settings(self):
+        root = Path(__file__).resolve().parents[1]
+        read = lambda name: json.loads((root / "config" / name).read_text(encoding="utf-8"))
+        live = read("live.json")
+        live2d = read("live2d.json")
+        voice = read("voice.json")
+        obs = read("obs.json")
+        logging = read("logging.json")
+        self.assertNotIn("connect_on_start", live)
+        for key in ("model_dir", "model_config", "canvas_width", "canvas_height", "max_device_pixel_ratio"):
+            self.assertNotIn(key, live2d)
+        for key in ("enabled", "rate", "volume"):
+            self.assertNotIn(key, voice)
+        self.assertNotIn("password_file", obs)
+        self.assertNotIn("daily_rotation", logging)
+        music = read("music.json")
+        video = read("video.json")
+        self.assertNotIn("enabled_on_start", music)
+        self.assertNotIn("enabled_on_start", video)
+        self.assertNotIn("platform_order", music.get("search", {}))
+
+    def test_obs_password_is_read_only_from_credential_store(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("password_file", main)
+        self.assertIn("def _read_obs_password() -> str:", main)
 
     def test_danmaku_cursor_prevents_replaying_cached_messages(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")

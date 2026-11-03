@@ -1,5 +1,4 @@
 {
-  "enabled_on_start": false,
   "chrome": {
     "binary_path": "",
     "profile_dir": "data/video/chrome_profile",
@@ -10,7 +9,5 @@
     "queue_limit": 30,
     "max_video_duration_seconds": 300,
     "require_fans_medal": false
-  },
-  "admin_uids": [],
-  "admins_file": "data/video/uid.txt"
+  }
 }

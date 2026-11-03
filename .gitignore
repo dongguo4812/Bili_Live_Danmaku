@@ -30,10 +30,12 @@ uid.txt
 *.key
 chrome_profile/
 
-# Legacy local configuration is migrated once into config/*.json at runtime
+# Retired migration markers/journals may remain on user machines; keep them ignored.
+# The current runtime never reads, writes, or deletes these historical marker files.
 config.json
 user_settings.json
 config/.legacy_config_migrated_v1.json
+config/.legacy_config_migration_v1.json
 
 # PyInstaller build output
 build/

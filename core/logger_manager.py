@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +96,7 @@ def _cleanup_old_logs(retention_days: int) -> None:
 def setup_logging() -> None:
     try:
         config: dict[str, Any] = ConfigManager().load(
-            "logging", {"level": "INFO", "retention_days": 7, "daily_rotation": True}
+            "logging", {"level": "INFO", "retention_days": 7}
         )
         level_name = str(config.get("level", "INFO")).upper()
         level = getattr(logging, level_name, logging.INFO)

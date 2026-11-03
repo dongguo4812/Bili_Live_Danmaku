@@ -36,10 +36,7 @@ from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
 
 BASE_DIR = get_base_dir()
-LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
 MODEL_ROOT = BASE_DIR / "models"
-USER_SETTINGS_PATH = BASE_DIR / "user_settings.json"
-DISPLAY_LAYOUT_PATH = BASE_DIR / "data" / "display_layout.json"
 DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku"}
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 DEFAULT_MODEL = "live_uu"
@@ -77,18 +74,14 @@ DANMAKU_SEQUENCE = 0
 def load_config() -> dict[str, Any]:
     """从模块独立配置文件组装运行时兼容配置。"""
     manager = ConfigManager()
-    # 仅在新配置缺失时从旧 config.json 迁移普通字段，不复制秘密值。
-    manager.migrate_legacy_config(LEGACY_CONFIG_PATH)
     app_config = manager.load("app", {"host": "127.0.0.1", "port": 8768, "debug": False})
     live_config = manager.load("live", {
         "room_id": 0, "reconnect": True, "reconnect_interval_seconds": 5,
-        "connect_on_start": False,
     })
     live2d_config = manager.load("live2d", {"default_model": DEFAULT_MODEL})
     voice_config = manager.load("voice", {})
     obs_config = manager.load("obs", {
         "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
-        "password_file": "credentials/obs.json",
     })
     return {
         "app": app_config,
@@ -172,59 +165,12 @@ def _default_model_id() -> str:
 
 
 def _load_user_settings() -> dict[str, Any]:
-    """从模块配置读取设置；首次运行时只迁移旧 user_settings.json 的普通字段。"""
+    """从当前模块配置读取 Live2D、直播间和语音设置。"""
     manager = ConfigManager()
     live = manager.load("live", {})
     live2d = manager.load("live2d", {})
     voice = manager.load("voice", {})
-    legacy: dict[str, Any] = {}
-
-    if USER_SETTINGS_PATH.is_file():
-        try:
-            raw = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                legacy = raw
-        except Exception as exc:
-            logger.warning("读取旧用户设置失败：%s", type(exc).__name__)
-
-    changed_live = False
-    changed_live2d = False
-    changed_voice = False
-
-    legacy_bilibili = legacy.get("bilibili") if isinstance(legacy.get("bilibili"), dict) else {}
-    if not live.get("room_id") and legacy_bilibili.get("room_id"):
-        try:
-            live["room_id"] = max(0, int(legacy_bilibili["room_id"]))
-            changed_live = True
-        except (TypeError, ValueError):
-            pass
-
     default_model = str(live2d.get("default_model") or DEFAULT_MODEL)
-    if "model" not in live2d:
-        live2d["model"] = legacy.get("model", default_model)
-        changed_live2d = True
-    if "models" not in live2d:
-        live2d["models"] = legacy.get("models", {}) if isinstance(legacy.get("models"), dict) else {}
-        changed_live2d = True
-    elif not isinstance(live2d.get("models"), dict):
-        live2d["models"] = {}
-        changed_live2d = True
-    if "idle_tips" not in live2d:
-        live2d["idle_tips"] = legacy.get("idle_tips", {})
-        changed_live2d = True
-
-    if "tts" not in voice:
-        legacy_tts = legacy.get("tts") if isinstance(legacy.get("tts"), dict) else {}
-        voice["tts"] = legacy_tts
-        changed_voice = True
-
-    if changed_live:
-        manager.save("live", live)
-    if changed_live2d:
-        manager.save("live2d", live2d)
-    if changed_voice:
-        manager.save("voice", voice)
-
     model_id = live2d.get("model")
     if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
         model_id = default_model
@@ -236,11 +182,8 @@ def _load_user_settings() -> dict[str, Any]:
     except (TypeError, ValueError):
         room_id = 0
     return {
-        "model": model_id,
-        "models": models,
-        "bilibili": {"room_id": room_id},
-        "tts": tts,
-        "idle_tips": idle_tips,
+        "model": model_id, "models": models,
+        "bilibili": {"room_id": room_id}, "tts": tts, "idle_tips": idle_tips,
     }
 
 
@@ -561,26 +504,14 @@ def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | N
     raise TimeoutError(f"等待 OBS 请求响应超时：{request_type}")
 
 
-def _read_obs_password(password_file: str | None) -> str:
-    """读取统一凭据库中的 OBS 密码；仅兼容旧版非 JSON 明文密码文件。"""
-    if not password_file:
-        return ""
-    normalized = str(password_file).replace("\\", "/").strip("/")
-    if normalized == "credentials/obs.json":
-        try:
-            secret = CredentialStore().load("obs") or {}
-            return str(secret.get("password", "") or "")
-        except Exception as exc:
-            logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
-            return ""
-    password_path = (BASE_DIR / str(password_file)).resolve()
+def _read_obs_password() -> str:
+    """只从统一凭据库读取 OBS 密码，不再读取旧明文密码文件。"""
     try:
-        password_path.relative_to(BASE_DIR.resolve())
-    except ValueError as exc:
-        raise ValueError("OBS password_file 必须位于项目目录内。") from exc
-    if not password_path.is_file():
-        raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
-    return password_path.read_text(encoding="utf-8-sig").strip()
+        secret = CredentialStore().load("obs") or {}
+        return str(secret.get("password", "") or "")
+    except Exception as exc:
+        logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
+        return ""
 
 
 def _refresh_obs_browser_sources() -> dict[str, Any]:
@@ -596,11 +527,7 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         port, timeout = 4455, 2.5
     ws = None
     try:
-        password_file = obs_config.get("password_file")
-        password = _read_obs_password(password_file)
-        if not password and not password_file:
-            # 兼容旧版 config.json 中直接配置 password 的方式。
-            password = str(obs_config.get("password", ""))
+        password = _read_obs_password()
         ws = websocket.create_connection(
             f"ws://{host}:{port}",
             timeout=timeout,
@@ -684,11 +611,7 @@ def _open_obs_websocket(timeout_override: float | None = None):
     except (TypeError, ValueError):
         port, timeout = 4455, 2.5
 
-    password_file = obs_config.get("password_file")
-    password = _read_obs_password(password_file)
-    if not password and not password_file:
-        password = str(obs_config.get("password", ""))
-
+    password = _read_obs_password()
     if timeout_override is not None:
         timeout = max(0.3, min(timeout, float(timeout_override)))
     ws = websocket.create_connection(
@@ -1089,45 +1012,14 @@ def _normalize_admin_uids(values) -> list[int]:
 
 
 def _load_system_admin_uids() -> list[int]:
-    manager = ConfigManager()
-    app_config = manager.load("app", {})
-    if "admin_uids" in app_config:
-        return _normalize_admin_uids(app_config.get("admin_uids"))
-
-    # 首次升级：将旧歌曲/视频模块管理员名单合并到系统级名单。
-    imported = set()
-    for module_name, default_file in (("music", "data/music/uid.txt"), ("video", "data/video/uid.txt")):
-        module_config = manager.load(module_name, {})
-        raw_values = module_config.get("admin_uids", [])
-        if isinstance(raw_values, list):
-            for value in raw_values:
-                try:
-                    uid = int(value)
-                    if uid > 0:
-                        imported.add(uid)
-                except (TypeError, ValueError):
-                    pass
-        file_name = str(module_config.get("admins_file", default_file) or default_file)
-        path = (BASE_DIR / file_name).resolve()
-        try:
-            path.relative_to(BASE_DIR.resolve())
-            if path.is_file():
-                for line in path.read_text(encoding="utf-8-sig").splitlines():
-                    for value in re.split(r"[,，;；\s]+", line.split("#", 1)[0].strip()):
-                        if value.isdigit() and int(value) > 0:
-                            imported.add(int(value))
-        except (OSError, ValueError):
-            logger.warning("迁移旧%s管理员 UID 文件失败。", module_name)
-    app_config["admin_uids"] = sorted(imported)
-    manager.save("app", app_config)
-    return app_config["admin_uids"]
+    """系统管理员只从 config/app.json 的统一名单读取。"""
+    app_config = ConfigManager().load("app", {})
+    return _normalize_admin_uids(app_config.get("admin_uids", []))
 
 
 def _module_config_with_system_admins(module_name: str) -> dict[str, Any]:
     config = ConfigManager().load(module_name, {})
     config["admin_uids"] = _load_system_admin_uids()
-    # 禁止模块继续读取旧的独立管理员文件；统一名单只来自系统设置。
-    config["admins_file"] = ""
     return config
 
 
@@ -1482,11 +1374,7 @@ def save_room_setting():
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "请输入有效的 B 站直播间房间号。"}), 400
-    # 新版统一保存到普通直播配置；同时更新旧用户设置，兼容现有页面逻辑。
-    config_manager = ConfigManager()
-    live_config = config_manager.load("live", {})
-    live_config["room_id"] = room_id
-    config_manager.save("live", live_config)
+    # 直播间号统一保存到 config/live.json。
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["bilibili"]["room_id"] = room_id
@@ -1722,7 +1610,7 @@ def _write_display_layout_store(store: dict[str, Any]) -> None:
 
 
 def _load_display_layout_store() -> dict[str, Any]:
-    """读取多布局仓库；首次运行时把旧单布局无损迁移为默认布局。"""
+    """读取多布局仓库；首次运行时创建默认布局。"""
     with DISPLAY_LAYOUT_LOCK:
         if DISPLAY_LAYOUTS_PATH.is_file():
             raw = json.loads(DISPLAY_LAYOUTS_PATH.read_text(encoding="utf-8"))
@@ -1750,15 +1638,8 @@ def _load_display_layout_store() -> dict[str, Any]:
                 active_id = layouts[0]["id"]
             return {"version": 1, "active_layout_id": active_id, "layouts": layouts}
 
-        # 旧版本只有 data/display_layout.json；保留原文件，只复制内容到新集合。
-        old_layout = _default_display_layout()
-        if DISPLAY_LAYOUT_PATH.is_file():
-            try:
-                old_layout = _sanitize_display_layout(json.loads(DISPLAY_LAYOUT_PATH.read_text(encoding="utf-8")))
-            except Exception as exc:
-                logger.warning("旧综合展示布局迁移失败，使用默认布局：%s", type(exc).__name__)
         store = {"version": 1, "active_layout_id": DEFAULT_DISPLAY_LAYOUT_ID,
-                 "layouts": [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": old_layout}]}
+                 "layouts": [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": _default_display_layout()}]}
         _write_display_layout_store(store)
         return store
 
@@ -1828,10 +1709,10 @@ def save_music_settings():
             "queue_limit": queue_limit,
             "require_fans_medal": require_medal,
         })
-        config["admin_uids"] = _load_system_admin_uids()
-        config["admins_file"] = ""
         ConfigManager().save("music", config)
-        MUSIC_MODULE.reload_config(config)
+        runtime_config = dict(config)
+        runtime_config["admin_uids"] = _load_system_admin_uids()
+        MUSIC_MODULE.reload_config(runtime_config)
         return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
@@ -1853,7 +1734,7 @@ def get_video_settings():
             "cooldown_seconds": req.get("cooldown_seconds", 60),
             "queue_limit": req.get("queue_limit", 30),
             "max_video_duration_seconds": req.get("max_video_duration_seconds", 300),
-            "require_fan_medal": bool(req.get("require_fan_medal", True)),
+            "require_fan_medal": bool(req.get("require_fans_medal", False)),
         },
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state", "stopped"),
     })
@@ -1878,7 +1759,7 @@ def save_video_settings():
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 60)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 30)))
         max_duration = int(payload.get("max_video_duration_seconds", req.get("max_video_duration_seconds", 300)))
-        require_medal = bool(payload.get("require_fan_medal", req.get("require_fan_medal", True)))
+        require_medal = bool(payload.get("require_fan_medal", req.get("require_fans_medal", False)))
         if not 10 <= timeout <= 180 or not 0 <= cooldown <= 3600:
             raise ValueError("页面加载超时应为 10–180 秒，冷却时间应为 0–3600 秒。")
         if not 1 <= queue_limit <= 1000 or not 1 <= max_duration <= 3600:
@@ -1892,124 +1773,26 @@ def save_video_settings():
             "cooldown_seconds": cooldown,
             "queue_limit": queue_limit,
             "max_video_duration_seconds": max_duration,
-            "require_fan_medal": require_medal,
+            "require_fans_medal": require_medal,
         })
-        config["admin_uids"] = _load_system_admin_uids()
-        config["admins_file"] = ""
         ConfigManager().save("video", config)
-        VIDEO_MODULE.reload_config(config)
+        runtime_config = dict(config)
+        runtime_config["admin_uids"] = _load_system_admin_uids()
+        VIDEO_MODULE.reload_config(runtime_config)
         return jsonify({"ok": True, "message": "视频模块配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "视频配置保存失败。"}), 400
-
-
-def _legacy_obs_credential_candidates() -> dict[str, Any]:
-    """只探测旧凭据是否存在；绝不向前端返回密码或 Cookie 内容。"""
-    found = {
-        "inline_password": False,
-        "password_file": None,
-        "legacy_bilibili_cookie_file": (BASE_DIR / "bili_cookie.txt").is_file(),
-        "legacy_obs_config_file": (BASE_DIR / "obs_config.txt").is_file(),
-    }
-    try:
-        if LEGACY_CONFIG_PATH.is_file():
-            legacy = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
-            obs = legacy.get("obs_websocket", {}) if isinstance(legacy, dict) else {}
-            if isinstance(obs, dict):
-                found["inline_password"] = bool(str(obs.get("password", "") or ""))
-                old_file = str(obs.get("password_file", "") or "").strip()
-                if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
-                    candidate = (BASE_DIR / old_file).resolve()
-                    try:
-                        candidate.relative_to(BASE_DIR.resolve())
-                        is_credential_path = candidate.is_relative_to((BASE_DIR / "credentials").resolve())
-                        if candidate.is_file() and not is_credential_path and candidate != LEGACY_CONFIG_PATH.resolve() and candidate != (BASE_DIR / "config" / "obs.json").resolve():
-                            found["password_file"] = str(candidate.relative_to(BASE_DIR))
-                    except ValueError:
-                        pass
-    except Exception as exc:
-        logger.warning("检查旧 OBS 凭据失败：%s", type(exc).__name__)
-    return found
 
 
 @app.get("/api/credentials/status")
 def get_credentials_status():
     valid, message, _ = _login_status()
     obs_status = CredentialStore().status("obs")
-    legacy = _legacy_obs_credential_candidates()
     return jsonify({
         "ok": True,
         "bilibili": {"configured": bool(valid), "message": message},
         "obs": {"configured": bool(obs_status.get("configured"))},
-        "legacy": {
-            "obs_inline_password": bool(legacy["inline_password"]),
-            "obs_password_file": legacy["password_file"],
-            "migration_available": bool(legacy["inline_password"] or legacy["password_file"]),
-            "legacy_bilibili_cookie_file": bool(legacy["legacy_bilibili_cookie_file"]),
-            "legacy_obs_config_file": bool(legacy["legacy_obs_config_file"]),
-        },
     })
-
-
-@app.post("/api/credentials/migrate")
-def migrate_legacy_credentials():
-    """显式迁移旧 OBS 密码；成功后清理旧配置中的明文值。"""
-    store = CredentialStore()
-    if store.status("obs").get("configured"):
-        return jsonify({"ok": False, "error": "OBS 凭据库中已有密码；为避免覆盖，未执行迁移。"}), 409
-    password = ""
-    password_file_path = None
-    credential_saved = False
-    try:
-        legacy_data = {}
-        if LEGACY_CONFIG_PATH.is_file():
-            legacy_data = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
-            if not isinstance(legacy_data, dict):
-                legacy_data = {}
-        obs = legacy_data.get("obs_websocket", {})
-        if not isinstance(obs, dict):
-            obs = {}
-        password = str(obs.get("password", "") or "")
-        old_file = str(obs.get("password_file", "") or "").strip()
-        if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
-            candidate = (BASE_DIR / old_file).resolve()
-            candidate.relative_to(BASE_DIR.resolve())
-            if candidate in {LEGACY_CONFIG_PATH.resolve(), (BASE_DIR / "config" / "obs.json").resolve()} or candidate.is_relative_to((BASE_DIR / "credentials").resolve()):
-                raise ValueError("旧密码文件路径不安全，拒绝迁移或删除。")
-            if candidate.is_file():
-                password_file_path = candidate
-                if not password:
-                    password = candidate.read_text(encoding="utf-8-sig").strip()
-        if not password:
-            return jsonify({"ok": False, "error": "未发现可自动迁移的旧 OBS 明文密码。"}), 404
-
-        store.save("obs", {"password": password})
-        credential_saved = True
-        password = ""
-        if isinstance(legacy_data.get("obs_websocket"), dict):
-            clean_obs = dict(legacy_data["obs_websocket"])
-            clean_obs.pop("password", None)
-            clean_obs["password_file"] = "credentials/obs.json"
-            legacy_data["obs_websocket"] = clean_obs
-            temporary = LEGACY_CONFIG_PATH.with_suffix(".json.tmp")
-            temporary.write_text(json.dumps(legacy_data, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
-            os.replace(temporary, LEGACY_CONFIG_PATH)
-        if password_file_path and password_file_path.exists():
-            password_file_path.unlink()
-        VIDEO_MODULE.reload_obs_settings()
-        _refresh_obs_browser_sources()
-        return jsonify({"ok": True, "message": "旧 OBS 密码已迁移到本机凭据库，并清理旧明文配置。"})
-    except Exception as exc:
-        logger.warning("迁移旧 OBS 凭据失败：%s", type(exc).__name__)
-        if credential_saved:
-            return jsonify({
-                "ok": True,
-                "message": "OBS 密码已安全保存，但旧明文配置未能全部清理；请根据凭据管理页提示手动清理旧文件。",
-                "cleanup_incomplete": True,
-            })
-        return jsonify({"ok": False, "error": "旧 OBS 凭据迁移失败；请检查旧配置文件权限和格式。"}), 500
-    finally:
-        password = ""
 
 
 @app.get("/api/settings/admins")
@@ -2040,7 +1823,6 @@ def save_system_admin_settings():
         # 运行中的模块不必重启：同步更新两套模块的权限集合。
         music_config = _module_config_with_system_admins("music")
         music_config["admin_uids"] = sorted(admin_uids)
-        music_config["admins_file"] = ""
         if not MUSIC_MODULE.bot.enabled:
             MUSIC_MODULE.reload_config(music_config)
         else:
@@ -2049,7 +1831,6 @@ def save_system_admin_settings():
 
         video_config = _module_config_with_system_admins("video")
         video_config["admin_uids"] = sorted(admin_uids)
-        video_config["admins_file"] = ""
         if not __import__("modules.video.service", fromlist=["module_enabled"]).module_enabled:
             VIDEO_MODULE.reload_config(video_config)
         else:
@@ -2087,11 +1868,10 @@ def save_obs_settings():
         if not host or not 1 <= port <= 65535 or not source_name:
             raise ValueError("OBS 地址、有效端口和来源名称不能为空。")
         config = {"host": host, "port": port, "timeout": timeout,
-                  "source_name": source_name, "password_file": "credentials/obs.json"}
+                  "source_name": source_name}
         ConfigManager().save("obs", config)
         CONFIG["obs_websocket"] = {
             "host": host, "port": port, "timeout": timeout,
-            "password_file": "credentials/obs.json",
         }
         VIDEO_MODULE.reload_obs_settings()
         _refresh_obs_browser_sources()
@@ -2141,11 +1921,11 @@ def save_logging_settings():
         if retention not in allowed_retention:
             raise ValueError("日志保留天数无效。")
         config = ConfigManager().load("logging", {})
+        config.pop("daily_rotation", None)
         config.update({
             "level": level,
             "retention_days": retention,
             "retention_options": [3, 5, 7, 15, 30, 60, 90, 0],
-            "daily_rotation": True,
         })
         ConfigManager().save("logging", config)
         setup_logging()
@@ -2317,7 +2097,7 @@ def _credential_watchdog() -> None:
         if should_check:
             valid, message, _ = _login_status()
             if not valid:
-                logger.warning("B站登录凭据失效，已停止直播连接：%s", message)
+                logger.warning("B站登录凭据状态检查失败（可能是网络波动）；当前连接仍由 WebSocket 状态回调管理：%s", message)
 
 
 _initialize_login_state()

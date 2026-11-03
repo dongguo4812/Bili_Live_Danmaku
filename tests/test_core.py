@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import base64
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from core.config_manager import ConfigError, ConfigManager
 from core.credential_store import CredentialStore
@@ -45,6 +44,10 @@ class ConfigManagerTests(unittest.TestCase):
                 {"Authorization": "Bearer secret"},
                 {"SESSDATA": "secret"},
                 {"biliJct": "secret"},
+                {"sessData": "secret"},
+                {"acTimeValue": "secret"},
+                {"buvid3": "secret"},
+                {"buvid4": "secret"},
                 {"cookieValue": "secret"},
                 {"nested": [{"refresh_token": "secret"}]},
             ]
@@ -59,145 +62,8 @@ class ConfigManagerTests(unittest.TestCase):
             manager.save("live", {"room_id": 123456, "reconnect": True})
             self.assertEqual(manager.load("live")["room_id"], 123456)
 
-    def test_last_saved_user_room_takes_precedence_over_legacy_config(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            manager = ConfigManager(config_dir)
-            legacy = root / "config.json"
-            legacy.write_text(json.dumps({"bilibili": {"room_id": 111}}), encoding="utf-8")
-            (root / "user_settings.json").write_text(
-                json.dumps({"bilibili": {"room_id": 222}}), encoding="utf-8"
-            )
-
-            manager.migrate_legacy_config(legacy)
-            self.assertEqual(manager.load("live")["room_id"], 0)
-
-    def test_legacy_defaults_are_imported_but_user_edits_are_preserved(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            manager = ConfigManager(config_dir)
-            manager.save("app", {
-                "host": "127.0.0.9", "port": 8768, "debug": False,
-                "custom_option": "keep",
-            })
-            manager.save("live", {
-                "room_id": 22851631, "reconnect": True,
-                "reconnect_interval_seconds": 5, "connect_on_start": False,
-            })
-            manager.save("voice", {
-                "enabled": True, "voice": "zh-CN-XiaoyiNeural",
-                "rate": "+0%", "volume": "+0%",
-            })
-
-            legacy = {
-                "app": {"host": "127.0.0.2", "port": 9000},
-                "bilibili": {"room_id": 777, "reconnect": False},
-                "tts": {"voice": "zh-CN-YunxiNeural", "rate": "+10%"},
-                "obs_websocket": {
-                    "host": "192.168.1.3", "port": 4455,
-                    "password": "must-not-be-copied",
-                    "password_file": "obs_config.txt",
-                },
-            }
-            legacy_path = root / "config.json"
-            legacy_path.write_text(json.dumps(legacy), encoding="utf-8")
-
-            migrated = manager.migrate_legacy_config(legacy_path)
-            self.assertIn("app", migrated)
-            app = manager.load("app")
-            self.assertEqual(app["host"], "127.0.0.9")
-            self.assertEqual(app["port"], 9000)
-            self.assertEqual(app["custom_option"], "keep")
-            live = manager.load("live")
-            self.assertEqual(live["room_id"], 22851631)
-            self.assertFalse(live["reconnect"])
-            voice = manager.load("voice")
-            self.assertEqual(voice["voice"], "zh-CN-XiaoyiNeural")
-            self.assertEqual(voice["rate"], "+10%")
-            obs = manager.load("obs")
-            self.assertEqual(obs["password_file"], "credentials/obs.json")
-            self.assertNotIn("password", obs)
-
-            manager.save("app", {**app, "host": "127.0.0.8"})
-            manager.migrate_legacy_config(legacy_path)
-            self.assertEqual(manager.load("app")["host"], "127.0.0.8")
-
-    def test_corrupt_legacy_json_is_preserved_and_not_marked_migrated(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            manager = ConfigManager(config_dir)
-            legacy = root / "config.json"
-            original = b'{"app": {"host": '
-            legacy.write_bytes(original)
-
-            with self.assertRaises(ConfigError):
-                manager.migrate_legacy_config(legacy)
-
-            self.assertEqual(legacy.read_bytes(), original)
-            self.assertFalse((config_dir / ".legacy_config_migrated_v1.json").exists())
-            self.assertFalse((config_dir / ".legacy_config_migration_v1.json").exists())
-
-    def test_interrupted_migration_retry_preserves_edits_made_after_interruption(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            manager = ConfigManager(config_dir)
-            legacy = root / "config.json"
-            legacy.write_text(json.dumps({
-                "app": {"host": "127.0.0.2", "port": 9000},
-                "tts": {"voice": "zh-CN-YunxiNeural"},
-            }), encoding="utf-8")
-
-            original_save = manager.save
-            calls = {"count": 0}
-
-            def fail_on_second_save(name, data):
-                calls["count"] += 1
-                if calls["count"] == 2:
-                    raise OSError("simulated interruption")
-                return original_save(name, data)
-
-            with patch.object(manager, "save", side_effect=fail_on_second_save):
-                with self.assertRaises(OSError):
-                    manager.migrate_legacy_config(legacy)
-
-            app = manager.load("app")
-            self.assertEqual(app["host"], "127.0.0.2")
-            manager.save("app", {**app, "host": "127.0.0.8"})
-
-            manager.migrate_legacy_config(legacy)
-            self.assertEqual(manager.load("app")["host"], "127.0.0.8")
-            self.assertEqual(manager.load("app")["port"], 9000)
-            self.assertEqual(manager.load("voice")["voice"], "zh-CN-YunxiNeural")
-            self.assertTrue((config_dir / ".legacy_config_migrated_v1.json").is_file())
-            self.assertFalse((config_dir / ".legacy_config_migration_v1.json").exists())
-
-    def test_legacy_sensitive_values_never_enter_plain_config_or_migration_plan(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config_dir = root / "config"
-            config_dir.mkdir()
-            manager = ConfigManager(config_dir)
-            legacy = root / "config.json"
-            legacy.write_text(json.dumps({
-                "app": {"host": "127.0.0.2", "nested": {"SESSDATA": "cookie-secret"}},
-                "obs_websocket": {"host": "192.168.1.3", "password": "password-secret"},
-            }), encoding="utf-8")
-
-            with self.assertRaises(ConfigError):
-                manager.migrate_legacy_config(legacy)
-
-            for path in config_dir.glob("*.json*"):
-                self.assertNotIn("cookie-secret", path.read_text(encoding="utf-8"))
-                self.assertNotIn("password-secret", path.read_text(encoding="utf-8"))
-            self.assertEqual(json.loads(legacy.read_text(encoding="utf-8"))["obs_websocket"]["password"], "password-secret")
+    def test_legacy_config_migration_support_is_retired(self):
+        self.assertFalse(hasattr(ConfigManager, "migrate_legacy_config"))
 
 
 class CredentialStoreTests(unittest.TestCase):
