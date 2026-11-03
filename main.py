@@ -176,8 +176,10 @@ def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, An
         for group in motions.values():
             if isinstance(group, list):
                 for item in group:
-                    if isinstance(item, dict) and isinstance(item.get("file"), str):
-                        item["file"] = prefixed(item["file"])
+                    if isinstance(item, dict):
+                        for asset_key in ("file", "sound"):
+                            if isinstance(item.get(asset_key), str):
+                                item[asset_key] = prefixed(item[asset_key])
     return data
 
 
@@ -975,7 +977,12 @@ def _model_assets(model_id: str) -> tuple[bool, list[str], dict[str, Any]]:
     if isinstance(motions, dict):
         for group in motions.values():
             if isinstance(group, list):
-                references.extend(item["file"] for item in group if isinstance(item, dict) and isinstance(item.get("file"), str))
+                for item in group:
+                    if not isinstance(item, dict):
+                        continue
+                    for asset_key in ("file", "sound"):
+                        if isinstance(item.get(asset_key), str) and item[asset_key]:
+                            references.append(item[asset_key])
 
     missing: list[str] = []
     for relative in references:
