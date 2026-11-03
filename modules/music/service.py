@@ -32,7 +32,6 @@ MEDAL_CACHE_SECONDS = 60
 ROOM_ID = 0
 COOKIE_DICT: dict[str, str] = {}
 MEDAL_CACHE: dict[int, tuple[float, bool, str]] = {}
-UID_FILE = BASE_DIR / "uid.txt"
 ADMIN_UIDS: set[int] = set()
 REQUIRE_FANS_MEDAL = str(_MUSIC_CONFIG.get("requests", {}).get("require_fans_medal", 0))
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
@@ -40,22 +39,6 @@ QUEUE_LIMIT = max(1, int(_MUSIC_CONFIG.get("requests", {}).get("queue_limit", 10
 SEARCH_LIMIT = min(20, max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20))))
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
-
-
-def load_admin_uids(path: Path = UID_FILE) -> set[int]:
-    values: set[int] = set()
-    try:
-        for raw in path.read_text(encoding="utf-8-sig").splitlines():
-            line = raw.split("#", 1)[0].strip()
-            if line:
-                for part in re.split(r"[,;\s]+", line):
-                    if part.isdigit():
-                        values.add(int(part))
-    except FileNotFoundError:
-        pass
-    except Exception:
-        log.exception("读取管理员 UID 文件失败。")
-    return values
 
 
 def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id: int = 0) -> None:
@@ -82,15 +65,6 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
                     ADMIN_UIDS.add(parsed_uid)
             except (TypeError, ValueError):
                 continue
-    admin_file = config.get("admins_file", "data/music/uid.txt")
-    if admin_file:
-        admin_path = (BASE_DIR / str(admin_file)).resolve()
-        try:
-            admin_path.relative_to(BASE_DIR.resolve())
-        except ValueError as exc:
-            raise ValueError("歌曲管理员 UID 文件必须位于项目目录内。") from exc
-        admin_path.parent.mkdir(parents=True, exist_ok=True)
-        ADMIN_UIDS.update(load_admin_uids(admin_path))
     values = cookie_provider() if callable(cookie_provider) else {}
     COOKIE_DICT = {
         "SESSDATA": str(values.get("sessdata", "")),
