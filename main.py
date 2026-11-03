@@ -1227,7 +1227,18 @@ def credentials_page():
 
 @app.get("/display/combined")
 def combined_display_page():
-    return render_template("combined_display.html", display_mode=True)
+    return render_template("combined_display.html", display_mode=True, layout_id="")
+
+
+@app.get("/display/combined/<layout_id>")
+def named_combined_display_page(layout_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id):
+        abort(404)
+    try:
+        _find_display_layout(_load_display_layout_store(), layout_id)
+    except Exception:
+        abort(404)
+    return render_template("combined_display.html", display_mode=True, layout_id=layout_id)
 
 
 @app.get("/music")
@@ -1669,6 +1680,72 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
     return {"version": 1, "widgets": widgets}
 
 
+DISPLAY_LAYOUTS_PATH = BASE_DIR / "data" / "display_layouts.json"
+DISPLAY_LAYOUT_LOCK = threading.RLock()
+DEFAULT_DISPLAY_LAYOUT_ID = "default"
+
+
+def _write_display_layout_store(store: dict[str, Any]) -> None:
+    DISPLAY_LAYOUTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = DISPLAY_LAYOUTS_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(store, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, DISPLAY_LAYOUTS_PATH)
+
+
+def _load_display_layout_store() -> dict[str, Any]:
+    """读取多布局仓库；首次运行时把旧单布局无损迁移为默认布局。"""
+    with DISPLAY_LAYOUT_LOCK:
+        if DISPLAY_LAYOUTS_PATH.is_file():
+            raw = json.loads(DISPLAY_LAYOUTS_PATH.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or not isinstance(raw.get("layouts"), list):
+                raise ValueError("综合展示布局集合格式无效。")
+            layouts = []
+            seen = set()
+            for item in raw["layouts"]:
+                if not isinstance(item, dict):
+                    continue
+                layout_id = str(item.get("id", ""))
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id) or layout_id in seen:
+                    continue
+                try:
+                    clean_layout = _sanitize_display_layout(item.get("layout"))
+                except Exception:
+                    continue
+                name = str(item.get("name", "未命名布局")).strip()[:40] or "未命名布局"
+                layouts.append({"id": layout_id, "name": name, "layout": clean_layout})
+                seen.add(layout_id)
+            if not layouts:
+                layouts = [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": _default_display_layout()}]
+            active_id = str(raw.get("active_layout_id", layouts[0]["id"]))
+            if active_id not in seen:
+                active_id = layouts[0]["id"]
+            return {"version": 1, "active_layout_id": active_id, "layouts": layouts}
+
+        # 旧版本只有 data/display_layout.json；保留原文件，只复制内容到新集合。
+        old_layout = _default_display_layout()
+        if DISPLAY_LAYOUT_PATH.is_file():
+            try:
+                old_layout = _sanitize_display_layout(json.loads(DISPLAY_LAYOUT_PATH.read_text(encoding="utf-8")))
+            except Exception as exc:
+                logger.warning("旧综合展示布局迁移失败，使用默认布局：%s", type(exc).__name__)
+        store = {"version": 1, "active_layout_id": DEFAULT_DISPLAY_LAYOUT_ID,
+                 "layouts": [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": old_layout}]}
+        _write_display_layout_store(store)
+        return store
+
+
+def _find_display_layout(store: dict[str, Any], layout_id: str | None = None) -> dict[str, Any]:
+    target = layout_id or store["active_layout_id"]
+    for item in store["layouts"]:
+        if item["id"] == target:
+            return item
+    raise KeyError("指定的综合展示布局不存在。")
+
+
+def _save_display_layout_store(store: dict[str, Any]) -> None:
+    _write_display_layout_store(store)
+
+
 @app.get("/api/settings/music")
 def get_music_settings():
     config = ConfigManager().load("music", {})
@@ -2054,30 +2131,105 @@ def get_default_combined_display_layout():
     return jsonify({"ok": True, "layout": _default_display_layout()})
 
 
+@app.get("/api/display/layouts")
+def get_combined_display_layouts():
+    try:
+        store = _load_display_layout_store()
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"],
+                        "layouts": [{"id": x["id"], "name": x["name"]} for x in store["layouts"]]})
+    except Exception as exc:
+        logger.exception("读取综合展示布局列表失败。")
+        return jsonify({"ok": False, "error": str(exc) or "读取布局列表失败。"}), 500
+
+
+@app.post("/api/display/layouts")
+def create_combined_display_layout():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    name = str(payload.get("name", "")).strip()[:40]
+    if not name:
+        return jsonify({"ok": False, "error": "请填写布局名称。"}), 400
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            source_id = str(payload.get("source_layout_id", ""))
+            layout = _sanitize_display_layout(_find_display_layout(store, source_id)["layout"]) if source_id else {"version": 1, "widgets": []}
+            layout_id = uuid.uuid4().hex[:12]
+            store["layouts"].append({"id": layout_id, "name": name, "layout": layout})
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "layout_id": layout_id, "name": name, "message": "新布局已创建。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "创建布局失败。"}), 400
+
+
+@app.patch("/api/display/layouts/<layout_id>")
+def update_combined_display_layout_metadata(layout_id: str):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            item = _find_display_layout(store, layout_id)
+            if "name" in payload:
+                name = str(payload.get("name", "")).strip()[:40]
+                if not name:
+                    raise ValueError("布局名称不能为空。")
+                item["name"] = name
+            if payload.get("activate") is True:
+                store["active_layout_id"] = layout_id
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"], "message": "布局信息已更新。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "更新布局失败。"}), 400
+
+
+@app.delete("/api/display/layouts/<layout_id>")
+def delete_combined_display_layout(layout_id: str):
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            if len(store["layouts"]) <= 1:
+                raise ValueError("至少需要保留一套布局。")
+            _find_display_layout(store, layout_id)
+            store["layouts"] = [x for x in store["layouts"] if x["id"] != layout_id]
+            if store["active_layout_id"] == layout_id:
+                store["active_layout_id"] = store["layouts"][0]["id"]
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"], "message": "布局已删除。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "删除布局失败。"}), 400
+
+
 @app.get("/api/display/layout")
 def get_combined_display_layout():
     try:
-        if DISPLAY_LAYOUT_PATH.is_file():
-            payload = json.loads(DISPLAY_LAYOUT_PATH.read_text(encoding="utf-8"))
-            layout = _sanitize_display_layout(payload)
-        else:
-            layout = _default_display_layout()
-        return jsonify({"ok": True, "layout": layout})
+        store = _load_display_layout_store()
+        item = _find_display_layout(store, request.args.get("layout_id"))
+        return jsonify({"ok": True, "layout_id": item["id"], "name": item["name"], "layout": item["layout"]})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
     except Exception as exc:
         logger.warning("读取综合展示布局失败：%s", type(exc).__name__)
-        return jsonify({"ok": True, "layout": _default_display_layout()})
+        return jsonify({"ok": False, "error": "读取综合展示布局失败。"}), 500
 
 
 @app.post("/api/display/layout")
 def save_combined_display_layout():
     payload = request.get_json(silent=True)
     try:
-        layout = _sanitize_display_layout(payload)
-        DISPLAY_LAYOUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temporary = DISPLAY_LAYOUT_PATH.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(layout, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, DISPLAY_LAYOUT_PATH)
-        return jsonify({"ok": True, "layout": layout, "message": "综合展示布局已保存。"})
+        if not isinstance(payload, dict):
+            raise ValueError("请求内容必须是 JSON 对象。")
+        layout = _sanitize_display_layout(payload.get("layout", payload))
+        layout_id = str(payload.get("layout_id", "")).strip()
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            item = _find_display_layout(store, layout_id or None)
+            item["layout"] = layout
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "layout_id": item["id"], "layout": layout,
+                        "message": "布局“{}”已保存。".format(item["name"])})
     except Exception as exc:
         logger.warning("保存综合展示布局失败：%s", type(exc).__name__)
         return jsonify({"ok": False, "error": str(exc) or "布局保存失败。"}), 400
