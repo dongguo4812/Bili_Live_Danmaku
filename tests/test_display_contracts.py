@@ -302,6 +302,8 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('def _model_asset_prefix(directory: Path) -> str:', main)
         self.assertIn('"/models/moc2/" + relative.as_posix().rstrip("/") + "/"', main)
+        self.assertIn('relative_prefix = "../" + prefix.removeprefix("/models/")', main)
+        self.assertIn('return relative_prefix + value.lstrip("./")', main)
         self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))', main)
         self.assertIn('@app.get("/models/<path:filename>")', main)
 
