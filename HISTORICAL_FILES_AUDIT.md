@@ -66,3 +66,25 @@
 | 日期 | 批次 | 变更 | 验证 |
 |---|---|---|---|
 | 2026-11-03 | 第一批 | 退役根配置、视频文本配置、单布局及独立 UID 迁移/兼容读取；删除仓库中的根目录旧配置文件；更新打包脚本、模板与文档 | 模板个人化内容已撤回；代码/测试审查和 CI 仍在进行 |
+
+
+## 第二批：运行数据与项目结构整理
+
+| 检查项 | 审查结果 | 处理 |
+|---|---|---|
+| 旧配置迁移标记 / journal | 当前运行代码不再读写旧迁移标记或 journal；`.gitignore` 仍忽略两种历史 marker 文件名，防止用户本机残留文件被提交 | 保留忽略规则，不在启动时自动删除本机残留标记；不将旧 marker 当作当前运行状态 |
+| 日志文件生命周期 | 日志按日期写入 `logs/YYYY-MM-DD.log`；启动及日志设置变更时按保留天数清理过期日期文件；保留天数为 0 表示无限期保留；非日期命名的 .log 不会被清理 | 移除无效的 `daily_rotation` 配置项；保留 `retention_days` 与 UI 使用的 `retention_options`；补充保留策略测试 |
+| API 兼容路由 | `/api/display/settings` 仍作为 Live2D 设置兼容地址；`/music/display`、`/music/widget`、`/video/display` 等旧展示入口仍可能被 OBS 浏览器源或外部配置使用 | 暂不删除。README、页面入口和静态契约测试仍覆盖这些地址；删除前需单独确认用户 OBS 源已迁移 |
+| 页面模板 | 所有当前 `templates/*.html` 均由 Flask 页面路由渲染 | 未发现可安全删除的孤立模板 |
+| 静态资源 | `style.css`、`display.js`、`live2d.min.js`、`display_media.css`、`display_media.js` 均被页面引用 | 未发现可安全删除的孤立静态资源 |
+| 视频粉丝牌配置字段 | 配置模板/模块使用 `require_fans_medal`，设置 API 曾误用单数 `require_fan_medal` 持久化，造成页面与运行时配置脱节 | 已统一持久化字段为 `require_fans_medal`；保留前端请求/响应字段 `require_fan_medal` 以维持页面契约；默认值统一为模板中的 `false` |
+| 无效默认配置 | `live.connect_on_start`、Live2D 的固定目录/配置路径及画布尺寸字段未被当前代码使用；日志 `daily_rotation` 也没有对应开关逻辑 | 从默认模板和运行时默认值中移除无效字段；保留实际读取的 `format`、`default_model` 等字段 |
+
+### 第二批验证状态
+
+- [ ] 最新分支 Python 编译与全部离线测试通过。
+- [ ] Windows DPAPI / 凭据专项测试通过。
+- [ ] 配置模板全部可解析，且无效字段已从默认模板移除。
+- [ ] 页面与静态资源引用清单复核完成。
+- [ ] 用户 OBS 外部浏览器源地址仍兼容；因此本批不删除展示路由别名。
+- [ ] 本地历史 marker、日志与运行数据未被远程操作删除。
