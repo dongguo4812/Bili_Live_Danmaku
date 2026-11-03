@@ -1,0 +1,619 @@
+
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>点播播放队列</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --text: #f4f6fb;
+    --muted: #aeb8ca;
+    --line: rgba(255,255,255,.14);
+    --accent: #8ab4ff;
+    --panel: rgba(15,19,29,.82);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    width: 100%;
+    min-height: 100%;
+    background: transparent;
+    color: var(--text);
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  }
+
+  body { padding: 8px; }
+
+  .panel {
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: 0 8px 24px rgba(0,0,0,.2);
+    backdrop-filter: blur(8px);
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,.045);
+  }
+
+  .brand {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: .5px;
+  }
+
+  .subtitle {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .live {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    color: #b8f7d1;
+    font-size: 12px;
+    border: 1px solid rgba(94,220,153,.38);
+    background: rgba(40,150,91,.16);
+    border-radius: 99px;
+    padding: 5px 9px;
+  }
+
+  .section { padding: 13px 16px; }
+
+  .section-label {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .current {
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    gap: 12px;
+    align-items: center;
+  }
+
+  .current-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .play-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: rgba(138,180,255,.15);
+    color: var(--accent);
+    font-size: 18px;
+  }
+
+  .video-info {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .video-title {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 18px;
+    line-height: 1.4;
+    font-weight: 700;
+  }
+
+  .bvid {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 13px;
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    white-space: nowrap;
+  }
+
+  .divider {
+    height: 1px;
+    margin: 0 16px;
+    background: var(--line);
+  }
+
+  .queue { padding: 12px 16px 15px; }
+
+  .queue-layout {
+    display: grid;
+    grid-template-columns: 104px minmax(0,1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .queue-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 9px;
+  }
+
+  .queue-title {
+    color: #dce4f2;
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .count {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .count[hidden] { display: none; }
+
+  #items { min-width: 0; }
+
+  .item {
+    display: grid;
+    grid-template-columns: 28px minmax(0,1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 0;
+    border-top: 1px solid rgba(255,255,255,.075);
+  }
+
+  .item:first-child { border-top: 0; }
+
+  .number {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    border-radius: 7px;
+    background: rgba(255,255,255,.09);
+    color: #eaf0fb;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .item .video-info {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .item .video-title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .item .bvid { font-size: 12px; }
+
+  .delete-btn {
+    flex: 0 0 auto;
+    padding: 6px 9px;
+    font-size: 12px;
+    color: #ffd2d2;
+    white-space: nowrap;
+  }
+
+  .empty {
+    padding: 12px 0 5px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 0 16px 13px;
+  }
+
+  button {
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: #f4f6fb;
+    background: rgba(255,255,255,.09);
+    font: 600 13px "Microsoft YaHei UI", sans-serif;
+    cursor: pointer;
+  }
+
+  button:hover { background: rgba(255,255,255,.16); }
+  button:disabled { opacity: .45; cursor: wait; }
+
+  .btn-next {
+    background: rgba(75,125,220,.32);
+    border-color: rgba(138,180,255,.4);
+  }
+
+  .btn-clear {
+    color: #ffd2d2;
+    border-color: rgba(255,110,110,.35);
+  }
+
+  .btn-shutdown {
+    color: #fff;
+    background: rgba(190,45,45,.48);
+    border-color: rgba(255,110,110,.55);
+  }
+
+  .notice {
+    display: none;
+    margin: 0 16px 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: rgba(255,255,255,.08);
+    color: var(--text);
+  }
+
+  .notice.show { display: block; }
+  .notice.error { color: #ffd2d2; }
+
+  .footer {
+    padding: 0 16px 10px;
+    color: rgba(220,228,242,.65);
+    font-size: 11px;
+    text-align: right;
+  }
+
+  .operation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .operation-item {
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: rgba(255,255,255,.055);
+    color: #ff4d5a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .operation-time {
+    margin-right: 7px;
+    color: var(--muted);
+    font-size: 11px;
+    font-family: Consolas, monospace;
+  }
+
+  @media (max-width: 420px) {
+    .queue-layout {
+      grid-template-columns: 86px minmax(0,1fr);
+      gap: 8px;
+    }
+
+    .item {
+      grid-template-columns: 24px minmax(0,1fr) auto;
+      gap: 6px;
+    }
+
+    .video-info,
+    .item .video-info { gap: 5px; }
+
+    .video-title { font-size: 15px; }
+    .bvid { font-size: 11px; }
+    .item .video-title { font-size: 14px; }
+    .item .bvid { font-size: 10px; }
+
+    .number {
+      width: 24px;
+      height: 24px;
+    }
+
+    .delete-btn {
+      padding: 5px 6px;
+      font-size: 11px;
+    }
+  }
+</style>
+</head>
+
+<body>
+<style>
+.unified-nav{position:sticky;top:0;z-index:9999;display:flex;gap:14px;align-items:center;padding:9px 14px;background:#141b27;color:#eaf0fa;font:13px "Microsoft YaHei",sans-serif;border-bottom:1px solid rgba(255,255,255,.14)}
+.unified-nav a{color:#c8d5e9;text-decoration:none}.unified-nav a.active{color:#fff;font-weight:800}
+</style>
+<nav class="unified-nav">
+<a href="/dashboard">综合展示</a><a href="/">接入中心</a><a href="/live2d">Live2D</a><a href="/voice">语音播报</a><a href="/music">歌曲点播</a><a href="/music/settings">歌曲设置</a><a href="/video" class="active">视频点播</a><a href="/video/settings">视频设置</a><a href="/settings">系统设置</a><a href="/credentials">凭据管理</a>
+</nav>
+<div class="panel">
+  <header class="header">
+    <div>
+      <div class="brand">B站视频点播台</div>
+      <div class="subtitle">观众点播 · 按顺序播放</div>
+    </div>
+    <div class="live">● 实时队列</div>
+  </header>
+
+  <section class="section">
+    <div id="current" class="current">
+      <div class="current-left">
+        <div class="section-label">正在播放</div>
+        <div class="play-icon">Ⅱ</div>
+      </div>
+      <div class="video-info">
+        <div class="video-title">等待点播视频</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <section class="queue">
+    <div class="queue-layout">
+      <div class="queue-head">
+        <div class="queue-title">接下来播放</div>
+        <div id="count" class="count" hidden></div>
+      </div>
+      <div id="items">
+        <div class="empty">目前没有待播放的视频</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button id="nextBtn" class="btn-next" type="button">▶ 下一个</button>
+    <button id="clearBtn" class="btn-clear" type="button">清空待播放队列</button>
+  </div>
+
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <div id="footer" class="footer">等待连接机器人…</div>
+  <div class="divider"></div>
+
+  <section class="section">
+    <div class="operation-list" id="operations"></div>
+  </section>
+</div>
+
+<script>
+  const currentEl = document.getElementById("current");
+  const itemsEl = document.getElementById("items");
+  const countEl = document.getElementById("count");
+  const footerEl = document.getElementById("footer");
+  const noticeEl = document.getElementById("notice");
+  const nextBtn = document.getElementById("nextBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  let actionBusy = false;
+
+  function showNotice(message, isError = false) {
+    noticeEl.textContent = message;
+    noticeEl.className =
+      "notice show" + (isError ? " error" : "");
+  }
+
+  function makeText(tag, className, text) {
+    const node = document.createElement(tag);
+    node.className = className;
+    node.textContent = text || "";
+    return node;
+  }
+
+  // 15个字符以内完整显示，超过15个才添加省略号。
+  function shortTitle(text) {
+    const chars = Array.from(String(text || ""));
+    return chars.length > 15
+      ? chars.slice(0, 15).join("") + "…"
+      : chars.join("");
+  }
+
+  async function runAction(action, index = null) {
+    if (actionBusy) return;
+
+    actionBusy = true;
+
+    document.querySelectorAll("button").forEach(button => {
+      button.disabled = true;
+    });
+
+    try {
+      const response = await fetch("/api/video/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, index })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || "操作失败");
+      }
+
+      showNotice(result.message || "操作成功");
+      await refreshQueue();
+
+    } catch (error) {
+      showNotice(
+        error.message || "操作失败，请检查机器人是否运行",
+        true
+      );
+
+    } finally {
+      actionBusy = false;
+
+      document.querySelectorAll("button").forEach(button => {
+        button.disabled = false;
+      });
+    }
+  }
+
+  nextBtn.addEventListener("click", () => {
+    runAction("next");
+  });
+
+  clearBtn.addEventListener("click", () => {
+    if (confirm("确定清空所有待播放视频吗？当前正在播放的视频不会被删除。")) {
+      runAction("clear");
+    }
+  });
+
+  function render(data) {
+    currentEl.replaceChildren();
+
+    const left = document.createElement("div");
+    left.className = "current-left";
+
+    left.appendChild(
+      makeText("div", "section-label", "正在播放")
+    );
+
+    left.appendChild(
+      makeText("div", "play-icon", data.current ? "▶" : "Ⅱ")
+    );
+
+    currentEl.appendChild(left);
+
+    const currentInfo = document.createElement("div");
+    currentInfo.className = "video-info";
+
+    currentInfo.appendChild(
+      makeText(
+        "div",
+        "video-title",
+        data.current
+          ? shortTitle(data.current.title)
+          : "等待点播视频"
+      )
+    );
+
+    // 没有正在播放的视频时，不显示BV号或相关提示。
+    if (data.current && data.current.bvid) {
+      currentInfo.appendChild(
+        makeText("div", "bvid", data.current.bvid)
+      );
+    }
+
+    currentEl.appendChild(currentInfo);
+
+    const queue = data.queue || [];
+    const queueLength = queue.length;
+
+    countEl.textContent = queueLength > 0
+      ? `排队 ${queueLength} 条`
+      : "";
+
+    countEl.hidden = queueLength === 0;
+    itemsEl.replaceChildren();
+
+    if (queueLength === 0) {
+      itemsEl.appendChild(
+        makeText("div", "empty", "目前没有待播放的视频")
+      );
+    } else {
+      queue.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "item";
+
+        row.appendChild(
+          makeText("div", "number", String(item.index))
+        );
+
+        const info = document.createElement("div");
+        info.className = "video-info";
+
+        info.appendChild(
+          makeText("div", "video-title", shortTitle(item.title))
+        );
+
+        if (item.bvid) {
+          info.appendChild(
+            makeText("div", "bvid", item.bvid)
+          );
+        }
+
+        row.appendChild(info);
+
+        const del = makeText("button", "delete-btn", "删除");
+        del.type = "button";
+        del.title = `删除队列第 ${item.index} 项`;
+
+        del.addEventListener("click", () => {
+          if (confirm(
+            `确定删除队列第 ${item.index} 项？\n${item.title}\n${item.bvid}`
+          )) {
+            runAction("delete", item.index);
+          }
+        });
+
+        row.appendChild(del);
+        itemsEl.appendChild(row);
+      });
+    }
+
+    const operationsEl = document.getElementById("operations");
+    operationsEl.replaceChildren();
+
+    const operations = (data.operations || [])
+      .filter(item =>
+        item.timestamp &&
+        Date.now() / 1000 - item.timestamp <= 10
+      )
+      .slice(-10);
+
+    operations.forEach(item => {
+      const row = makeText("div", "operation-item", "");
+
+      row.appendChild(
+        makeText("span", "operation-time", item.time || "")
+      );
+
+      row.appendChild(
+        document.createTextNode(item.message || "")
+      );
+
+      operationsEl.appendChild(row);
+    });
+
+    footerEl.textContent =
+      `每 1 秒更新 · 最近更新 ${data.updated_at || "--:--:--"}`;
+  }
+
+  async function refreshQueue() {
+    try {
+      const response = await fetch(
+        "/api/video/queue?t=" + Date.now(),
+        { cache: "no-store" }
+      );
+
+      if (!response.ok) {
+        throw new Error("HTTP " + response.status);
+      }
+
+      render(await response.json());
+    } catch (error) {
+      footerEl.textContent =
+        "无法连接点播机器人，请确认 main.py 正在运行";
+    }
+  }
+
+  refreshQueue();
+
+  setInterval(() => {
+    if (!actionBusy) {
+      refreshQueue();
+    }
+  }, 1000);
+</script>
+</body>
+</html>

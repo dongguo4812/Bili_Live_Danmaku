@@ -8,3 +8,42 @@ venv/
 credentials/
 !models/.gitkeep
 !models/live_uu/.gitkeep
+
+# Unified runtime data and logs (keep documentation tracked)
+logs/
+data/*
+!data/README.md
+data/music/
+data/video/
+data/cache/
+*.tmp
+
+# Local credentials must never be committed
+credentials/
+
+# Legacy local secrets and administrator lists
+bili_cookie.txt
+obs_config.txt
+uid.txt
+*.cookie
+*.secret
+*.key
+chrome_profile/
+
+# Legacy local configuration is migrated once into config/*.json at runtime
+config.json
+user_settings.json
+config/.legacy_config_migrated_v1.json
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Legacy local credential/config files from standalone bots
+bili_cookie.txt
+uid.txt
+room_config.txt
+obs_config.txt
+house.txt
+chrome_profile/

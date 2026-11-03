@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Now Playing</title>
+
+<style>
+:root {
+    --gold: #f0b45f;
+    --text: #e7c89d;
+    --panel: rgba(0, 0, 0, .15);
+    --random-color: #A83232;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+html {
+    color-scheme: dark;
+}
+
+body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    font-family: Arial, "Microsoft YaHei", sans-serif;
+    color: var(--text);
+}
+
+/* 默认隐藏，只有明确播放时才显示 */
+#widget {
+    width: min(405px, 100vw);
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    user-select: none;
+
+    position: relative;
+    overflow: hidden;
+    border-radius: 9px;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+#widget.visible {
+    display: flex;
+}
+
+#main {
+    height: 112px;
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+    position: relative;
+}
+
+#cover-wrap {
+    height: 112px;
+    width: 112px;
+    flex: 0 0 112px;
+    position: relative;
+    overflow: hidden;
+    border-radius: 5px;
+    background: rgba(102, 76, 60, .35);
+}
+
+#cover-blur {
+    position: absolute;
+    inset: -20px;
+    background-position: center;
+    background-size: cover;
+    filter: blur(20px) brightness(.8);
+    opacity: .55;
+    transform: scale(1.2);
+}
+
+#cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+}
+
+#cover-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 38px;
+    color: rgba(231, 200, 157, .65);
+    background: linear-gradient(145deg, #765c49, #34271f);
+}
+
+/* 右侧详情区域 */
+#details {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 7px;
+    overflow: hidden;
+
+    position: relative;
+    isolation: isolate;
+    border-radius: 5px;
+    background: rgba(30, 23, 20, .5);
+}
+
+/* 右侧使用歌曲封面作为模糊背景 */
+#details::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+
+    background-image: var(--details-bg, none);
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+
+    opacity: .6;
+    filter: blur(3px) brightness(.65);
+    transform: scale(1.04);
+    pointer-events: none;
+}
+
+/* 右侧背景暗色遮罩 */
+#details::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+
+    background: rgba(0, 0, 0, .35);
+    pointer-events: none;
+}
+
+#song-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--random-color);
+    padding-bottom: 7px;
+    position: relative;
+    z-index: 1;
+}
+
+#song-title {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 4px #24170f;
+    color: var(--random-color);
+}
+
+#song-author {
+    font-size: 14px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: .94;
+    color: var(--random-color);
+}
+
+#song-album {
+    font-size: 12px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: .76;
+}
+
+#state {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: .65;
+}
+
+#songtime {
+    height: 36px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--random-color);
+    position: relative;
+    z-index: 1;
+}
+
+.time {
+    width: 42px;
+    flex: 0 0 42px;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--random-color);
+}
+
+.time:last-child {
+    text-align: right;
+}
+
+#wave {
+    height: 36px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    overflow: hidden;
+}
+
+.wavebar {
+    width: 3px;
+    min-width: 2px;
+    height: var(--h);
+    border-radius: 3px;
+    background: var(--random-color);
+    opacity: .92;
+    transform: scaleY(.45);
+    transform-origin: center;
+    animation: wave var(--speed) ease-in-out infinite alternate;
+    animation-delay: var(--delay);
+}
+
+@keyframes wave {
+    from {
+        transform: scaleY(.22);
+    }
+    to {
+        transform: scaleY(1);
+    }
+}
+
+@media(max-width: 300px) {
+    #widget {
+        gap: 5px;
+    }
+
+    #main {
+        height: 84px;
+    }
+
+    #cover-wrap {
+        height: 84px;
+        width: 84px;
+        flex-basis: 84px;
+    }
+
+    #song-title {
+        font-size: 14px;
+    }
+
+    #song-author {
+        font-size: 12px;
+    }
+
+    #song-album {
+        font-size: 10px;
+    }
+
+    #songtime {
+        height: 56px;
+        padding: 0 7px;
+    }
+
+    .time {
+        width: 34px;
+        flex-basis: 34px;
+        font-size: 10px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div id="widget">
+
+<div id="main">
+
+    <div id="cover-wrap">
+        <div id="cover-blur"></div>
+        <div id="cover-fallback">♫</div>
+        <img id="cover" alt="" referrerpolicy="no-referrer">
+    </div>
+
+    <div id="details">
+
+        <div id="song-info">
+            <div id="song-title"></div>
+            <div id="song-author"></div>
+        </div>
+
+        <div id="songtime">
+            <p class="time" id="elapsed">00:00</p>
+            <div id="wave" aria-hidden="true"></div>
+            <p class="time" id="duration">00:00</p>
+        </div>
+
+    </div>
+
+</div>
+
+</div>
+
+<script>
+if (new URLSearchParams(window.location.search).get("embedded") === "1") {
+    document.body.classList.add("embedded");
+}
+(() => {
+
+    "use strict";
+
+    const $ = id => document.getElementById(id);
+
+    const widget = $("widget");
+
+    // 10 种深色
+	const randomColors = [
+		"#FF3B30", // 鲜红
+		"#FF7A00", // 橙色
+		"#FFD000", // 明黄
+		"#39D353", // 亮绿
+		"#00D6C9", // 青绿
+		"#00A6FF", // 天蓝
+		"#4169FF", // 亮蓝
+		"#9B5CFF", // 紫色
+		"#FF4FA3", // 玫红
+		"#FF6B6B"  // 珊瑚红
+	];
+
+    // 当前歌曲颜色
+    let currentColor = null;
+
+    // 当前歌曲标识
+    let lastSongKey = null;
+
+    // 随机选择歌曲颜色
+    function updateRandomColor(song) {
+
+        const songKey = [
+            String(song.name || "").trim(),
+            String(song.singer || "").trim(),
+            String(song.picUrl || "").trim()
+        ].join("|");
+
+        // 同一首歌不重复随机
+        if (songKey === lastSongKey) {
+            return;
+        }
+
+        lastSongKey = songKey;
+
+        let newColor;
+
+        do {
+            newColor = randomColors[
+                Math.floor(Math.random() * randomColors.length)
+            ];
+        } while (
+            randomColors.length > 1 &&
+            newColor === currentColor
+        );
+
+        currentColor = newColor;
+
+        widget.style.setProperty(
+            "--random-color",
+            currentColor
+        );
+    }
+
+    // 创建动态波形
+    const bars = 31;
+
+    for (let i = 0; i < bars; i++) {
+
+        const bar = document.createElement("i");
+
+        bar.className = "wavebar";
+
+        bar.style.setProperty(
+            "--h",
+            (7 + Math.abs(Math.sin(i * 1.71) * 24)) + "px"
+        );
+
+        bar.style.setProperty(
+            "--speed",
+            (0.45 + (i % 7) * 0.13) + "s"
+        );
+
+        bar.style.setProperty(
+            "--delay",
+            (-Math.random() * 1.8) + "s"
+        );
+
+        $("wave").appendChild(bar);
+    }
+
+    let lastCover = null;
+
+    let progressBase = 0;
+    let receivedAt = Date.now();
+    let isPlaying = false;
+    let refreshing = false;
+
+    let current = {
+        status: "",
+        name: "",
+        singer: "",
+        albumName: "",
+        duration: 0,
+        progress: 0,
+        picUrl: "",
+        playbackRate: 1
+    };
+
+    // 页面初始化时默认隐藏
+    hideWidget();
+
+    // 显示整个组件
+    function showWidget() {
+        widget.classList.add("visible");
+    }
+
+    // 隐藏整个组件
+    function hideWidget() {
+        widget.classList.remove("visible");
+        isPlaying = false;
+    }
+
+    // 时间格式化
+    function formatTime(value) {
+
+        value = Math.max(
+            0,
+            Math.floor(Number(value) || 0)
+        );
+
+        const minutes = String(
+            Math.floor(value / 60)
+        ).padStart(2, "0");
+
+        const seconds = String(
+            value % 60
+        ).padStart(2, "0");
+
+        return minutes + ":" + seconds;
+    }
+
+    // 更新页面
+    function render(data) {
+
+        // 检查接口数据
+        if (
+            !data ||
+            typeof data !== "object" ||
+            !data.song ||
+            typeof data.song !== "object"
+        ) {
+            hideWidget();
+            return;
+        }
+
+        // 读取歌曲数据
+        const song = data.song;
+
+        const status = String(
+            song.status || data.status || ""
+        ).trim().toLowerCase();
+
+        // 只有明确正在播放才显示
+        if (
+            data.ok !== true ||
+            data.visible !== true ||
+            status !== "playing"
+        ) {
+            hideWidget();
+            return;
+        }
+
+        current = {
+            ...current,
+            ...song,
+            status: status
+        };
+
+        isPlaying = true;
+
+        // 歌曲名称
+        const title = String(
+            current.name || ""
+        ).trim();
+
+        // 歌手
+        const singer = String(
+            current.singer || ""
+        ).trim();
+
+        // 每首歌曲随机选择一种统一颜色
+        updateRandomColor(current);
+
+        showWidget();
+
+        $("song-title").textContent = title;
+        $("song-author").textContent = singer;
+
+        // 封面
+        const pic = String(
+            current.picUrl || ""
+        ).trim();
+
+        if (pic !== lastCover) {
+
+            lastCover = pic;
+
+            // 更新右侧 details 的背景封面
+            $("details").style.setProperty(
+                "--details-bg",
+                pic ? `url("${pic.replace(/"/g, "%22")}")` : "none"
+            );
+
+            if (pic) {
+
+                $("cover").onload = () => {
+                    $("cover-fallback").style.display = "none";
+
+                    $("cover-blur").style.backgroundImage =
+                        `url("${pic.replace(/"/g, "%22")}")`;
+                };
+
+                $("cover").onerror = () => {
+                    $("cover-fallback").style.display = "grid";
+                    $("cover-blur").style.backgroundImage = "none";
+                    $("cover").removeAttribute("src");
+                };
+
+                $("cover-fallback").style.display = "grid";
+                $("cover").src = pic;
+
+            } else {
+
+                $("cover").removeAttribute("src");
+                $("cover-fallback").style.display = "grid";
+                $("cover-blur").style.backgroundImage = "none";
+            }
+        }
+
+        // 播放时间
+        const duration = Math.max(
+            0,
+            Number(current.duration) || 0
+        );
+
+        const progress = Math.max(
+            0,
+            Number(current.progress) || 0
+        );
+
+        progressBase = progress;
+        receivedAt = Date.now();
+
+        $("duration").textContent = formatTime(duration);
+        $("elapsed").textContent = formatTime(progress);
+
+        $("wave").style.opacity = "1";
+    }
+
+    // 从本地机器人 HTTP 服务获取状态
+    async function refresh() {
+
+        if (refreshing) {
+            return;
+        }
+
+        refreshing = true;
+
+        try {
+
+            const controller = new AbortController();
+
+            const timeoutId = setTimeout(
+                () => controller.abort(),
+                3000
+            );
+
+            let response;
+
+            try {
+
+                response = await fetch(
+                    "/api/music/widget",
+                    {
+                        cache: "no-store",
+                        signal: controller.signal
+                    }
+                );
+
+            } finally {
+
+                clearTimeout(timeoutId);
+            }
+
+            if (!response.ok) {
+
+                hideWidget();
+
+                return;
+            }
+
+            const payload = await response.json();
+
+            // 统一主项目接口返回结构，保持源点歌项目原版组件的渲染逻辑。
+            const data = {
+                ok: payload && payload.ok === true,
+                visible: !!(payload && payload.available === true && payload.playing === true),
+                status: payload && payload.playing === true ? "playing" : String(payload && payload.status || ""),
+                song: payload && typeof payload === "object" ? payload : {}
+            };
+
+            render(data);
+
+        } catch (error) {
+
+            // 接口断开、超时、返回异常时隐藏
+            hideWidget();
+
+        } finally {
+
+            refreshing = false;
+        }
+    }
+
+    // 播放过程中平滑更新时间
+    function tick() {
+
+        if (
+            !isPlaying ||
+            !widget.classList.contains("visible")
+        ) {
+            return;
+        }
+
+        const duration = Math.max(
+            0,
+            Number(current.duration) || 0
+        );
+
+        let progress = progressBase;
+
+        progress +=
+            (Date.now() - receivedAt) / 1000 *
+            (Number(current.playbackRate) || 1);
+
+        if (duration > 0) {
+
+            progress = Math.min(
+                duration,
+                progress
+            );
+        }
+
+        $("elapsed").textContent =
+            formatTime(progress);
+    }
+
+    // 首次立即检查
+    refresh();
+
+    // 每秒重新获取播放状态
+    setInterval(refresh, 1000);
+
+    // 每 250ms 更新播放时间
+    setInterval(tick, 250);
+
+})();
+</script>
+
+</body>
+</html>

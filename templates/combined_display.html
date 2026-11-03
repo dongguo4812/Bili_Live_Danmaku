@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>综合展示</title>
+<style>
+:root{color-scheme:dark;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif;color:#f4f6fb}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+body.editor-mode{background:#10131a;color:#f4f6fb}
+.toolbar{position:fixed;z-index:1000;left:0;right:0;top:0;min-height:54px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#171d29;border-bottom:1px solid #354056}
+.editor-mode .toolbar{left:218px}
+.toolbar[hidden]{display:none}
+.editor-sidebar{position:fixed;z-index:1100;left:0;top:0;bottom:0;width:218px;padding:22px 14px;background:#141b27;border-right:1px solid rgba(255,255,255,.1)}
+.editor-sidebar .brand{font-size:15px;font-weight:800;margin:0 8px 24px}
+.editor-sidebar nav{display:flex;flex-direction:column;gap:6px}
+.editor-sidebar a{display:block;padding:10px 12px;border-radius:8px;color:#c6d0e0;text-decoration:none;font-size:13px}
+.editor-sidebar a.active{background:#2c3d59;color:#fff;font-weight:700}
+.editor-sidebar a:hover{background:rgba(255,255,255,.07)}
+.toolbar strong{margin-right:12px}
+.toolbar button,.widget button{border:1px solid #53627c;border-radius:7px;padding:7px 10px;background:#29364a;color:#f4f6fb;font:inherit;font-size:12px;cursor:pointer}
+.toolbar button.primary{background:#5478bd;border-color:#7895d2}
+.toolbar button:disabled{opacity:.45;cursor:not-allowed}
+#layout-message{font-size:12px;color:#b8c4d8}
+#stage{position:absolute;inset:0;overflow:hidden;background:transparent}
+.editor-mode #stage{top:58px;left:218px;right:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
+.widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(15,20,30,.82);box-shadow:0 8px 24px rgba(0,0,0,.2);backdrop-filter:blur(7px);display:flex;flex-direction:column}
+.display-mode .widget{border-color:transparent;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.widget-header{flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:rgba(255,255,255,.07);font-size:12px;font-weight:800;cursor:move;user-select:none;touch-action:none}
+.display-mode .widget-header{background:transparent;padding:2px 5px}
+.widget-actions{display:flex;gap:5px}
+.widget-actions button{padding:2px 6px;font-size:11px}
+.widget-body{flex:1;min-height:0;overflow:auto;padding:10px 12px;font-size:14px;line-height:1.55}
+.display-mode .widget-body{padding:5px 8px}
+.widget.live2d .widget-body,.widget.music_widget .widget-body{padding:0;overflow:hidden}
+.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
+/* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
+.display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.display-mode .widget.music_widget .widget-header{display:none}
+.display-mode .widget.music_widget .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}
+.widget video,.widget .video-frame{display:none!important}
+.voice-engine{position:absolute;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;border:0}
+.widget .muted{color:#b8c3d4;font-size:12px}
+.widget .primary-line{font-size:17px;font-weight:800;overflow-wrap:anywhere}
+.widget .row{display:flex;gap:8px;align-items:baseline;justify-content:space-between;margin:5px 0}
+.widget .queue-item{padding:5px 0;border-top:1px solid rgba(255,255,255,.1);font-size:12px;overflow-wrap:anywhere}
+.widget .notice{margin-top:6px;padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.widget .notice.error{color:#ffb1b1}
+.widget .resize-handle{display:none}
+.editor-mode .widget .resize-handle{position:absolute;right:2px;bottom:2px;width:18px;height:18px;display:block;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 45%,#9bb8f5 46%,#9bb8f5 56%,transparent 57%)}
+.empty{color:#aeb9ca;font-size:13px}
+@media(max-width:800px){.editor-sidebar{position:relative;width:100%;height:auto;bottom:auto;padding:10px 12px}.editor-sidebar .brand{margin:0 0 8px}.editor-sidebar nav{flex-direction:row;overflow-x:auto}.editor-sidebar a{white-space:nowrap;padding:8px 10px}.editor-mode .toolbar{left:0;top:96px}.editor-mode #stage{left:0;top:160px}}
+@media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
+</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
+</head>
+<body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}" data-layout-id="{{ layout_id }}">
+{% if not display_mode %}
+<aside class="editor-sidebar">
+  <div class="brand">B站直播互动中心</div>
+  <nav>
+    <a href="/dashboard" class="active">综合展示</a>
+    <a href="/">接入中心</a>
+    <a href="/live2d">Live2D</a>
+    <a href="/voice">语音播报</a>
+    <a href="/music">歌曲点播</a>
+    <a href="/music/settings">歌曲设置</a>
+    <a href="/video">视频点播</a>
+    <a href="/video/settings">视频设置</a>
+    <a href="/settings">系统设置</a>
+    <a href="/credentials">凭据管理</a>
+  </nav>
+</aside>
+{% endif %}
+<div class="toolbar" id="toolbar" {% if display_mode %}hidden{% endif %}>
+  <strong>综合展示布局</strong>
+  <select id="layout-select" aria-label="选择布局" style="max-width:170px;padding:7px 9px;border:1px solid #53627c;border-radius:7px;background:#202b3b;color:#f4f6fb"></select>
+  <button type="button" id="new-layout">新建布局</button>
+  <button type="button" id="duplicate-layout">复制布局</button>
+  <button type="button" id="rename-layout">重命名</button>
+  <button type="button" id="delete-layout">删除布局</button>
+  <button type="button" id="activate-layout">设为默认</button>
+  <button type="button" data-add="live2d">添加 Live2D</button>
+  <button type="button" data-add="voice">添加语音</button>
+  <button type="button" data-add="music">添加歌曲</button>
+  <button type="button" data-add="music_widget">添加歌曲信息</button>
+  <button type="button" data-add="video">添加视频</button>
+  <button type="button" data-add="danmaku">添加弹幕</button>
+  <button type="button" class="primary" id="save-layout">保存当前布局</button>
+  <button type="button" id="reset-layout">恢复默认布局</button>
+  <button type="button" id="open-output">打开 OBS 展示页</button>
+  <span id="layout-message">拖动模块标题栏移动，拖动右下角调整大小。</span>
+</div>
+<div id="stage"></div>
+<script src="{{ url_for('static', filename='display_media.js') }}"></script>
+<script>
+(() => {
+  const displayMode = document.body.dataset.displayMode === "1";
+  const stage = document.getElementById("stage");
+  const message = document.getElementById("layout-message");
+  const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",music_widget:"歌曲信息",video:"视频点播",danmaku:"直播弹幕"};
+  let layout = {version:1,widgets:[]};
+  let danmakuAfter = 0;
+  let danmakuCursorReady = false;
+  let refreshInFlight = false;
+  let dragState = null;
+  let latestData = {};
+
+  async function api(url, options={}) {
+    const response = await fetch(url,{cache:"no-store",...options});
+    const data = await response.json();
+    if(!response.ok || data.ok===false) throw new Error(data.error||data.message||("HTTP "+response.status));
+    return data;
+  }
+
+  function setMessage(text,error=false){
+    if(message){message.textContent=text;message.style.color=error?"#ffaaaa":"#b8c4d8";}
+  }
+
+  function make(tag,cls,text){
+    const node=document.createElement(tag);
+    if(cls) node.className=cls;
+    if(text!==undefined) node.textContent=text;
+    return node;
+  }
+
+  function addWidget(type){
+    if(layout.widgets.some(w=>w.type===type)) return;
+    const size={w:28,h:36};
+    let position=null;
+    // 从左上到右下寻找不与现有模块重叠的位置，避免新模块默认叠在一起。
+    for(let y=2;y<=62&&!position;y+=4){
+      for(let x=2;x<=70;x+=4){
+        const candidate={x,y,...size};
+        const overlaps=layout.widgets.some(item=>
+          candidate.x<item.x+item.w && candidate.x+candidate.w>item.x &&
+          candidate.y<item.y+item.h && candidate.y+candidate.h>item.y
+        );
+        if(!overlaps){position=candidate;break;}
+      }
+    }
+    if(!position){
+      setMessage("当前布局没有足够的空白区域；请先缩小或移动已有模块。",true);
+      return;
+    }
+    layout.widgets.push({id:type,type,...position});
+    renderLayout();
+    setMessage(labels[type]+" 已添加；保存后才会保留。");
+  }
+
+  function removeWidget(type){
+    layout.widgets=layout.widgets.filter(w=>w.type!==type);
+    renderLayout();
+  }
+
+  function positionWidget(node,item){
+    node.style.left=item.x+"%";
+    node.style.top=item.y+"%";
+    node.style.width=item.w+"%";
+    node.style.height=item.h+"%";
+  }
+
+  function startPointerEdit(event,item,mode){
+    if(displayMode || event.button!==0) return;
+    if(event.target.closest("button")) return;
+    event.preventDefault();
+    const rect=stage.getBoundingClientRect();
+    dragState={item,mode,startX:event.clientX,startY:event.clientY,original:{x:item.x,y:item.y,w:item.w,h:item.h},rect};
+    window.addEventListener("pointermove",movePointerEdit);
+    window.addEventListener("pointerup",endPointerEdit,{once:true});
+    window.addEventListener("pointercancel",endPointerEdit,{once:true});
+  }
+
+  function movePointerEdit(event){
+    if(!dragState) return;
+    const dx=(event.clientX-dragState.startX)/dragState.rect.width*100;
+    const dy=(event.clientY-dragState.startY)/dragState.rect.height*100;
+    const {item,mode,original}=dragState;
+    if(mode==="move"){
+      item.x=Math.max(0,Math.min(100-item.w,original.x+dx));
+      item.y=Math.max(0,Math.min(100-item.h,original.y+dy));
+    }else{
+      item.w=Math.max(12,Math.min(100-item.x,original.w+dx));
+      item.h=Math.max(12,Math.min(100-item.y,original.h+dy));
+    }
+    const node=stage.querySelector('[data-widget="'+item.type+'"]');
+    if(node) positionWidget(node,item);
+  }
+
+  function endPointerEdit(){
+    window.removeEventListener("pointermove",movePointerEdit);
+    window.removeEventListener("pointerup",endPointerEdit);
+    window.removeEventListener("pointercancel",endPointerEdit);
+    dragState=null;
+    setMessage("布局已调整；点击“保存当前布局”写入本地配置。");
+  }
+
+  function renderMusic(body){
+    MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
+  }
+
+  function renderMusicWidget(body){
+    // 编辑模式与 OBS 展示模式均加载独立歌曲信息页面，确保预览与最终显示一致。
+    const frame=document.createElement("iframe");
+    frame.src="/music/widget?embedded=1";
+    frame.title="歌曲信息展示组件";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency", "true");
+    frame.style.background = "transparent";
+    body.appendChild(frame);
+  }
+
+  function renderVideo(body){
+    // 综合展示仅呈现视频信息，不加载或嵌入实际视频画面。
+    MediaDisplay.render(body,"video",latestData.video||{},{compact:true,showInstruction:false});
+  }
+
+  function renderVoice(body){
+    const data=latestData.voice||{};
+    const prefs=data.preferences||{};
+    body.appendChild(make("div","primary-line","语音播报"));
+    const enabled = !!(prefs.danmaku_enabled || prefs.gift_enabled || prefs.super_chat_enabled);
+    const moduleState = data.module_state || "stopped";
+    body.appendChild(make("div","row","模块："+({running:"运行中",paused:"已暂停",stopped:"已关闭",error:"运行异常"}[moduleState]||moduleState)));
+    body.appendChild(make("div","row","触发："+(enabled?"已启用":"已关闭")));
+    body.appendChild(make("div","muted","音色："+(prefs.voice||"默认")));
+    body.appendChild(make("div","muted","语速："+(prefs.rate||"+0%")+" · 音量："+(prefs.volume||"+0%")));
+  }
+
+  function renderDanmaku(body){
+    const items=latestData.danmaku||[];
+    if(!items.length){body.appendChild(make("div","empty","等待新弹幕…"));return;}
+    items.slice(-12).forEach(item=>{
+      body.appendChild(make("div","queue-item",(item.nickname||"观众")+"： "+(item.text||"")));
+    });
+  }
+
+  function renderWidgetContent(body,type){
+    body.replaceChildren();
+    if(type==="live2d"){
+      if(displayMode){
+        const frame=document.createElement("iframe");
+        frame.src="/display?embedded=1";
+        frame.title="Live2D 展示";
+        frame.allow="autoplay";
+        body.appendChild(frame);
+      }else{
+        body.appendChild(make("div","empty","Live2D OBS 展示模块（编辑页不启动音频与模型渲染）"));
+      }
+    }else if(type==="music_widget") renderMusicWidget(body);
+    else if(type==="music") renderMusic(body);
+    else if(type==="video") renderVideo(body);
+    else if(type==="voice") renderVoice(body);
+    else if(type==="danmaku") renderDanmaku(body);
+  }
+
+  function renderLayout(){
+    stage.replaceChildren();
+    layout.widgets.forEach(item=>{
+      const widget=make("section","widget "+item.type);
+      widget.dataset.widget=item.type;
+      positionWidget(widget,item);
+      const header=make("header","widget-header",labels[item.type]||item.type);
+      const actions=make("div","widget-actions");
+      if(!displayMode){
+        const remove=make("button","","移除");
+        remove.type="button";
+        remove.addEventListener("click",()=>removeWidget(item.type));
+        actions.appendChild(remove);
+      }
+      header.appendChild(actions);
+      header.addEventListener("pointerdown",event=>startPointerEdit(event,item,"move"));
+      const body=make("div","widget-body");
+      renderWidgetContent(body,item.type);
+      widget.appendChild(header);
+      widget.appendChild(body);
+      if(!displayMode){
+        const handle=make("div","resize-handle");
+        handle.addEventListener("pointerdown",event=>startPointerEdit(event,item,"resize"));
+        widget.appendChild(handle);
+      }
+      stage.appendChild(widget);
+    });
+    // 若只选择语音而未添加 Live2D 画面，仍加载隐藏的音频引擎 iframe。
+    if(displayMode && layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
+      const engine=document.createElement("iframe");
+      engine.className="voice-engine";
+      engine.src="/display?embedded=1";
+      engine.title="语音播报音频引擎";
+      engine.allow="autoplay";
+      stage.appendChild(engine);
+    }
+    if(!displayMode){
+      document.querySelectorAll("[data-add]").forEach(button=>{
+        button.disabled=layout.widgets.some(w=>w.type===button.dataset.add);
+      });
+    }
+  }
+
+  async function loadLayout(){
+    try{
+      const data=await api("/api/display/layout");
+      layout=data.layout||{version:1,widgets:[]};
+      renderLayout();
+    }catch(error){setMessage("读取布局失败："+error.message,true);}
+  }
+
+  async function resetLayout(){
+    if(!window.confirm("恢复默认布局？当前未保存的拖动和缩放会丢失。")) return;
+    try{
+      const data=await api("/api/display/layout/default");
+      layout=data.layout||{version:1,widgets:[]};
+      renderLayout();
+      setMessage("默认布局已恢复到编辑区；点击“保存当前布局”后才会写入配置。");
+    }catch(error){setMessage("恢复默认布局失败："+error.message,true);}
+  }
+
+  async function saveLayout(){
+    try{
+      const data=await api("/api/display/layout",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({layout_id:layoutId,layout})
+      });
+      layout=data.layout;
+      setMessage(data.message||"布局已保存。");
+    }catch(error){setMessage("保存失败："+error.message,true);}
+  }
+
+  async function refreshData(){
+    if(refreshInFlight) return;
+    refreshInFlight=true;
+    try{
+      const [music,video,voice,modules]=await Promise.all([
+        api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
+      ]);
+      latestData.music=music;
+      latestData.video=video;
+      latestData.voice=voice;
+      latestData.voice.module_state=(modules.modules.voice||{}).state||"stopped";
+
+      // 首次只读取当前最新事件游标，不回放断线前缓存的旧弹幕；之后只取游标之后的新事件。
+      if(!danmakuCursorReady){
+        const cursor=await api("/api/danmaku?latest=1");
+        danmakuAfter=Number(cursor.latest_id)||0;
+        danmakuCursorReady=true;
+        latestData.danmaku=[];
+      }else{
+        const danmaku=await api("/api/danmaku?after="+encodeURIComponent(danmakuAfter));
+        latestData.danmaku=Array.isArray(danmaku.items)?danmaku.items:[];
+        for(const item of latestData.danmaku){
+          const id=Number(item.id)||0;
+          if(id>danmakuAfter) danmakuAfter=id;
+        }
+      }
+
+      layout.widgets.forEach(item=>{
+        const node=stage.querySelector('[data-widget="'+item.type+'"] .widget-body');
+        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type);
+      });
+    }catch(error){
+      if(displayMode) console.debug("综合展示数据刷新失败",error);
+    }finally{
+      refreshInFlight=false;
+    }
+  }
+
+  document.querySelectorAll("[data-add]").forEach(button=>{
+    button.addEventListener("click",()=>addWidget(button.dataset.add));
+  });
+  const saveButton=document.getElementById("save-layout");
+  if(saveButton) saveButton.addEventListener("click",saveLayout);
+  const resetButton=document.getElementById("reset-layout");
+  if(resetButton) resetButton.addEventListener("click",resetLayout);
+
+  let layoutId="";
+  let layoutItems=[];
+  let activeLayoutId="";
+  const layoutSelect=document.getElementById("layout-select");
+
+  async function loadLayoutList(){
+    const data=await api("/api/display/layouts");
+    layoutItems=data.layouts||[];
+    activeLayoutId=data.active_layout_id||"";
+    if(layoutSelect){
+      layoutSelect.replaceChildren();
+      layoutItems.forEach(item=>{
+        const option=document.createElement("option");
+        option.value=item.id;
+        option.textContent=item.name+(item.id===activeLayoutId?"（默认）":"");
+        layoutSelect.appendChild(option);
+      });
+    }
+  }
+
+  async function selectLayout(nextId,discard=true){
+    if(!nextId||nextId===layoutId)return;
+    if(discard&&!window.confirm("切换布局会放弃当前尚未保存的修改，确定继续吗？")){
+      if(layoutSelect)layoutSelect.value=layoutId;
+      return;
+    }
+    const data=await api("/api/display/layout?layout_id="+encodeURIComponent(nextId));
+    layoutId=nextId;
+    layout=data.layout||{version:1,widgets:[]};
+    renderLayout();
+    if(layoutSelect)layoutSelect.value=layoutId;
+    const url=new URL(window.location.href);
+    url.searchParams.set("layout",layoutId);
+    window.history.replaceState({},document.title,url.pathname+url.search);
+    setMessage("已切换到布局："+(data.name||layoutId));
+  }
+
+  async function createLayout(copyCurrent=false){
+    const name=window.prompt("请输入新布局名称：");
+    if(!name||!name.trim())return;
+    try{
+      const data=await api("/api/display/layouts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),source_layout_id:copyCurrent?layoutId:""})});
+      await loadLayoutList();
+      await selectLayout(data.layout_id,false);
+      setMessage("布局“"+data.name+"”已创建。");
+    }catch(error){setMessage("创建布局失败："+error.message,true);}
+  }
+
+  async function renameLayout(){
+    const current=layoutItems.find(item=>item.id===layoutId);
+    if(!current)return;
+    const name=window.prompt("请输入新的布局名称：",current.name);
+    if(!name||!name.trim())return;
+    try{
+      await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim()})});
+      await loadLayoutList();
+      if(layoutSelect)layoutSelect.value=layoutId;
+      setMessage("布局已重命名。");
+    }catch(error){setMessage("重命名失败："+error.message,true);}
+  }
+
+  async function deleteLayout(){
+    const current=layoutItems.find(item=>item.id===layoutId);
+    if(!current||layoutItems.length<=1){setMessage("至少需要保留一套布局。",true);return;}
+    if(!window.confirm("确定删除布局“"+current.name+"”？此操作不可撤销。"))return;
+    try{
+      const data=await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"DELETE"});
+      await loadLayoutList();
+      await selectLayout(data.active_layout_id,false);
+      setMessage("布局已删除，已切换到默认布局。");
+    }catch(error){setMessage("删除失败："+error.message,true);}
+  }
+
+  async function activateLayout(){
+    try{
+      await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({activate:true})});
+      await loadLayoutList();
+      if(layoutSelect)layoutSelect.value=layoutId;
+      setMessage("已将当前布局设为 /display/combined 默认展示。");
+    }catch(error){setMessage("设置默认布局失败："+error.message,true);}
+  }
+
+  if(layoutSelect)layoutSelect.addEventListener("change",()=>selectLayout(layoutSelect.value));
+  const newButton=document.getElementById("new-layout");
+  if(newButton)newButton.addEventListener("click",()=>createLayout(false));
+  const duplicateButton=document.getElementById("duplicate-layout");
+  if(duplicateButton)duplicateButton.addEventListener("click",()=>createLayout(true));
+  const renameButton=document.getElementById("rename-layout");
+  if(renameButton)renameButton.addEventListener("click",renameLayout);
+  const deleteButton=document.getElementById("delete-layout");
+  if(deleteButton)deleteButton.addEventListener("click",deleteLayout);
+  const activateButton=document.getElementById("activate-layout");
+  if(activateButton)activateButton.addEventListener("click",activateLayout);
+
+  const openOutput=document.getElementById("open-output");
+  if(openOutput)openOutput.addEventListener("click",()=>window.open("/display/combined/"+encodeURIComponent(layoutId),"_blank","noopener"));
+
+  (async()=>{
+    try{
+      if(displayMode){
+        layoutId=document.body.dataset.layoutId||"";
+        const endpoint="/api/display/layout"+(layoutId?"?layout_id="+encodeURIComponent(layoutId):"");
+        const data=await api(endpoint);
+        layoutId=data.layout_id||layoutId;
+        layout=data.layout||{version:1,widgets:[]};
+        renderLayout();
+      }else{
+        await loadLayoutList();
+        const requested=new URLSearchParams(window.location.search).get("layout");
+        layoutId=layoutItems.some(item=>item.id===requested)?requested:activeLayoutId;
+        const data=await api("/api/display/layout?layout_id="+encodeURIComponent(layoutId));
+        layout=data.layout||{version:1,widgets:[]};
+        renderLayout();
+        if(layoutSelect)layoutSelect.value=layoutId;
+      }
+      const requestedWidget=new URLSearchParams(window.location.search).get("add");
+      if(requestedWidget==="music_widget"&&!displayMode){
+        addWidget("music_widget");
+        window.history.replaceState({},document.title,window.location.pathname+"?layout="+encodeURIComponent(layoutId));
+      }
+      refreshData();
+    }catch(error){setMessage("读取布局失败："+error.message,true);}
+  })();
+  setInterval(refreshData,2000);
+})();
+</script>
+</body>
+</html>

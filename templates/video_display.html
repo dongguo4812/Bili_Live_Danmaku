@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>视频点播展示</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#f7f8fc}
+body{padding:10px 16px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif}
+body.offline{visibility:hidden!important}
+#media-root{width:100%;height:100%;overflow:auto}
+</style>
+</head>
+<body class="offline">
+<div id="media-root" class="media-display"></div>
+<script src="{{ url_for('static', filename='display_media.js') }}"></script>
+<script>
+(function(){
+  const root=document.getElementById("media-root");
+  let queueInFlight=false,statusInFlight=false;
+  function setOnline(online){document.body.classList.toggle("offline",!online);}
+  async function refreshStatus(){
+    if(statusInFlight)return;
+    statusInFlight=true;
+    try{
+      const response=await fetch("/api/modules?t="+Date.now(),{cache:"no-store"});
+      if(!response.ok)throw new Error("HTTP "+response.status);
+      const data=await response.json();
+      const state=data&&data.modules&&data.modules.video?data.modules.video.state:"stopped";
+      setOnline(state==="running"||state==="paused");
+    }catch(error){setOnline(false);}
+    finally{statusInFlight=false;}
+  }
+  async function refreshQueue(){
+    if(queueInFlight)return;
+    queueInFlight=true;
+    try{
+      const response=await fetch("/api/video/queue?t="+Date.now(),{cache:"no-store"});
+      if(!response.ok)throw new Error("HTTP "+response.status);
+      const data=await response.json();
+      if(!data||!Array.isArray(data.queue)||!Array.isArray(data.operations))throw new Error("视频队列数据无效");
+      MediaDisplay.render(root,"video",data);
+    }catch(error){
+      console.debug("获取视频点播展示数据失败：",error);
+    }finally{queueInFlight=false;}
+  }
+  setOnline(false);
+  refreshStatus();
+  refreshQueue();
+  setInterval(refreshStatus,1000);
+  setInterval(refreshQueue,1000);
+})();
+</script>
+</body>
+</html>

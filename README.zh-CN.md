@@ -92,7 +92,7 @@ py -3 -m venv .venv
 
 ## B站登录与直播间连接
 
-1. 在管理页面填写直播间房间号，点击“保存房间号”。
+1. 在管理页面填写直播间房间号，点击“保存房间号”。直播间号保存在 `config/live.json`。
 2. 点击“扫码登录”，使用 B 站手机客户端扫描二维码并确认登录。
 3. 登录成功后，程序从 B 站二维码登录流程取得 Cookie，并保存到本地凭据文件。
 4. 程序启动时会检查已有登录凭据；连接直播间前也会再次验证。
@@ -104,7 +104,7 @@ py -3 -m venv .venv
 
 ## Live2D 模型
 
-默认模型 ID 为 `live_uu)，模型目录：
+默认模型 ID 为 `live_uu`，模型目录：
 
 ```text
 models/
@@ -175,41 +175,40 @@ http://127.0.0.1:8768/display
 - 正常退出程序时，尝试隐藏匹配的展示来源。
 - 会遍历场景及嵌套分组中的场景项目，处理匹配浏览器源对应的场景项。
 
-OBS WebSocket 配置位于项目根目录的 `config.json`，示例：
+OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、超时和来源名称。密码统一在凭据管理页录入，保存在 `credentials/obs.json`；Windows 使用当前 Windows 用户上下文的 DPAPI 加密，页面不会回显密码原文。非 Windows 开发环境使用仅本机文件权限保护的存储格式，不应将该环境的凭据文件复制到其他设备；正式 Windows 使用时应由目标 Windows 用户重新保存凭据。
 
-```json
-{
-  "obs_websocket": {
-    "host": "127.0.0.1",
-    "port": 4455,
-    "password_file": "credentials/obs_websocket.key",
-    "timeout": 2.5
-  }
-}
-```
-
-请根据 OBS WebSocket 服务器设置填写 host、port。密码单独保存到：
-
-```text
-credentials/obs_websocket.key
-```
-
-文件中只填写 OBS WebSocket 密码本身，不要添加引号或 `password=` 前缀。并在 OBS 中通过“工具 → WebSocket 服务器设置”启用 WebSocket 服务器。
-
-也可以在未配置 `password_file` 时使用旧版 `config.json` 中的 `password` 字段。建议使用独立密码文件方式。程序会拒绝指向项目目录之外的密码文件路径。
-
-**自动控制的边界：** OBS 未运行、连接认证失败、来源 URL 不匹配时，程序无法控制对应来源。强制结束程序、断电或 OBS 已先行关闭时，也无法保证执行退出隐藏操作。设置保存与浏览器源刷新相互独立；OBS 不可用不会阻止本地设置保存。
+系统设置页面：`http://127.0.0.1:8768/settings`；统一凭据入口：`http://127.0.0.1:8768/credentials`。请在 OBS 的“工具 → WebSocket 服务器设置”中启用 WebSocket 服务器，并确认地址、端口和来源名称正确。
 
 ## 本地数据与安全
 
-以下内容属于本地运行数据，不应提交到公开仓库或分享给他人：
+项目将数据分为三类：
 
-- `credentials/bilibili.json`：B 站登录凭据。
-- `credentials/obs_websocket.key`：OBS WebSocket 密码。
-- `user_settings.json`：直播间房间号、模型及展示/TTS 用户设置。
-- `config.json`：本地服务和连接配置。
+- `config/`：普通功能配置，例如直播间号、模型设置、语音设置、歌曲/视频参数和 OBS 地址端口。
+- `credentials/`：敏感凭据，例如 B 站 Cookie、OBS 密码和第三方 API Key。Windows 下使用 DPAPI 保护。
+- `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
+- `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-在 Windows 上，B 站凭据支持使用 Windows DPAPI 保护，使凭据可由当前 Windows 用户解密。凭据文件和本地设置已加入 `.gitignore`。不要将 Cookie、密码或凭据文件上传到 GitHub，也不要把它们发送给他人。
+旧版 `user_settings.json` 中的房间号、Live2D 和语音设置会在首次运行时迁移到对应模块配置。旧版 `config.json` 中的 OBS 明文密码可在“凭据管理”页显式迁移；迁移成功后会清理旧配置中的密码字段及其指向的旧密码文件。旧版 `obs_config.txt` 仅提示人工检查，不会被自动解析；B 站 Cookie 不从旧文本文件自动导入，需通过二维码重新登录。普通配置可单独备份；不要把 `credentials/` 上传到 GitHub。
+
+## 统一模块与综合展示
+
+管理入口：`http://127.0.0.1:8768/`
+
+侧边导航包含综合展示、接入中心、Live2D、语音播报、歌曲点播/设置、视频点播/设置、系统设置和凭据管理。
+
+- 歌曲和视频模块相互独立，启动、暂停、恢复和关闭不会影响对方。
+- 每次主程序启动时，歌曲和视频模块默认关闭。
+- 歌曲模块保留四平台搜索匹配、全平台精确歌手优先、音源 ID 入队保存、5 秒播放核验失败回退、队列、粉丝牌验证、管理员切歌和点歌开关。
+- 视频模块保留 Chrome/Selenium 播放、BV 校验、队列、播放结束监控和 OBS 来源显隐；网页全屏只在确认视频进度后尝试 W；视频暂停/关闭不会控制洛雪。
+- 歌曲设置页：`/music/settings`；视频设置页：`/video/settings`。修改模块配置前需要先关闭对应模块。
+- Live2D 和语音模块接入统一生命周期；直播断线时暂停互动，重连后按断线前状态恢复。
+- 系统管理员 UID 在系统设置页 `/settings` 统一配置，歌曲和视频模块共用；不再分别维护 `data/music/uid.txt`、`data/video/uid.txt`。
+- 独立透明展示页面：Live2D `/display/live2d`、弹幕 `/display/danmaku`、语音 `/display/tts`、歌曲队列 `/display/music`、视频队列 `/display/video`、歌曲信息组件 `/display/music-widget`。原地址 `/display`（Live2D+弹幕+TTS 完整展示）、`/music/display`、`/music/widget` 和 `/video/display` 继续兼容。
+- Live2D 设置 API 统一使用 `/api/live2d/` 前缀；旧 `/api/display/settings` 地址保留为兼容接口。
+- 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
+- OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
+
+GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置/凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置迁移回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
 ## 常见问题
 

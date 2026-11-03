@@ -22,14 +22,25 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory
 
 from bilibili_client import BilibiliClientError, LiveRoomClient, QRLogin, validate_cookie_file
+from core.paths import get_base_dir
+from core.config_manager import ConfigManager
+from core.credential_store import CredentialStore
+from core.application import ApplicationRuntime
+from core.logger_manager import setup_logging
+from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
+from modules.video.service import VideoModuleFacade
+from modules.live2d.service import Live2DModule
+from modules.voice.service import VoiceModule
 
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "config.json"
+BASE_DIR = get_base_dir()
+LEGACY_CONFIG_PATH = BASE_DIR / "config.json"
 MODEL_ROOT = BASE_DIR / "models"
 USER_SETTINGS_PATH = BASE_DIR / "user_settings.json"
+DISPLAY_LAYOUT_PATH = BASE_DIR / "data" / "display_layout.json"
+DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku"}
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
@@ -39,8 +50,9 @@ TTS_VOICES = [
     "zh-CN-XiaoruiNeural", "zh-CN-XiaoshuangNeural",
 ]
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+setup_logging()
 logger = logging.getLogger("bili_live_danmaku")
+APPLICATION_RUNTIME = ApplicationRuntime()
 
 RUNTIME_STATE_LOCK = threading.Lock()
 SETTINGS_LOCK = threading.RLock()
@@ -63,13 +75,33 @@ DANMAKU_SEQUENCE = 0
 
 
 def load_config() -> dict[str, Any]:
-    if not CONFIG_PATH.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {CONFIG_PATH}")
-    with CONFIG_PATH.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-    if not isinstance(data, dict):
-        raise ValueError("config.json must contain a JSON object")
-    return data
+    """从模块独立配置文件组装运行时兼容配置。"""
+    manager = ConfigManager()
+    # 仅在新配置缺失时从旧 config.json 迁移普通字段，不复制秘密值。
+    manager.migrate_legacy_config(LEGACY_CONFIG_PATH)
+    app_config = manager.load("app", {"host": "127.0.0.1", "port": 8768, "debug": False})
+    live_config = manager.load("live", {
+        "room_id": 0, "reconnect": True, "reconnect_interval_seconds": 5,
+        "connect_on_start": False,
+    })
+    live2d_config = manager.load("live2d", {"default_model": DEFAULT_MODEL})
+    voice_config = manager.load("voice", {})
+    obs_config = manager.load("obs", {
+        "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
+        "password_file": "credentials/obs.json",
+    })
+    return {
+        "app": app_config,
+        "bilibili": {
+            "room_id": int(live_config.get("room_id", 0) or 0),
+            "credential_file": "credentials/bilibili.json",
+            "reconnect": bool(live_config.get("reconnect", True)),
+            "reconnect_interval_seconds": int(live_config.get("reconnect_interval_seconds", 5) or 5),
+        },
+        "live2d": live2d_config,
+        "tts": voice_config,
+        "obs_websocket": obs_config,
+    }
 
 
 CONFIG = load_config()
@@ -88,7 +120,7 @@ def _credential_path() -> Path:
 
 QR_LOGIN = QRLogin(_credential_path())
 LIVE_CLIENT = LiveRoomClient(
-    on_event=lambda item: _append_danmaku(item),
+    on_event=lambda item: _dispatch_live_event(item),
     on_state=lambda state, message: _set_bilibili_connection_state(state, message),
     reconnect=bool(CONFIG.get("bilibili", {}).get("reconnect", True)),
     reconnect_interval=int(CONFIG.get("bilibili", {}).get("reconnect_interval_seconds", 5)),
@@ -140,32 +172,76 @@ def _default_model_id() -> str:
 
 
 def _load_user_settings() -> dict[str, Any]:
-    default_model = _default_model_id()
-    if not USER_SETTINGS_PATH.is_file():
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
-    try:
-        data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError("设置文件格式错误")
-        model_id = data.get("model")
-        if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
-            model_id = default_model
-        models = data.get("models")
-        if not isinstance(models, dict):
-            models = {}
-        bilibili = data.get("bilibili")
-        if not isinstance(bilibili, dict):
-            bilibili = {}
+    """从模块配置读取设置；首次运行时只迁移旧 user_settings.json 的普通字段。"""
+    manager = ConfigManager()
+    live = manager.load("live", {})
+    live2d = manager.load("live2d", {})
+    voice = manager.load("voice", {})
+    legacy: dict[str, Any] = {}
+
+    if USER_SETTINGS_PATH.is_file():
         try:
-            room_id = max(0, int(bilibili.get("room_id", 0)))
+            raw = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                legacy = raw
+        except Exception as exc:
+            logger.warning("读取旧用户设置失败：%s", type(exc).__name__)
+
+    changed_live = False
+    changed_live2d = False
+    changed_voice = False
+
+    legacy_bilibili = legacy.get("bilibili") if isinstance(legacy.get("bilibili"), dict) else {}
+    if not live.get("room_id") and legacy_bilibili.get("room_id"):
+        try:
+            live["room_id"] = max(0, int(legacy_bilibili["room_id"]))
+            changed_live = True
         except (TypeError, ValueError):
-            room_id = 0
-        tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
-        idle_tips = data.get("idle_tips") if isinstance(data.get("idle_tips"), dict) else {}
-        return {"model": model_id, "models": models, "bilibili": {"room_id": room_id}, "tts": tts, "idle_tips": idle_tips}
-    except Exception as exc:
-        logger.warning("读取用户设置失败，将使用默认设置：%s", exc)
-        return {"model": default_model, "models": {}, "bilibili": {"room_id": 0}, "tts": {}, "idle_tips": {}}
+            pass
+
+    default_model = str(live2d.get("default_model") or DEFAULT_MODEL)
+    if "model" not in live2d:
+        live2d["model"] = legacy.get("model", default_model)
+        changed_live2d = True
+    if "models" not in live2d:
+        live2d["models"] = legacy.get("models", {}) if isinstance(legacy.get("models"), dict) else {}
+        changed_live2d = True
+    elif not isinstance(live2d.get("models"), dict):
+        live2d["models"] = {}
+        changed_live2d = True
+    if "idle_tips" not in live2d:
+        live2d["idle_tips"] = legacy.get("idle_tips", {})
+        changed_live2d = True
+
+    if "tts" not in voice:
+        legacy_tts = legacy.get("tts") if isinstance(legacy.get("tts"), dict) else {}
+        voice["tts"] = legacy_tts
+        changed_voice = True
+
+    if changed_live:
+        manager.save("live", live)
+    if changed_live2d:
+        manager.save("live2d", live2d)
+    if changed_voice:
+        manager.save("voice", voice)
+
+    model_id = live2d.get("model")
+    if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
+        model_id = default_model
+    models = live2d.get("models") if isinstance(live2d.get("models"), dict) else {}
+    tts = voice.get("tts") if isinstance(voice.get("tts"), dict) else {}
+    idle_tips = live2d.get("idle_tips") if isinstance(live2d.get("idle_tips"), dict) else {}
+    try:
+        room_id = max(0, int(live.get("room_id", CONFIG.get("bilibili", {}).get("room_id", 0))))
+    except (TypeError, ValueError):
+        room_id = 0
+    return {
+        "model": model_id,
+        "models": models,
+        "bilibili": {"room_id": room_id},
+        "tts": tts,
+        "idle_tips": idle_tips,
+    }
 
 
 def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
@@ -203,10 +279,31 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
 
 
 def _save_user_settings(settings: dict[str, Any]) -> None:
-    USER_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = USER_SETTINGS_PATH.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, USER_SETTINGS_PATH)
+    """把用户设置分别保存到 live/live2d/voice 模块配置，不再写根目录 JSON。"""
+    manager = ConfigManager()
+    live = manager.load("live", {})
+    live2d = manager.load("live2d", {})
+    voice = manager.load("voice", {})
+
+    bilibili = settings.get("bilibili") if isinstance(settings.get("bilibili"), dict) else {}
+    live["room_id"] = max(0, int(bilibili.get("room_id", live.get("room_id", 0)) or 0))
+
+    model_id = settings.get("model")
+    if isinstance(model_id, str) and _safe_model_dir(model_id):
+        live2d["model"] = model_id
+    models = settings.get("models")
+    if isinstance(models, dict):
+        live2d["models"] = models
+    idle_tips = settings.get("idle_tips")
+    if isinstance(idle_tips, dict):
+        live2d["idle_tips"] = idle_tips
+    tts = settings.get("tts")
+    if isinstance(tts, dict):
+        voice["tts"] = tts
+
+    manager.save("live", live)
+    manager.save("live2d", live2d)
+    manager.save("voice", voice)
 
 
 
@@ -464,6 +561,28 @@ def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | N
     raise TimeoutError(f"等待 OBS 请求响应超时：{request_type}")
 
 
+def _read_obs_password(password_file: str | None) -> str:
+    """读取统一凭据库中的 OBS 密码；仅兼容旧版非 JSON 明文密码文件。"""
+    if not password_file:
+        return ""
+    normalized = str(password_file).replace("\\", "/").strip("/")
+    if normalized == "credentials/obs.json":
+        try:
+            secret = CredentialStore().load("obs") or {}
+            return str(secret.get("password", "") or "")
+        except Exception as exc:
+            logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
+            return ""
+    password_path = (BASE_DIR / str(password_file)).resolve()
+    try:
+        password_path.relative_to(BASE_DIR.resolve())
+    except ValueError as exc:
+        raise ValueError("OBS password_file 必须位于项目目录内。") from exc
+    if not password_path.is_file():
+        raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
+    return password_path.read_text(encoding="utf-8-sig").strip()
+
+
 def _refresh_obs_browser_sources() -> dict[str, Any]:
     """尝试通过 OBS WebSocket 刷新指向 /display 的浏览器源；失败时不影响设置保存。"""
     obs_config = CONFIG.get("obs_websocket", {})
@@ -478,16 +597,8 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
     ws = None
     try:
         password_file = obs_config.get("password_file")
-        if password_file:
-            password_path = (BASE_DIR / str(password_file)).resolve()
-            try:
-                password_path.relative_to(BASE_DIR.resolve())
-            except ValueError as exc:
-                raise ValueError("OBS password_file 必须位于项目目录内。") from exc
-            if not password_path.is_file():
-                raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
-            password = password_path.read_text(encoding="utf-8-sig").strip()
-        else:
+        password = _read_obs_password(password_file)
+        if not password and not password_file:
             # 兼容旧版 config.json 中直接配置 password 的方式。
             password = str(obs_config.get("password", ""))
         ws = websocket.create_connection(
@@ -574,16 +685,8 @@ def _open_obs_websocket(timeout_override: float | None = None):
         port, timeout = 4455, 2.5
 
     password_file = obs_config.get("password_file")
-    if password_file:
-        password_path = (BASE_DIR / str(password_file)).resolve()
-        try:
-            password_path.relative_to(BASE_DIR.resolve())
-        except ValueError as exc:
-            raise ValueError("OBS password_file 必须位于项目目录内。") from exc
-        if not password_path.is_file():
-            raise FileNotFoundError(f"OBS WebSocket 密码文件不存在：{password_file}")
-        password = password_path.read_text(encoding="utf-8-sig").strip()
-    else:
+    password = _read_obs_password(password_file)
+    if not password and not password_file:
         password = str(obs_config.get("password", ""))
 
     if timeout_override is not None:
@@ -916,11 +1019,28 @@ def _append_danmaku(item: dict[str, Any]) -> None:
         DANMAKU_ITEMS.append(record)
 
 
+def _dispatch_live_event(item: dict[str, Any]) -> None:
+    """只接收真实 WebSocket 认证连接期间的新事件，再投递给统一事件总线。"""
+    with BILIBILI_STATE_LOCK:
+        if not BILIBILI_STATE["connected"]:
+            return
+    _append_danmaku(item)
+    APPLICATION_RUNTIME.publish_event(item)
+
+
 def _set_bilibili_connection_state(state: str, message: str) -> None:
     with BILIBILI_STATE_LOCK:
+        previous_state = BILIBILI_STATE["connection_state"]
         BILIBILI_STATE["connection_state"] = state
         BILIBILI_STATE["connected"] = state == "connected"
         BILIBILI_STATE["message"] = message
+    if previous_state == "connected" and state != "connected":
+        # 清空断线前尚未被页面读取的缓存，防止重连后补发旧弹幕。
+        with DANMAKU_LOCK:
+            DANMAKU_ITEMS.clear()
+        APPLICATION_RUNTIME.connection_lost()
+    elif previous_state != "connected" and state == "connected":
+        APPLICATION_RUNTIME.connection_restored()
     logger.info("B站直播连接状态：%s - %s", state, message)
 
 
@@ -940,6 +1060,94 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
     if should_stop:
         LIVE_CLIENT.stop()
     return valid, message, cookies
+
+
+
+def _music_cookie_provider() -> dict[str, str]:
+    """只向已认证连接的歌曲模块提供当前连接凭据，不重复验证或改变主连接状态。"""
+    with BILIBILI_STATE_LOCK:
+        if not BILIBILI_STATE["connected"]:
+            return {}
+        cookies = dict(getattr(LIVE_CLIENT, "credential_data", {}) or {})
+    return cookies
+
+
+LIVE2D_MODULE = Live2DModule()
+VOICE_MODULE = VoiceModule()
+APPLICATION_RUNTIME.register_module("live2d", LIVE2D_MODULE, initial_state="stopped", auto_start_on_connect=True)
+APPLICATION_RUNTIME.register_module("voice", VOICE_MODULE, initial_state="stopped", auto_start_on_connect=True)
+
+
+def _normalize_admin_uids(values) -> list[int]:
+    result = []
+    if isinstance(values, list):
+        for value in values:
+            raw = str(value).strip()
+            if raw.isdigit() and int(raw) > 0 and int(raw) not in result:
+                result.append(int(raw))
+    return sorted(result)
+
+
+def _load_system_admin_uids() -> list[int]:
+    manager = ConfigManager()
+    app_config = manager.load("app", {})
+    if "admin_uids" in app_config:
+        return _normalize_admin_uids(app_config.get("admin_uids"))
+
+    # 首次升级：将旧歌曲/视频模块管理员名单合并到系统级名单。
+    imported = set()
+    for module_name, default_file in (("music", "data/music/uid.txt"), ("video", "data/video/uid.txt")):
+        module_config = manager.load(module_name, {})
+        raw_values = module_config.get("admin_uids", [])
+        if isinstance(raw_values, list):
+            for value in raw_values:
+                try:
+                    uid = int(value)
+                    if uid > 0:
+                        imported.add(uid)
+                except (TypeError, ValueError):
+                    pass
+        file_name = str(module_config.get("admins_file", default_file) or default_file)
+        path = (BASE_DIR / file_name).resolve()
+        try:
+            path.relative_to(BASE_DIR.resolve())
+            if path.is_file():
+                for line in path.read_text(encoding="utf-8-sig").splitlines():
+                    for value in re.split(r"[,，;；\s]+", line.split("#", 1)[0].strip()):
+                        if value.isdigit() and int(value) > 0:
+                            imported.add(int(value))
+        except (OSError, ValueError):
+            logger.warning("迁移旧%s管理员 UID 文件失败。", module_name)
+    app_config["admin_uids"] = sorted(imported)
+    manager.save("app", app_config)
+    return app_config["admin_uids"]
+
+
+def _module_config_with_system_admins(module_name: str) -> dict[str, Any]:
+    config = ConfigManager().load(module_name, {})
+    config["admin_uids"] = _load_system_admin_uids()
+    # 禁止模块继续读取旧的独立管理员文件；统一名单只来自系统设置。
+    config["admins_file"] = ""
+    return config
+
+
+MUSIC_MODULE = MusicModuleFacade(
+    event_bus=APPLICATION_RUNTIME.events,
+    config=_module_config_with_system_admins("music"),
+    cookie_provider=_music_cookie_provider,
+    room_id=int(_load_user_settings()["bilibili"]["room_id"]),
+)
+APPLICATION_RUNTIME.register_module("music", MUSIC_MODULE)
+
+VIDEO_MODULE = VideoModuleFacade(
+    event_bus=APPLICATION_RUNTIME.events,
+    config=_module_config_with_system_admins("video"),
+    cookie_provider=_music_cookie_provider,
+    room_id=int(_load_user_settings()["bilibili"]["room_id"]),
+)
+APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
+
+
 
 
 def _connect_saved_room(source: str) -> tuple[bool, str]:
@@ -969,12 +1177,17 @@ def _connect_saved_room(source: str) -> tuple[bool, str]:
 
 
 def _restore_saved_live_connection() -> None:
-    """程序启动时恢复有效登录，并自动连接已保存的直播间。"""
-    connected, message = _connect_saved_room("程序启动恢复")
-    if connected:
-        logger.info("启动恢复：%s", message)
-    else:
-        logger.info("启动恢复未连接直播间：%s", message)
+    """启动时检查登录状态并恢复房间号显示，但必须由用户手动发起连接。"""
+    with SETTINGS_LOCK:
+        settings = _load_user_settings()
+    room_id = int(settings["bilibili"]["room_id"])
+    with BILIBILI_STATE_LOCK:
+        BILIBILI_STATE["room_id"] = room_id
+    valid, message, _ = _login_status()
+    logger.info(
+        "启动检查完成：登录有效=%s，已保存房间号=%s；不会在程序启动时自动连接直播间。%s",
+        valid, room_id, message,
+    )
 
 
 @app.get("/")
@@ -984,9 +1197,106 @@ def index():
 
 @app.get("/display")
 def display():
-    return render_template("display.html")
+    # 兼容旧地址：保留 Live2D、弹幕和 TTS 的完整组合展示。
+    return render_template("display.html", display_mode="all")
 
 
+@app.get("/display/live2d")
+def live2d_display_page():
+    return render_template("display.html", display_mode="live2d")
+
+
+@app.get("/display/danmaku")
+def danmaku_display_page():
+    return render_template("display.html", display_mode="danmaku")
+
+
+@app.get("/display/tts")
+def tts_display_page():
+    return render_template("display.html", display_mode="tts")
+
+
+@app.get("/live2d")
+def live2d_settings_page():
+    return redirect("/#live2d-settings")
+
+
+@app.get("/dashboard")
+def dashboard_page():
+    return render_template("combined_display.html", display_mode=False)
+
+
+@app.get("/voice")
+def voice_settings_page():
+    return render_template("voice.html")
+
+
+@app.get("/settings")
+def system_settings_page():
+    return render_template("settings.html")
+
+
+@app.get("/credentials")
+def credentials_page():
+    return render_template("credentials.html")
+
+
+@app.get("/display/combined")
+def combined_display_page():
+    return render_template("combined_display.html", display_mode=True, layout_id="")
+
+
+@app.get("/display/combined/<layout_id>")
+def named_combined_display_page(layout_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id):
+        abort(404)
+    try:
+        _find_display_layout(_load_display_layout_store(), layout_id)
+    except Exception:
+        abort(404)
+    return render_template("combined_display.html", display_mode=True, layout_id=layout_id)
+
+
+@app.get("/music")
+def music_control_page():
+    return render_template("music_queue.html")
+
+
+@app.get("/music/settings")
+def music_settings_page():
+    return render_template("music_settings.html")
+
+
+@app.get("/music/display")
+@app.get("/display/music")
+def music_display_page():
+    return render_template("music_display.html")
+
+
+@app.get("/music/widget")
+@app.get("/display/music-widget")
+def music_widget_page():
+    """独立歌曲信息展示页。"""
+    return render_template("music_widget.html")
+
+
+@app.get("/video")
+def video_control_page():
+    return render_template("video_queue.html")
+
+
+@app.get("/video/settings")
+def video_settings_page():
+    return render_template("video_settings.html")
+
+
+@app.get("/video/display")
+@app.get("/display/video")
+def video_display_page():
+    return render_template("video_display.html")
+
+
+@app.get("/api/live2d/settings")
 @app.get("/api/display/settings")
 def get_display_settings():
     with SETTINGS_LOCK:
@@ -1006,6 +1316,7 @@ def get_display_settings():
     })
 
 
+@app.post("/api/live2d/settings")
 @app.post("/api/display/settings")
 def save_display_settings():
     payload = request.get_json(silent=True)
@@ -1103,6 +1414,13 @@ def model_asset(filename: str):
     return send_from_directory(MODEL_ROOT, filename, conditional=True)
 
 
+@app.get("/api/live2d/status")
+def get_live2d_status():
+    with RUNTIME_STATE_LOCK:
+        state = dict(RUNTIME_STATE)
+    return jsonify({"ok": True, **state})
+
+
 @app.post("/api/live2d/status")
 def update_live2d_status():
     payload = request.get_json(silent=True) or {}
@@ -1164,12 +1482,19 @@ def save_room_setting():
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "请输入有效的 B 站直播间房间号。"}), 400
+    # 新版统一保存到普通直播配置；同时更新旧用户设置，兼容现有页面逻辑。
+    config_manager = ConfigManager()
+    live_config = config_manager.load("live", {})
+    live_config["room_id"] = room_id
+    config_manager.save("live", live_config)
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["bilibili"]["room_id"] = room_id
         _save_user_settings(settings)
     with BILIBILI_STATE_LOCK:
         BILIBILI_STATE["room_id"] = room_id
+    MUSIC_MODULE.update_room_id(room_id)
+    VIDEO_MODULE.update_room_id(room_id)
     return jsonify({"ok": True, "room_id": room_id})
 
 
@@ -1196,6 +1521,747 @@ def connect_live_room():
 def disconnect_live_room():
     LIVE_CLIENT.stop()
     return jsonify({"ok": True, "message": "已请求断开直播连接。"})
+
+
+
+
+
+@app.get("/api/modules")
+def api_modules():
+    return jsonify({"ok": True, "modules": APPLICATION_RUNTIME.modules.list_status()})
+
+
+@app.post("/api/modules/<module_name>/<action>")
+def api_module_action(module_name: str, action: str):
+    if action not in {"start", "pause", "resume", "close"}:
+        return jsonify({"ok": False, "error": "不支持的模块操作。"}), 400
+    if module_name not in APPLICATION_RUNTIME.modules.list_status():
+        return jsonify({"ok": False, "error": "模块不存在或尚未迁移。"}), 404
+    if action in {"start", "resume"}:
+        with BILIBILI_STATE_LOCK:
+            connected = BILIBILI_STATE["connected"]
+        if not connected:
+            return jsonify({"ok": False, "error": "请先完成 B 站 WebSocket 认证连接，再启动互动模块。"}), 409
+    try:
+        future = APPLICATION_RUNTIME.module_action(module_name, action)
+        timeout = 120 if module_name == "video" and action in {"start", "close"} else 30
+        future.result(timeout=timeout)
+        return jsonify({
+            "ok": True,
+            "module": module_name,
+            "action": action,
+            "modules": APPLICATION_RUNTIME.modules.list_status(),
+        })
+    except Exception as exc:
+        logger.exception("模块控制失败：module=%s action=%s", module_name, action)
+        return jsonify({"ok": False, "error": f"模块操作失败：{type(exc).__name__}"}), 500
+
+
+@app.get("/api/music/queue")
+def api_music_queue():
+    try:
+        snapshot = APPLICATION_RUNTIME.async_runtime.submit(MUSIC_MODULE.queue_snapshot()).result(timeout=5)
+        return jsonify(snapshot)
+    except Exception as exc:
+        logger.exception("读取歌曲队列快照失败。")
+        return jsonify({"ok": False, "error": f"读取歌曲队列失败：{type(exc).__name__}"}), 503
+
+@app.get("/api/music/widget")
+def api_music_widget():
+    """提供洛雪当前播放歌曲信息，供封面/歌名/歌手展示组件使用。"""
+    try:
+        status = get_lx_status()
+        if not isinstance(status, dict):
+            return jsonify({
+                "ok": True,
+                "available": False,
+                "playing": False,
+                "name": "",
+                "singer": "",
+                "albumName": "",
+                "duration": 0,
+                "progress": 0,
+                "playbackRate": 1,
+                "picUrl": "",
+                "lyricLineText": "",
+            })
+
+        result = dict(status)
+        result["ok"] = True
+        result["available"] = True
+        result["playing"] = is_lx_playing(status)
+        result["name"] = str(status.get("name", "") or "")
+        result["singer"] = str(status.get("singer", "") or "")
+        result["albumName"] = str(status.get("albumName", "") or "")
+
+        # 兼容洛雪不同版本/音源返回的封面字段，避免只返回歌名和歌手。
+        cover_keys = ("picUrl", "pic_url", "img", "coverUrl", "cover_url", "cover", "image", "albumPic")
+        cover_value = ""
+        pending = [status]
+        visited = set()
+        while pending and not cover_value:
+            current_obj = pending.pop(0)
+            if not isinstance(current_obj, dict) or id(current_obj) in visited:
+                continue
+            visited.add(id(current_obj))
+            for key in cover_keys:
+                value = current_obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    cover_value = value.strip()
+                    break
+            if not cover_value:
+                for value in current_obj.values():
+                    if isinstance(value, dict):
+                        pending.append(value)
+                    elif isinstance(value, list):
+                        pending.extend(item for item in value if isinstance(item, dict))
+
+        if cover_value.startswith("//"):
+            cover_value = "https:" + cover_value
+        result["picUrl"] = cover_value
+        if urlparse(result["picUrl"]).scheme not in ("http", "https"):
+            result["picUrl"] = ""
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("读取歌曲信息组件数据失败。")
+        return jsonify({"ok": False, "error": f"读取歌曲信息失败：{type(exc).__name__}"}), 503
+
+
+@app.get("/api/video/queue")
+def api_video_queue():
+    try:
+        snapshot = APPLICATION_RUNTIME.async_runtime.submit(VIDEO_MODULE.queue_snapshot()).result(timeout=5)
+        return jsonify(snapshot)
+    except Exception as exc:
+        logger.exception("读取视频队列快照失败。")
+        return jsonify({"ok": False, "error": f"读取视频队列失败：{type(exc).__name__}"}), 503
+
+
+@app.post("/api/video/action")
+def api_video_action():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "请求内容无效。"}), 400
+    try:
+        future = APPLICATION_RUNTIME.async_runtime.submit(VIDEO_MODULE.panel_action(payload))
+        result = future.result(timeout=60)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as exc:
+        logger.exception("视频模块队列操作失败。")
+        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+
+
+@app.post("/api/music/action")
+def api_music_action():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "请求内容无效。"}), 400
+    try:
+        future = APPLICATION_RUNTIME.async_runtime.submit(MUSIC_MODULE.panel_action(payload))
+        result = future.result(timeout=25)
+        return jsonify(result), (200 if result.get("ok") else 400)
+    except Exception as exc:
+        logger.exception("歌曲模块队列操作失败。")
+        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+
+
+
+def _default_display_layout() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "widgets": [
+            {"id": "live2d", "type": "live2d", "x": 0, "y": 0, "w": 45, "h": 100},
+            {"id": "music", "type": "music", "x": 45, "y": 0, "w": 27.5, "h": 50},
+            {"id": "video", "type": "video", "x": 72.5, "y": 0, "w": 27.5, "h": 50},
+            {"id": "voice", "type": "voice", "x": 45, "y": 50, "w": 27.5, "h": 50},
+            {"id": "danmaku", "type": "danmaku", "x": 72.5, "y": 50, "w": 27.5, "h": 50},
+        ],
+    }
+
+
+def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("widgets"), list):
+        raise ValueError("展示布局格式无效。")
+    widgets = []
+    used_types = set()
+    for item in payload["widgets"][:10]:
+        if not isinstance(item, dict):
+            continue
+        widget_type = str(item.get("type", ""))
+        if widget_type not in DISPLAY_WIDGET_TYPES or widget_type in used_types:
+            continue
+        try:
+            x, y, w, h = (float(item.get(k, d)) for k, d in (("x", 0), ("y", 0), ("w", 30), ("h", 30)))
+        except (TypeError, ValueError):
+            continue
+        if not all(math.isfinite(v) for v in (x, y, w, h)):
+            continue
+        w = max(12.0, min(100.0, w))
+        h = max(12.0, min(100.0, h))
+        x = max(0.0, min(100.0 - w, x))
+        y = max(0.0, min(100.0 - h, y))
+        widgets.append({
+            "id": widget_type, "type": widget_type,
+            "x": round(x, 2), "y": round(y, 2),
+            "w": round(w, 2), "h": round(h, 2),
+        })
+        used_types.add(widget_type)
+    return {"version": 1, "widgets": widgets}
+
+
+DISPLAY_LAYOUTS_PATH = BASE_DIR / "data" / "display_layouts.json"
+DISPLAY_LAYOUT_LOCK = threading.RLock()
+DEFAULT_DISPLAY_LAYOUT_ID = "default"
+
+
+def _write_display_layout_store(store: dict[str, Any]) -> None:
+    DISPLAY_LAYOUTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = DISPLAY_LAYOUTS_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(store, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, DISPLAY_LAYOUTS_PATH)
+
+
+def _load_display_layout_store() -> dict[str, Any]:
+    """读取多布局仓库；首次运行时把旧单布局无损迁移为默认布局。"""
+    with DISPLAY_LAYOUT_LOCK:
+        if DISPLAY_LAYOUTS_PATH.is_file():
+            raw = json.loads(DISPLAY_LAYOUTS_PATH.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict) or not isinstance(raw.get("layouts"), list):
+                raise ValueError("综合展示布局集合格式无效。")
+            layouts = []
+            seen = set()
+            for item in raw["layouts"]:
+                if not isinstance(item, dict):
+                    continue
+                layout_id = str(item.get("id", ""))
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id) or layout_id in seen:
+                    continue
+                try:
+                    clean_layout = _sanitize_display_layout(item.get("layout"))
+                except Exception:
+                    continue
+                name = str(item.get("name", "未命名布局")).strip()[:40] or "未命名布局"
+                layouts.append({"id": layout_id, "name": name, "layout": clean_layout})
+                seen.add(layout_id)
+            if not layouts:
+                layouts = [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": _default_display_layout()}]
+            active_id = str(raw.get("active_layout_id", layouts[0]["id"]))
+            if active_id not in seen:
+                active_id = layouts[0]["id"]
+            return {"version": 1, "active_layout_id": active_id, "layouts": layouts}
+
+        # 旧版本只有 data/display_layout.json；保留原文件，只复制内容到新集合。
+        old_layout = _default_display_layout()
+        if DISPLAY_LAYOUT_PATH.is_file():
+            try:
+                old_layout = _sanitize_display_layout(json.loads(DISPLAY_LAYOUT_PATH.read_text(encoding="utf-8")))
+            except Exception as exc:
+                logger.warning("旧综合展示布局迁移失败，使用默认布局：%s", type(exc).__name__)
+        store = {"version": 1, "active_layout_id": DEFAULT_DISPLAY_LAYOUT_ID,
+                 "layouts": [{"id": DEFAULT_DISPLAY_LAYOUT_ID, "name": "默认布局", "layout": old_layout}]}
+        _write_display_layout_store(store)
+        return store
+
+
+def _find_display_layout(store: dict[str, Any], layout_id: str | None = None) -> dict[str, Any]:
+    target = layout_id or store["active_layout_id"]
+    for item in store["layouts"]:
+        if item["id"] == target:
+            return item
+    raise KeyError("指定的综合展示布局不存在。")
+
+
+def _save_display_layout_store(store: dict[str, Any]) -> None:
+    _write_display_layout_store(store)
+
+
+@app.get("/api/settings/music")
+def get_music_settings():
+    config = ConfigManager().load("music", {})
+    lx = config.get("lx_music", {})
+    search = config.get("search", {})
+    requests_config = config.get("requests", {})
+    return jsonify({
+        "ok": True,
+        "lx_music": {
+            "base_url": lx.get("base_url", "http://127.0.0.1:23330"),
+            "timeout_seconds": lx.get("timeout_seconds", 5),
+        },
+        "search": {"max_results_per_platform": search.get("max_results_per_platform", 20)},
+        "requests": {
+            "cooldown_seconds": requests_config.get("cooldown_seconds", 10),
+            "queue_limit": requests_config.get("queue_limit", 100),
+            "require_fans_medal": requests_config.get("require_fans_medal", 0),
+        },
+        "module_state": APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state", "stopped"),
+    })
+
+
+@app.post("/api/settings/music")
+def save_music_settings():
+    if APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state") != "stopped":
+        return jsonify({"ok": False, "error": "请先关闭歌曲模块，再修改配置。"}), 409
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        config = ConfigManager().load("music", {})
+        lx = config.setdefault("lx_music", {})
+        search = config.setdefault("search", {})
+        req = config.setdefault("requests", {})
+        base_url = str(payload.get("base_url", lx.get("base_url", ""))).strip().rstrip("/")
+        if not base_url.startswith(("http://", "https://")):
+            raise ValueError("洛雪 API 地址必须以 http:// 或 https:// 开头。")
+        timeout = int(payload.get("timeout_seconds", lx.get("timeout_seconds", 5)))
+        max_results = int(payload.get("max_results_per_platform", search.get("max_results_per_platform", 20)))
+        cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
+        queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
+        require_medal = int(payload.get("require_fans_medal", req.get("require_fans_medal", 0)))
+        if not 2 <= timeout <= 30 or not 1 <= max_results <= 50:
+            raise ValueError("接口超时应为 2–30 秒，单平台搜索数量应为 1–50。")
+        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000 or require_medal not in {0, 1}:
+            raise ValueError("冷却时间、队列上限或粉丝牌选项无效。")
+        lx.update({"base_url": base_url, "timeout_seconds": timeout})
+        search["max_results_per_platform"] = max_results
+        req.update({
+            "cooldown_seconds": cooldown,
+            "queue_limit": queue_limit,
+            "require_fans_medal": require_medal,
+        })
+        config["admin_uids"] = _load_system_admin_uids()
+        config["admins_file"] = ""
+        ConfigManager().save("music", config)
+        MUSIC_MODULE.reload_config(config)
+        return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
+
+
+@app.get("/api/settings/video")
+def get_video_settings():
+    config = ConfigManager().load("video", {})
+    chrome = config.get("chrome", {})
+    req = config.get("requests", {})
+    return jsonify({
+        "ok": True,
+        "chrome": {
+            "binary_path": chrome.get("binary_path", ""),
+            "profile_dir": chrome.get("profile_dir", "data/video/chrome_profile"),
+            "page_load_timeout_seconds": chrome.get("page_load_timeout_seconds", 45),
+        },
+        "requests": {
+            "cooldown_seconds": req.get("cooldown_seconds", 60),
+            "queue_limit": req.get("queue_limit", 30),
+            "max_video_duration_seconds": req.get("max_video_duration_seconds", 300),
+            "require_fan_medal": bool(req.get("require_fan_medal", True)),
+        },
+        "module_state": APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state", "stopped"),
+    })
+
+
+@app.post("/api/settings/video")
+def save_video_settings():
+    if APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state") != "stopped":
+        return jsonify({"ok": False, "error": "请先关闭视频模块，再修改配置。"}), 409
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        config = ConfigManager().load("video", {})
+        chrome = config.setdefault("chrome", {})
+        req = config.setdefault("requests", {})
+        binary_path = str(payload.get("binary_path", chrome.get("binary_path", ""))).strip()
+        profile_dir = str(payload.get("profile_dir", chrome.get("profile_dir", "data/video/chrome_profile"))).strip()
+        if "\n" in binary_path or "\r" in binary_path or not profile_dir or "\n" in profile_dir or "\r" in profile_dir:
+            raise ValueError("Chrome 路径或 Profile 目录无效。")
+        timeout = int(payload.get("page_load_timeout_seconds", chrome.get("page_load_timeout_seconds", 45)))
+        cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 60)))
+        queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 30)))
+        max_duration = int(payload.get("max_video_duration_seconds", req.get("max_video_duration_seconds", 300)))
+        require_medal = bool(payload.get("require_fan_medal", req.get("require_fan_medal", True)))
+        if not 10 <= timeout <= 180 or not 0 <= cooldown <= 3600:
+            raise ValueError("页面加载超时应为 10–180 秒，冷却时间应为 0–3600 秒。")
+        if not 1 <= queue_limit <= 1000 or not 1 <= max_duration <= 3600:
+            raise ValueError("视频队列上限或视频时长限制无效。")
+        chrome.update({
+            "binary_path": binary_path,
+            "profile_dir": profile_dir,
+            "page_load_timeout_seconds": timeout,
+        })
+        req.update({
+            "cooldown_seconds": cooldown,
+            "queue_limit": queue_limit,
+            "max_video_duration_seconds": max_duration,
+            "require_fan_medal": require_medal,
+        })
+        config["admin_uids"] = _load_system_admin_uids()
+        config["admins_file"] = ""
+        ConfigManager().save("video", config)
+        VIDEO_MODULE.reload_config(config)
+        return jsonify({"ok": True, "message": "视频模块配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "视频配置保存失败。"}), 400
+
+
+def _legacy_obs_credential_candidates() -> dict[str, Any]:
+    """只探测旧凭据是否存在；绝不向前端返回密码或 Cookie 内容。"""
+    found = {
+        "inline_password": False,
+        "password_file": None,
+        "legacy_bilibili_cookie_file": (BASE_DIR / "bili_cookie.txt").is_file(),
+        "legacy_obs_config_file": (BASE_DIR / "obs_config.txt").is_file(),
+    }
+    try:
+        if LEGACY_CONFIG_PATH.is_file():
+            legacy = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
+            obs = legacy.get("obs_websocket", {}) if isinstance(legacy, dict) else {}
+            if isinstance(obs, dict):
+                found["inline_password"] = bool(str(obs.get("password", "") or ""))
+                old_file = str(obs.get("password_file", "") or "").strip()
+                if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
+                    candidate = (BASE_DIR / old_file).resolve()
+                    try:
+                        candidate.relative_to(BASE_DIR.resolve())
+                        is_credential_path = candidate.is_relative_to((BASE_DIR / "credentials").resolve())
+                        if candidate.is_file() and not is_credential_path and candidate != LEGACY_CONFIG_PATH.resolve() and candidate != (BASE_DIR / "config" / "obs.json").resolve():
+                            found["password_file"] = str(candidate.relative_to(BASE_DIR))
+                    except ValueError:
+                        pass
+    except Exception as exc:
+        logger.warning("检查旧 OBS 凭据失败：%s", type(exc).__name__)
+    return found
+
+
+@app.get("/api/credentials/status")
+def get_credentials_status():
+    valid, message, _ = _login_status()
+    obs_status = CredentialStore().status("obs")
+    legacy = _legacy_obs_credential_candidates()
+    return jsonify({
+        "ok": True,
+        "bilibili": {"configured": bool(valid), "message": message},
+        "obs": {"configured": bool(obs_status.get("configured"))},
+        "legacy": {
+            "obs_inline_password": bool(legacy["inline_password"]),
+            "obs_password_file": legacy["password_file"],
+            "migration_available": bool(legacy["inline_password"] or legacy["password_file"]),
+            "legacy_bilibili_cookie_file": bool(legacy["legacy_bilibili_cookie_file"]),
+            "legacy_obs_config_file": bool(legacy["legacy_obs_config_file"]),
+        },
+    })
+
+
+@app.post("/api/credentials/migrate")
+def migrate_legacy_credentials():
+    """显式迁移旧 OBS 密码；成功后清理旧配置中的明文值。"""
+    store = CredentialStore()
+    if store.status("obs").get("configured"):
+        return jsonify({"ok": False, "error": "OBS 凭据库中已有密码；为避免覆盖，未执行迁移。"}), 409
+    password = ""
+    password_file_path = None
+    credential_saved = False
+    try:
+        legacy_data = {}
+        if LEGACY_CONFIG_PATH.is_file():
+            legacy_data = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8-sig"))
+            if not isinstance(legacy_data, dict):
+                legacy_data = {}
+        obs = legacy_data.get("obs_websocket", {})
+        if not isinstance(obs, dict):
+            obs = {}
+        password = str(obs.get("password", "") or "")
+        old_file = str(obs.get("password_file", "") or "").strip()
+        if old_file and old_file.replace(chr(92), "/") != "credentials/obs.json":
+            candidate = (BASE_DIR / old_file).resolve()
+            candidate.relative_to(BASE_DIR.resolve())
+            if candidate in {LEGACY_CONFIG_PATH.resolve(), (BASE_DIR / "config" / "obs.json").resolve()} or candidate.is_relative_to((BASE_DIR / "credentials").resolve()):
+                raise ValueError("旧密码文件路径不安全，拒绝迁移或删除。")
+            if candidate.is_file():
+                password_file_path = candidate
+                if not password:
+                    password = candidate.read_text(encoding="utf-8-sig").strip()
+        if not password:
+            return jsonify({"ok": False, "error": "未发现可自动迁移的旧 OBS 明文密码。"}), 404
+
+        store.save("obs", {"password": password})
+        credential_saved = True
+        password = ""
+        if isinstance(legacy_data.get("obs_websocket"), dict):
+            clean_obs = dict(legacy_data["obs_websocket"])
+            clean_obs.pop("password", None)
+            clean_obs["password_file"] = "credentials/obs.json"
+            legacy_data["obs_websocket"] = clean_obs
+            temporary = LEGACY_CONFIG_PATH.with_suffix(".json.tmp")
+            temporary.write_text(json.dumps(legacy_data, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
+            os.replace(temporary, LEGACY_CONFIG_PATH)
+        if password_file_path and password_file_path.exists():
+            password_file_path.unlink()
+        VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
+        return jsonify({"ok": True, "message": "旧 OBS 密码已迁移到本机凭据库，并清理旧明文配置。"})
+    except Exception as exc:
+        logger.warning("迁移旧 OBS 凭据失败：%s", type(exc).__name__)
+        if credential_saved:
+            return jsonify({
+                "ok": True,
+                "message": "OBS 密码已安全保存，但旧明文配置未能全部清理；请根据凭据管理页提示手动清理旧文件。",
+                "cleanup_incomplete": True,
+            })
+        return jsonify({"ok": False, "error": "旧 OBS 凭据迁移失败；请检查旧配置文件权限和格式。"}), 500
+    finally:
+        password = ""
+
+
+@app.get("/api/settings/admins")
+def get_system_admin_settings():
+    return jsonify({"ok": True, "admin_uids": _load_system_admin_uids()})
+
+
+@app.post("/api/settings/admins")
+def save_system_admin_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("admin_uids"), list):
+        return jsonify({"ok": False, "error": "管理员 UID 必须以列表形式提交。"}), 400
+    try:
+        admin_uids = []
+        for value in payload["admin_uids"]:
+            raw = str(value).strip()
+            if not raw.isdigit() or int(raw) <= 0:
+                raise ValueError(f"管理员 UID 无效：{raw or '空值'}")
+            uid = int(raw)
+            if uid not in admin_uids:
+                admin_uids.append(uid)
+        if len(admin_uids) > 100:
+            raise ValueError("系统管理员最多设置 100 个 UID。")
+        app_config = ConfigManager().load("app", {})
+        app_config["admin_uids"] = sorted(admin_uids)
+        ConfigManager().save("app", app_config)
+
+        # 运行中的模块不必重启：同步更新两套模块的权限集合。
+        music_config = _module_config_with_system_admins("music")
+        music_config["admin_uids"] = sorted(admin_uids)
+        music_config["admins_file"] = ""
+        if not MUSIC_MODULE.bot.enabled:
+            MUSIC_MODULE.reload_config(music_config)
+        else:
+            MUSIC_MODULE.bot.admin_uids = set(admin_uids)
+            MUSIC_MODULE.config = music_config
+
+        video_config = _module_config_with_system_admins("video")
+        video_config["admin_uids"] = sorted(admin_uids)
+        video_config["admins_file"] = ""
+        if not __import__("modules.video.service", fromlist=["module_enabled"]).module_enabled:
+            VIDEO_MODULE.reload_config(video_config)
+        else:
+            from modules.video import service as video_service
+            video_service.ADMIN_UIDS = set(admin_uids)
+            VIDEO_MODULE.config = video_config
+        return jsonify({"ok": True, "message": "系统管理员 UID 已保存，歌曲和视频模块已同步。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "系统管理员 UID 保存失败。"}), 400
+
+
+@app.get("/api/settings/obs")
+def get_obs_settings():
+    config = ConfigManager().load("obs", {})
+    return jsonify({
+        "ok": True,
+        "host": config.get("host", "127.0.0.1"),
+        "port": config.get("port", 4455),
+        "timeout": config.get("timeout", 2.5),
+        "source_name": config.get("source_name", "b站视频播放器"),
+        "password_configured": bool(CredentialStore().status("obs").get("configured")),
+    })
+
+
+@app.post("/api/settings/obs")
+def save_obs_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        host = str(payload.get("host", "")).strip()
+        port = int(payload.get("port", 4455))
+        timeout = max(0.5, min(10.0, float(payload.get("timeout", 2.5))))
+        source_name = str(payload.get("source_name", "")).strip()
+        if not host or not 1 <= port <= 65535 or not source_name:
+            raise ValueError("OBS 地址、有效端口和来源名称不能为空。")
+        config = {"host": host, "port": port, "timeout": timeout,
+                  "source_name": source_name, "password_file": "credentials/obs.json"}
+        ConfigManager().save("obs", config)
+        CONFIG["obs_websocket"] = {
+            "host": host, "port": port, "timeout": timeout,
+            "password_file": "credentials/obs.json",
+        }
+        VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
+        return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "OBS 配置保存失败。"}), 400
+
+
+@app.post("/api/credentials/obs")
+def save_obs_credential():
+    payload = request.get_json(silent=True)
+    password = payload.get("password") if isinstance(payload, dict) else None
+    if not isinstance(password, str) or not password.strip():
+        return jsonify({"ok": False, "error": "OBS WebSocket 密码不能为空。"}), 400
+    try:
+        CredentialStore().save("obs", {"password": password})
+        VIDEO_MODULE.reload_obs_settings()
+        _refresh_obs_browser_sources()
+        return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
+    except Exception as exc:
+        logger.warning("保存 OBS 凭据失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "OBS 密码保存失败，请检查本机凭据存储权限。"}), 500
+
+
+@app.get("/api/settings/logging")
+def get_logging_settings():
+    config = ConfigManager().load("logging", {})
+    return jsonify({
+        "ok": True,
+        "level": config.get("level", "INFO"),
+        "retention_days": int(config.get("retention_days", 7)),
+        "retention_options": config.get("retention_options", [3, 5, 7, 15, 30, 60, 90, 0]),
+    })
+
+
+@app.post("/api/settings/logging")
+def save_logging_settings():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        level = str(payload.get("level", "INFO")).upper()
+        retention = int(payload.get("retention_days", 7))
+        allowed_retention = {3, 5, 7, 15, 30, 60, 90, 0}
+        if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("日志等级无效。")
+        if retention not in allowed_retention:
+            raise ValueError("日志保留天数无效。")
+        config = ConfigManager().load("logging", {})
+        config.update({
+            "level": level,
+            "retention_days": retention,
+            "retention_options": [3, 5, 7, 15, 30, 60, 90, 0],
+            "daily_rotation": True,
+        })
+        ConfigManager().save("logging", config)
+        setup_logging()
+        logger.info("日志设置已更新：level=%s retention_days=%s", level, retention)
+        return jsonify({"ok": True, "message": "日志设置已保存并立即生效。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "日志设置保存失败。"}), 400
+
+
+@app.get("/api/display/layout/default")
+def get_default_combined_display_layout():
+    return jsonify({"ok": True, "layout": _default_display_layout()})
+
+
+@app.get("/api/display/layouts")
+def get_combined_display_layouts():
+    try:
+        store = _load_display_layout_store()
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"],
+                        "layouts": [{"id": x["id"], "name": x["name"]} for x in store["layouts"]]})
+    except Exception as exc:
+        logger.exception("读取综合展示布局列表失败。")
+        return jsonify({"ok": False, "error": str(exc) or "读取布局列表失败。"}), 500
+
+
+@app.post("/api/display/layouts")
+def create_combined_display_layout():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    name = str(payload.get("name", "")).strip()[:40]
+    if not name:
+        return jsonify({"ok": False, "error": "请填写布局名称。"}), 400
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            source_id = str(payload.get("source_layout_id", ""))
+            layout = _sanitize_display_layout(_find_display_layout(store, source_id)["layout"]) if source_id else {"version": 1, "widgets": []}
+            layout_id = uuid.uuid4().hex[:12]
+            store["layouts"].append({"id": layout_id, "name": name, "layout": layout})
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "layout_id": layout_id, "name": name, "message": "新布局已创建。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "创建布局失败。"}), 400
+
+
+@app.patch("/api/display/layouts/<layout_id>")
+def update_combined_display_layout_metadata(layout_id: str):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            item = _find_display_layout(store, layout_id)
+            if "name" in payload:
+                name = str(payload.get("name", "")).strip()[:40]
+                if not name:
+                    raise ValueError("布局名称不能为空。")
+                item["name"] = name
+            if payload.get("activate") is True:
+                store["active_layout_id"] = layout_id
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"], "message": "布局信息已更新。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "更新布局失败。"}), 400
+
+
+@app.delete("/api/display/layouts/<layout_id>")
+def delete_combined_display_layout(layout_id: str):
+    try:
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            if len(store["layouts"]) <= 1:
+                raise ValueError("至少需要保留一套布局。")
+            _find_display_layout(store, layout_id)
+            store["layouts"] = [x for x in store["layouts"] if x["id"] != layout_id]
+            if store["active_layout_id"] == layout_id:
+                store["active_layout_id"] = store["layouts"][0]["id"]
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "active_layout_id": store["active_layout_id"], "message": "布局已删除。"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc) or "删除布局失败。"}), 400
+
+
+@app.get("/api/display/layout")
+def get_combined_display_layout():
+    try:
+        store = _load_display_layout_store()
+        item = _find_display_layout(store, request.args.get("layout_id"))
+        return jsonify({"ok": True, "layout_id": item["id"], "name": item["name"], "layout": item["layout"]})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except Exception as exc:
+        logger.warning("读取综合展示布局失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "读取综合展示布局失败。"}), 500
+
+
+@app.post("/api/display/layout")
+def save_combined_display_layout():
+    payload = request.get_json(silent=True)
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("请求内容必须是 JSON 对象。")
+        layout = _sanitize_display_layout(payload.get("layout", payload))
+        layout_id = str(payload.get("layout_id", "")).strip()
+        with DISPLAY_LAYOUT_LOCK:
+            store = _load_display_layout_store()
+            item = _find_display_layout(store, layout_id or None)
+            item["layout"] = layout
+            _save_display_layout_store(store)
+        return jsonify({"ok": True, "layout_id": item["id"], "layout": layout,
+                        "message": "布局“{}”已保存。".format(item["name"])})
+    except Exception as exc:
+        logger.warning("保存综合展示布局失败：%s", type(exc).__name__)
+        return jsonify({"ok": False, "error": str(exc) or "布局保存失败。"}), 400
 
 
 @app.get("/api/danmaku")
@@ -1230,7 +2296,10 @@ def api_status():
             "tts": True,
             "mouth_sync": True,
             "moc2_runtime": live2d["runtime_ready"],
+            "music": True,
+            "video": True,
         },
+        "modules": APPLICATION_RUNTIME.modules.list_status(),
     })
 
 
@@ -1258,8 +2327,10 @@ if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
+    APPLICATION_RUNTIME.start()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     atexit.register(_shutdown_obs_live2d_sources)
+    atexit.register(APPLICATION_RUNTIME.shutdown)
     _register_windows_console_handler()
     _restore_saved_live_connection()
     threading.Thread(
@@ -1271,4 +2342,7 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
+        # 先停止唯一的 B 站 WebSocket 连接，再统一关闭业务模块和异步运行时。
+        LIVE_CLIENT.stop()
         _shutdown_obs_live2d_sources()
+        APPLICATION_RUNTIME.shutdown()

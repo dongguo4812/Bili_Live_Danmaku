@@ -24,6 +24,7 @@ import qrcode
 import requests
 from bilibili_api import Credential
 from bilibili_api.live import LiveDanmaku
+from core.credential_store import CredentialStore
 
 logger = logging.getLogger("bili_live_danmaku.client")
 USER_AGENT = (
@@ -56,18 +57,31 @@ def _dpapi_transform(data: bytes, protect: bool) -> bytes:
     if os.name != "nt":
         raise BilibiliClientError("Windows DPAPI 只能在 Windows 系统上使用。")
     import ctypes
+    from ctypes import wintypes
 
     class DataBlob(ctypes.Structure):
         _fields_ = [
-            ("cbData", ctypes.c_uint32),
+            ("cbData", wintypes.DWORD),
             ("pbData", ctypes.POINTER(ctypes.c_ubyte)),
         ]
 
     source_buffer = ctypes.create_string_buffer(data)
     source = DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
     output = DataBlob()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
+    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    crypt32.CryptProtectData.argtypes = [
+        ctypes.POINTER(DataBlob), wintypes.LPCWSTR, ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt32.CryptProtectData.restype = wintypes.BOOL
+    crypt32.CryptUnprotectData.argtypes = [
+        ctypes.POINTER(DataBlob), ctypes.POINTER(wintypes.LPWSTR), ctypes.POINTER(DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(DataBlob),
+    ]
+    crypt32.CryptUnprotectData.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
     if protect:
         ok = crypt32.CryptProtectData(
             ctypes.byref(source), None, None, None, None, 0x1, ctypes.byref(output)
@@ -94,6 +108,9 @@ def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
         if data.get("format") == "dpapi-v1":
             encrypted = base64.b64decode(data.get("payload", ""), validate=True)
             data = json.loads(_dpapi_transform(encrypted, protect=False).decode("utf-8"))
+        elif data.get("format") == "plain-local-v1" and os.name != "nt":
+            raw = base64.b64decode(data.get("payload", ""), validate=True)
+            data = json.loads(raw.decode("utf-8"))
         cookies = data.get("cookies", data)
         if not isinstance(cookies, dict) or not cookies.get("sessdata"):
             return False, "本地登录凭据不完整，请重新扫码。", None
@@ -266,27 +283,10 @@ class QRLogin:
         return self.status()
 
     def _save(self, cookies: dict[str, str]) -> None:
-        self.credential_path.parent.mkdir(parents=True, exist_ok=True)
+        """通过统一凭据存储写入 B 站 Cookie；不向普通配置写入秘密值。"""
         payload = {"cookies": cookies, "saved_at": int(time.time())}
-        if os.name == "nt":
-            encrypted = _dpapi_transform(
-                json.dumps(payload, ensure_ascii=False).encode("utf-8"), protect=True
-            )
-            stored = {
-                "format": "dpapi-v1",
-                "payload": base64.b64encode(encrypted).decode("ascii"),
-            }
-        else:
-            stored = payload
-        temporary = self.credential_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(stored, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, self.credential_path)
-        # Restrict permissions on platforms that implement POSIX mode bits.
-        try:
-            os.chmod(self.credential_path.parent, 0o700)
-            os.chmod(self.credential_path, 0o600)
-        except OSError:
-            logger.debug("当前系统不支持 POSIX 凭据文件权限设置。")
+        store = CredentialStore(directory=self.credential_path.parent)
+        store.save(self.credential_path.stem, payload)
 
     def status(self) -> dict[str, Any]:
         with self.lock:

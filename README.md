@@ -50,18 +50,9 @@ The \`/display\` page polls the local event queue and displays incoming danmaku 
 
 Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
 
-OBS WebSocket settings are stored in the top-level `obs_websocket` section of the local `config.json`. The password is read from a separate local file rather than being written into the JSON configuration:
+OBS WebSocket ordinary settings are stored in `config/obs.json`. Enter the password separately on the system settings page; it is stored in `credentials/obs.json` and protected with Windows DPAPI. The UI never reads back or displays the saved password.
 
-```json
-"obs_websocket": {
-  "host": "127.0.0.1",
-  "port": 4455,
-  "password_file": "credentials/obs_websocket.key",
-  "timeout": 2.5
-}
-```
-
-Create `credentials/obs_websocket.key` and put only the OBS WebSocket password in it (plain text, without quotes or a `password=` prefix). Keep the file private; the entire `credentials/` directory is excluded by `.gitignore`. The application rejects password-file paths outside the project directory. For compatibility, an older `password` value in `config.json` is still accepted when `password_file` is not configured. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**. The close (×) control is centered independently of the global button styles. The bubble has a transparent-page-compatible translucent surface and does not add an opaque page background.
+System settings: `http://127.0.0.1:8768/settings`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**.
 
 ## Default Live2D model
 
@@ -91,6 +82,20 @@ Rendering quality is a first-class requirement. The implementation:
 - Checks that the model actually produces non-transparent WebGL pixels before reporting the runtime as loaded.
 
 MagicalDanmaku is a visual-quality reference only. This project does not copy, port, or derive code or assets from it.
+
+## Unified modules and combined display
+
+The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the access center, Live2D, voice, music, video, system settings and the combined display editor.
+
+- Music and video have independent lifecycle controls, queues and configuration. They do not pause or resume each other.
+- Music and video start closed after each application launch.
+- The music module searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to pre-saved source candidates.
+- The video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. Web fullscreen is attempted only after playback progress is detected; the module has no LX Music control calls.
+- The combined layout editor is `/dashboard`. It supports multiple named layouts; each layout has its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
+- The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
+- Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
+- Dedicated transparent display URLs are available: `/display/live2d`, `/display/danmaku`, `/display/tts`, `/display/music`, `/display/video` and `/display/music-widget`. The legacy `/display` remains the complete Live2D + danmaku + TTS display. Existing `/music/display`, `/music/widget` and `/video/display` URLs remain supported.
+- Live2D settings APIs use the `/api/live2d/` namespace. The former `/api/display/settings` endpoints remain as compatibility aliases.
 
 ## Current scope
 

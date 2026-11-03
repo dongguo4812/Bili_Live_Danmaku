@@ -49,6 +49,11 @@
   };
   if (!canvas) return;
 
+  const displayMode = document.documentElement.dataset.displayMode || "all";
+  const showLive2D = displayMode === "all" || displayMode === "live2d";
+  const showDanmaku = displayMode === "all" || displayMode === "danmaku";
+  const showTts = displayMode === "all" || displayMode === "tts";
+
   const ids = [
     "scale", "x", "y", "bubble-x", "bubble-bottom", "bubble-width",
     "bubble-height", "bubble-items", "bubble-duration", "bubble-font"
@@ -80,6 +85,9 @@
   let audioContext = null;
   let connectionTimer = null;
   let lastConnectionState = null;
+  let live2dModuleActive = false;
+  let voiceModuleActive = false;
+  let live2dModuleState = "stopped";
   let audioResumeInProgress = false;
   let currentAudioSource = null;
   let audioPlaying = false;
@@ -212,7 +220,7 @@
   }
 
   function enqueueSpeech(item) {
-    if (!ttsSettings || !item || !item.text) return;
+    if (!voiceModuleActive || !ttsSettings || !item || !item.text) return;
     if (item.type === "danmaku" && !ttsSettings.danmaku_enabled) return;
     if (item.type === "gift") {
       if (!ttsSettings.gift_enabled) return;
@@ -473,7 +481,7 @@
       clearTimeout(idleTimer);
       idleTimer = null;
     }
-    if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) {
+    if (!live2dModuleActive || !idleConnected || !idleTipSettings || idleTipSettings.enabled === false) {
       removeIdleTip();
       return;
     }
@@ -481,7 +489,7 @@
     const interval = Math.max(10, Number(idleTipSettings.interval_seconds) || 60) * 1000;
     idleTimer = window.setTimeout(() => {
       idleTimer = null;
-      if (!idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
+      if (!live2dModuleActive || !idleConnected || !idleTipSettings || idleTipSettings.enabled === false) return;
       showIdleTip();
       syncIdleTipTimer(true);
     }, interval);
@@ -499,14 +507,45 @@
     syncIdleTipTimer(true);
   }
 
+  function applyModuleStates(modules) {
+    const liveState = modules && modules.live2d ? modules.live2d.state : "stopped";
+    const voiceState = modules && modules.voice ? modules.voice.state : "stopped";
+    live2dModuleState = liveState || "stopped";
+    const nextLive2D = (showLive2D || showDanmaku) && live2dModuleState === "running";
+    const nextVoice = showTts && voiceState === "running";
+
+    if (live2dModuleActive !== nextLive2D) {
+      live2dModuleActive = nextLive2D;
+      if (!live2dModuleActive) {
+        removeIdleTip();
+        if (bubble) bubble.hidden = true;
+        if (bubblePreview) bubblePreview.hidden = true;
+      }
+      syncIdleTipTimer(true);
+    }
+    if (canvas) canvas.style.visibility = showLive2D && live2dModuleState !== "stopped" ? "visible" : "hidden";
+
+    if (voiceModuleActive && !nextVoice) {
+      speechQueue.length = 0;
+      if (currentAudioSource) {
+        try { currentAudioSource.stop(); } catch (_) {}
+      }
+      audioPlaying = false;
+      stopMouthSync();
+    }
+    voiceModuleActive = nextVoice;
+    if (voiceModuleActive && audioUnlocked) processSpeechQueue();
+  }
+
   async function checkLiveConnectionForAudio() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       const connected = Boolean(data.bilibili && data.bilibili.connected);
-      setIdleConnectionState(connected);
-      if (connected !== lastConnectionState) {
+      applyModuleStates(data.modules || {});
+      if (showDanmaku) setIdleConnectionState(connected);
+      if (showTts && connected !== lastConnectionState) {
         lastConnectionState = connected;
         if (connected) {
           setTtsStatus("直播间已连接，正在自动启动语音播报。");
@@ -515,7 +554,7 @@
         } else if (lastConnectionState === false) {
           setTtsStatus("等待直播间连接；语音将在连接后自动启动。");
         }
-      } else if (connected && !audioUnlocked) {
+      } else if (showTts && connected && !audioUnlocked) {
         await unlockSpeechAudio({ silent: true });
         processSpeechQueue();
       }
@@ -573,7 +612,7 @@
   }
 
   async function processSpeechQueue() {
-    if (speaking || !speechQueue.length) return;
+    if (!voiceModuleActive || speaking || !speechQueue.length) return;
     speaking = true;
     try {
       if (!audioUnlocked) {
@@ -963,7 +1002,7 @@
       // 等待当前模型切换完成，避免保存与模型替换并发执行。
       await modelSwitchPromise.catch(() => {});
       const preferences = currentPreferences();
-      const response = await fetch("/api/display/settings", {
+      const response = await fetch("/api/live2d/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...preferences, refresh_obs: false })
@@ -997,7 +1036,7 @@
   }
 
   async function loadDisplaySettings() {
-    const response = await fetch("/api/display/settings", { cache: "no-store" });
+    const response = await fetch("/api/live2d/settings", { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取展示设置（HTTP " + response.status + "）。");
     const data = await response.json();
     if (!data.ok || !Array.isArray(data.models) || data.models.length === 0) {
@@ -1084,17 +1123,17 @@
       if (!response.ok) return;
       const data = await response.json();
       const incomingItems = data.items || [];
-      if (incomingItems.length) onIncomingLiveEvent();
+      if (incomingItems.length && showDanmaku) onIncomingLiveEvent();
       for (const item of incomingItems) {
         lastDanmakuId = Math.max(lastDanmakuId, Number(item.id) || 0);
         // 弹幕显示与 TTS 完全独立；语音处理异常不得中断后续弹幕显示。
         try {
-          addDanmaku(item);
+          if (showDanmaku && live2dModuleActive) addDanmaku(item);
         } catch (displayError) {
           console.warn("Unable to display danmaku:", displayError);
         }
         try {
-          enqueueSpeech(item);
+          if (showTts && voiceModuleActive) enqueueSpeech(item);
         } catch (speechError) {
           console.warn("Unable to enqueue danmaku speech:", speechError);
         }
@@ -1324,7 +1363,7 @@
     const selectedModelId = modelSelect.value;
     const token = ++modelSwitchToken;
     try {
-      const response = await fetch("/api/display/settings?model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
+      const response = await fetch("/api/live2d/settings?model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
       if (token !== modelSwitchToken) return;
@@ -1366,30 +1405,41 @@
   }
 
   // OBS 浏览器源启动时自动创建并尝试恢复 Web Audio；无需点击测试语音。
-  initializeAutomaticAudio();
+  if (showTts) initializeAutomaticAudio();
   checkLiveConnectionForAudio();
   connectionTimer = window.setInterval(checkLiveConnectionForAudio, 3000);
 
-  start();
+  if (showLive2D) {
+    start();
+  } else if (showDanmaku) {
+    loadDisplaySettings().catch(displayError => {
+      console.warn("Unable to load danmaku display preferences:", displayError);
+    });
+  }
 
   // TTS 设置独立加载；无论接口慢、失败还是语音不可用，都不阻塞弹幕显示。
-  loadIdleTipSettings().catch(idleError => {
-    console.warn("Unable to load idle tip settings:", idleError);
-    setIdleTipsStatus("读取空闲提示设置失败：" + idleError.message, true);
-  });
+  if (showDanmaku) {
+    loadIdleTipSettings().catch(idleError => {
+      console.warn("Unable to load idle tip settings:", idleError);
+    });
+  }
 
-  loadTtsSettings().catch(ttsError => {
-    console.warn("Unable to load TTS settings:", ttsError);
-    setTtsStatus("读取语音设置失败：" + ttsError.message, true);
-  });
+  if (showTts) {
+    loadTtsSettings().catch(ttsError => {
+      console.warn("Unable to load TTS settings:", ttsError);
+      setTtsStatus("读取语音设置失败：" + ttsError.message, true);
+    });
+  }
 
   // 弹幕游标和轮询独立启动，不依赖 TTS 初始化或设置面板状态。
-  initializeDanmakuCursor();
-  pollTimer = window.setInterval(refreshDanmakuPolling, 450);
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refreshDanmakuPolling();
-  });
-  window.addEventListener("focus", refreshDanmakuPolling);
+  if (showDanmaku || showTts) {
+    initializeDanmakuCursor();
+    pollTimer = window.setInterval(refreshDanmakuPolling, 450);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshDanmakuPolling();
+    });
+    window.addEventListener("focus", refreshDanmakuPolling);
+  }
 
   window.addEventListener("resize", applyBubblePreferences, { passive: true });
   window.addEventListener("beforeunload", () => {
@@ -1397,6 +1447,6 @@
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
     if (connectionTimer) clearInterval(connectionTimer);
-    reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
+    if (showLive2D) reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
   });
 })();

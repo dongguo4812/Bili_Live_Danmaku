@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>视频模块设置</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body class="manager-page"><div class="app-shell">
+<aside class="sidebar"><div class="sidebar-brand">B站直播互动中心</div><nav class="sidebar-nav">
+      <a href="/dashboard">综合展示</a>
+      <a href="/">接入中心</a>
+      <a href="/live2d">Live2D</a>
+      <a href="/voice">语音播报</a>
+      <a href="/music">歌曲点播</a>
+      <a href="/music/settings">歌曲设置</a>
+      <a href="/video">视频点播</a>
+      <a href="/video/settings" class="active">视频设置</a>
+      <a href="/settings">系统设置</a>
+      <a href="/credentials">凭据管理</a>
+    </nav></aside>
+<main class="manager">
+<header class="page-header"><div><p class="eyebrow">VIDEO MODULE</p><h1>视频点播设置</h1><p class="muted">视频模块独立配置；修改前必须先关闭视频模块。</p></div><a href="/video">返回视频队列</a> <a href="/credentials">凭据管理</a></header>
+<section class="panel">
+<h2>Chrome 播放器</h2>
+<label class="setting-field"><span>Chrome 可执行文件路径（留空使用系统默认）</span><input id="binary-path" type="text" placeholder="例如 C:\Program Files\Google\Chrome\Application\chrome.exe"></label>
+<label class="setting-field"><span>独立浏览器 Profile 目录</span><input id="profile-dir" type="text" placeholder="data/video/chrome_profile"></label>
+<label class="setting-field"><span>页面加载超时（秒）</span><input id="page-timeout" type="number" min="10" max="180"></label>
+</section>
+<section class="panel">
+<h2>视频点播规则</h2>
+<label class="setting-field"><span>普通观众冷却时间（秒）</span><input id="cooldown" type="number" min="0" max="3600"></label>
+<label class="setting-field"><span>视频队列上限</span><input id="queue-limit" type="number" min="1" max="1000"></label>
+<label class="setting-field"><span>单个视频最长时长（秒）</span><input id="max-duration" type="number" min="1" max="3600"></label>
+<label class="setting-field"><span><input id="fan-medal" type="checkbox"> 要求本直播间粉丝牌</span></label>
+<button id="save" type="button">保存视频配置</button><p id="status" class="muted" role="status"></p>
+</section>
+</main></div>
+<script>
+const $=id=>document.getElementById(id);
+async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
+async function load(){try{const d=await api("/api/settings/video");$("binary-path").value=d.chrome.binary_path;$("profile-dir").value=d.chrome.profile_dir;$("page-timeout").value=d.chrome.page_load_timeout_seconds;$("cooldown").value=d.requests.cooldown_seconds;$("queue-limit").value=d.requests.queue_limit;$("max-duration").value=d.requests.max_video_duration_seconds;$("fan-medal").checked=d.requests.require_fan_medal;$("status").textContent="视频模块状态："+d.module_state+"。请先关闭模块再保存配置。";}catch(e){$("status").textContent="读取失败："+e.message}}
+$("save").addEventListener("click",async()=>{try{const d=await api("/api/settings/video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({binary_path:$("binary-path").value,profile_dir:$("profile-dir").value,page_load_timeout_seconds:Number($("page-timeout").value),cooldown_seconds:Number($("cooldown").value),queue_limit:Number($("queue-limit").value),max_video_duration_seconds:Number($("max-duration").value),require_fan_medal:$("fan-medal").checked})});$("status").textContent=d.message;}catch(e){$("status").textContent="保存失败："+e.message}});
+load();
+</script></body></html>

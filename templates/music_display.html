@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>歌曲点播展示</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#fff}
+body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif}
+#media-root{width:100%;height:100%;overflow:auto}
+</style>
+</head>
+<body>
+<div id="media-root" class="media-display"></div>
+<script src="{{ url_for('static', filename='display_media.js') }}"></script>
+<script>
+(function(){
+  const root=document.getElementById("media-root");
+  let inFlight=false;
+  async function refresh(){
+    if(inFlight)return;
+    inFlight=true;
+    try{
+      const response=await fetch("/api/music/queue?t="+Date.now(),{cache:"no-store"});
+      const data=await response.json();
+      if(!response.ok||!data||data.ok===false)throw new Error(data&&data.message||"歌曲队列接口暂不可用");
+      const queue=Array.isArray(data.queue)?data.queue:[];
+      if(data.song_request_enabled===false&&queue.length===0){
+        root.style.display="none";
+        return;
+      }
+      root.style.display="";
+      MediaDisplay.render(root,"music",data);
+    }catch(error){
+      root.style.display="none";
+    }finally{inFlight=false;}
+  }
+  refresh();
+  setInterval(refresh,1000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>点歌机器人 - 控制面板</title>
+<style>
+:root{color-scheme:dark;--bg:#10131a;--panel:#191e28;--line:#2b3444;--text:#f3f5f8;--muted:#a6b0c0;--accent:#7c9cff;--danger:#e36b78;--good:#72d6a0}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 "Microsoft YaHei",system-ui,sans-serif;padding:24px}
+main{max-width:1100px;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}h1{font-size:24px;margin:0}h2{font-size:17px;margin:0 0 14px}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:1fr 1.2fr;gap:16px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;min-width:0}.song{font-size:22px;font-weight:700;overflow-wrap:anywhere}.artist{color:var(--muted);margin-top:4px}.buttons{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}button{border:0;border-radius:10px;padding:10px 15px;font:inherit;font-weight:650;cursor:pointer;color:#111827;background:#dce4ff}button:disabled{opacity:.45;cursor:not-allowed}.danger{background:var(--danger);color:#210b0e}.secondary{background:#30394a;color:var(--text)}.queue-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.item{display:grid;grid-template-columns:38px 1fr auto;gap:12px;align-items:center;border-top:1px solid var(--line);padding:12px 0}.num{color:var(--accent);font-weight:800}.title{font-weight:650;overflow-wrap:anywhere}.sub{color:var(--muted);font-size:13px}.empty{color:var(--muted);padding:22px 0;text-align:center}.status{min-height:24px;color:var(--good);margin-top:12px}.status.error{color:#ff9ba4}.links a{color:var(--accent);text-decoration:none;margin-left:12px}@media(max-width:760px){body{padding:12px}.grid{grid-template-columns:1fr}.card{padding:16px}}
+</style></head>
+<body>
+<style>
+.unified-nav{position:sticky;top:0;z-index:9999;display:flex;gap:14px;align-items:center;padding:9px 14px;background:#141b27;color:#eaf0fa;font:13px "Microsoft YaHei",sans-serif;border-bottom:1px solid rgba(255,255,255,.14)}
+.unified-nav a{color:#c8d5e9;text-decoration:none}.unified-nav a.active{color:#fff;font-weight:800}
+</style>
+<nav class="unified-nav">
+<a href="/dashboard">综合展示</a><a href="/">接入中心</a><a href="/live2d">Live2D</a><a href="/voice">语音播报</a><a href="/music" class="active">歌曲点播</a><a href="/music/settings">歌曲设置</a><a href="/video">视频点播</a><a href="/video/settings">视频设置</a><a href="/settings">系统设置</a><a href="/credentials">凭据管理</a>
+</nav><main>
+<div class="top"><div><h1>音乐点歌 · 控制面板</h1><div class="muted">本地控制页面 · 数据每 2 秒自动刷新</div></div><div class="links"><a href="/music/display" target="_blank">打开展示页面 ↗</a> <button id="songRequestToggle" class="danger" onclick="toggleSongRequest()">关闭点歌</button></div></div>
+<div class="grid"><section class="card"><h2>正在播放</h2><div id="current" class="song">当前没有机器人点播歌曲</div><div class="buttons"><button id="skip" class="danger" onclick="action('skip')">切歌 / 播放下一首</button></div><div class="muted" style="margin-top:10px;font-size:13px">切歌时，待播队列为空时，尝试切换到洛雪音乐自身播放列表的下一首</div><div id="status" class="status" role="status"></div></section>
+<section class="card"><div class="queue-head"><h2>待播队列</h2><span id="count" class="muted">0 首</span></div><div id="queue"><div class="empty">正在读取队列…</div></div><div class="buttons"><button class="secondary" onclick="refresh()">立即刷新</button><button id="clear" class="danger" onclick="action('clear')">清空待播队列</button></div></section></div>
+</main><script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let songRequestEnabled=true;
+async function refresh(){try{const r=await fetch('/api/music/queue',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)throw Error(d.message||'读取失败');const c=d.current;document.getElementById('current').textContent=c?`${c.title}${c.artist?' - '+c.artist:''}${c.uname?'　'+c.uname:''}`:'当前没有机器人点播歌曲';document.getElementById('count').textContent=`${d.queue_count} / ${d.queue_limit} 首`;const q=document.getElementById('queue');if(!d.queue.length){q.innerHTML='<div class="empty">待播队列为空</div>'}else{q.innerHTML=d.queue.map(x=>`<div class="item"><div class="num">${x.index}</div><div><div class="title">${esc(x.title)}${x.artist?' - '+esc(x.artist):''}${x.uname?'　'+esc(x.uname):''}</div></div><button class="secondary" onclick="action('delete',${x.index})">删除</button></div>`).join('')}document.getElementById('skip').disabled=!c;document.getElementById('clear').disabled=!d.queue.length;songRequestEnabled=d.song_request_enabled!==false;const toggle=document.getElementById('songRequestToggle');toggle.textContent=songRequestEnabled?'关闭点歌':'开启点歌';toggle.className=songRequestEnabled?'danger':'secondary';}catch(e){showStatus('读取队列失败：'+e.message,true)}}
+function showStatus(t,error=false){const el=document.getElementById('status');el.textContent=t;el.className='status'+(error?' error':'')}
+async function toggleSongRequest(){const b=document.getElementById('songRequestToggle');b.disabled=true;try{const r=await fetch('/api/music/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set_song_request',enabled:!songRequestEnabled})});const d=await r.json();showStatus(d.message||(d.ok?'点歌开关已更新':'操作失败'),!d.ok);await refresh();}catch(e){showStatus('切换点歌开关失败：'+e.message,true);await refresh();}finally{b.disabled=false}}
+async function action(name,index){if(name==='clear'&&!confirm('确定清空全部待播歌曲？'))return;const buttons=[document.getElementById('skip'),document.getElementById('clear')];if(name==='skip'&&buttons[0])buttons[0].disabled=true;try{const r=await fetch('/api/music/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:name,index})});const d=await r.json();showStatus(d.message||(d.ok?'操作请求已接受':'操作失败'),!d.ok);await refresh()}catch(e){showStatus('操作失败：'+e.message,true);await refresh()}}
+
+refresh();setInterval(refresh,2000);
+</script></body></html>
