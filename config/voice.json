@@ -2,15 +2,5 @@
   "enabled": true,
   "voice": "zh-CN-XiaoxiaoNeural",
   "rate": "+0%",
-  "volume": "+0%",
-  "tts": {
-    "danmaku_enabled": true,
-    "gift_enabled": true,
-    "super_chat_enabled": true,
-    "voice": "zh-CN-YunxiNeural",
-    "rate": 50,
-    "volume": 0,
-    "max_queue_length": 30,
-    "gift_min_amount": 0
-  }
+  "volume": "+0%"
 }
