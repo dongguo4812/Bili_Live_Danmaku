@@ -188,7 +188,7 @@ OBS WebSocket 普通配置保存在 `config/local/obs.json`，包含地址、端
 - `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
 - `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。请直接维护 `config/` 中的模块配置；直播间号位于 `config/local/live.json`，Live2D 模型和展示偏好位于 `config/local/live2d.json`，语音播报偏好位于 `config/local/voice.json`，OBS 普通设置位于 `config/local/obs.json`。系统管理员 UID 只保存在 `config/local/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
+当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。当前本机配置统一位于 `config/local/`；直播间号位于 `config/local/live.json`，Live2D 模型和展示偏好位于 `config/local/live2d.json`，语音播报偏好位于 `config/local/voice.json`，OBS 普通设置位于 `config/local/obs.json`。系统管理员 UID 只保存在 `config/local/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
 
 ## 统一模块与综合展示
 
