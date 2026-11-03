@@ -90,6 +90,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn('/api/tts/settings', combined)
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
             self.assertIn(mode, template)
+        live2d_mode_css = template.split('html[data-display-mode="live2d"]', 1)[1].split('html[data-display-mode="danmaku"]', 1)[0]
+        self.assertIn("#display-settings-toggle", live2d_mode_css)
+        self.assertIn("#display-settings-panel", live2d_mode_css)
+        self.assertNotIn("#danmaku-bubble", live2d_mode_css)
+        self.assertNotIn("#danmaku-preview", live2d_mode_css)
+        self.assertIn('displayMode === "live2d" || displayMode === "danmaku"', script)
+        self.assertIn('return render_template("display.html", display_mode="all")', main)
+        self.assertIn('return render_template("display.html", display_mode="live2d")', main)
         self.assertIn('const showLive2D =', script)
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)

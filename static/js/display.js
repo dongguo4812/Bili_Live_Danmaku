@@ -52,7 +52,7 @@
 
   const displayMode = document.documentElement.dataset.displayMode || "all";
   const showLive2D = displayMode === "all" || displayMode === "live2d";
-  const showDanmaku = displayMode === "all" || displayMode === "danmaku";
+  const showDanmaku = displayMode === "all" || displayMode === "live2d" || displayMode === "danmaku";
   const showTts = displayMode === "all" || displayMode === "tts";
 
   const ids = [
