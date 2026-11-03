@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" class="display-root">
+<html lang="zh-CN" class="display-root" data-display-mode="{{ display_mode|default('all') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,18 @@
     .embedded-live2d #display-settings-toggle,
     .embedded-live2d #display-settings-panel,
     .embedded-live2d #display-placeholder { display: none !important; }
+    html[data-display-mode="live2d"] #danmaku-bubble,
+    html[data-display-mode="live2d"] #danmaku-preview { display: none !important; }
+    html[data-display-mode="danmaku"] #live2d-canvas,
+    html[data-display-mode="danmaku"] #display-settings-toggle,
+    html[data-display-mode="danmaku"] #display-settings-panel,
+    html[data-display-mode="danmaku"] #display-placeholder { display: none !important; }
+    html[data-display-mode="tts"] #live2d-canvas,
+    html[data-display-mode="tts"] #danmaku-bubble,
+    html[data-display-mode="tts"] #danmaku-preview,
+    html[data-display-mode="tts"] #display-settings-toggle,
+    html[data-display-mode="tts"] #display-settings-panel,
+    html[data-display-mode="tts"] #display-placeholder { display: none !important; }
   </style>
   <script>
     if (new URLSearchParams(location.search).get("embedded") === "1") {
