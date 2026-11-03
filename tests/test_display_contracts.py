@@ -204,6 +204,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
             self.assertIn(direction, combined)
         self.assertIn('id="font-scale"', combined)
         self.assertIn('id="content-scale"', combined)
+        self.assertIn('.editor-control[hidden]{display:none!important}', combined)
         self.assertIn('font_scale', combined)
         self.assertIn('content_scale', combined)
         self.assertIn('var(--content-scale, 1)', media_css)
