@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Live2D OBS Display</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20261102-idle-tips">
+  <link rel="stylesheet" href="/static/css/style.css?v=20261103-module-settings">
   <style>
     .embedded-live2d #display-settings-toggle,
     .embedded-live2d #display-settings-panel,
@@ -123,64 +123,6 @@
       <input id="bubble-duration-slider" type="range" min="2" max="60" step="1" value="10">
     </label>
 
-
-    <div class="settings-divider"></div>
-    <strong class="settings-subtitle">空闲随机提示</strong>
-    <div class="tts-switches"><label><input id="idle-tips-enabled" type="checkbox" checked> 启用空闲提示</label></div>
-    <label class="setting-field"><span>提示间隔（首次及后续，秒）</span><input id="idle-tips-interval" type="number" min="10" max="3600" step="5" value="60"></label>
-    <label class="setting-field"><span>普通随机提示语（每行一条）</span><textarea id="idle-tips-messages" rows="4" spellcheck="false"></textarea></label>
-    <strong class="settings-subtitle">分时段问候语（每行一条，可留空禁用）</strong>
-    <label class="setting-field"><span>05:00–09:00 早晨</span><textarea id="idle-time-early-morning" rows="2"></textarea></label>
-    <label class="setting-field"><span>09:00–12:00 上午</span><textarea id="idle-time-morning" rows="2"></textarea></label>
-    <label class="setting-field"><span>12:00–13:00 午餐</span><textarea id="idle-time-lunch" rows="2"></textarea></label>
-    <label class="setting-field"><span>13:00–14:00 午后</span><textarea id="idle-time-after-lunch" rows="2"></textarea></label>
-    <label class="setting-field"><span>14:00–18:00 下午</span><textarea id="idle-time-afternoon" rows="2"></textarea></label>
-    <label class="setting-field"><span>18:00–19:00 傍晚</span><textarea id="idle-time-evening" rows="2"></textarea></label>
-    <label class="setting-field"><span>19:00–21:00 晚上</span><textarea id="idle-time-night" rows="2"></textarea></label>
-    <label class="setting-field"><span>21:00–23:00 深夜</span><textarea id="idle-time-late-night" rows="2"></textarea></label>
-    <label class="setting-field"><span>23:00–05:00 午夜</span><textarea id="idle-time-midnight" rows="2"></textarea></label>
-    <div class="tts-actions"><button id="idle-tips-save-button" class="settings-save-button" type="button">保存空闲提示设置</button></div>
-    <p id="idle-tips-status" class="settings-save-status" role="status">仅在 B 站真实连接成功且没有新消息时显示；真实消息会立即清除空闲提示。</p>
-
-    <div class="settings-divider"></div>
-    <strong class="settings-subtitle">Edge TTS 语音播报</strong>
-
-    <div class="tts-switches">
-      <label><input id="tts-danmaku-enabled" type="checkbox" checked> 普通弹幕</label>
-      <label><input id="tts-gift-enabled" type="checkbox" checked> 礼物</label>
-      <label><input id="tts-sc-enabled" type="checkbox" checked> 醒目留言（SC）</label>
-    </div>
-
-    <label class="setting-field">
-      <span>语音音色</span>
-      <select id="tts-voice"></select>
-    </label>
-
-    <label class="setting-field">
-      <span>语速 <output id="tts-rate-value">0%</output></span>
-      <input id="tts-rate-slider" type="range" min="-50" max="100" step="5" value="0">
-    </label>
-
-    <label class="setting-field">
-      <span>音量 <output id="tts-volume-value">0%</output></span>
-      <input id="tts-volume-slider" type="range" min="-50" max="50" step="5" value="0">
-    </label>
-
-    <label class="setting-field">
-      <span>最大等待语音数量 <output id="tts-queue-value">30 条</output></span>
-      <input id="tts-queue-slider" type="range" min="1" max="200" step="1" value="30">
-    </label>
-
-    <label class="setting-field">
-      <span>礼物最低播报金额（元）</span>
-      <input id="tts-gift-min" type="number" min="0" max="100000" step="0.1" value="0">
-    </label>
-
-    <div class="tts-actions">
-      <button id="tts-test-button" class="secondary-button" type="button">测试语音</button>
-      <button id="tts-save-button" class="settings-save-button" type="button">保存语音设置</button>
-    </div>
-    <p id="tts-status" class="settings-save-status" role="status">页面启动时会自动尝试初始化 Web Audio；测试语音仅用于试听。</p>
 
     <div class="settings-footer">
       <p id="settings-save-status" class="settings-save-status" role="status">调整完成后点击保存；保存时会尝试刷新 OBS 浏览器源。</p>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>弹幕设置</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="manager-page">
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">B站直播互动中心</div>
+    <nav class="sidebar-nav">
+      <a href="/dashboard">综合展示</a>
+      <a href="/">接入中心</a>
+      <a href="/live2d">Live2D</a>
+      <a href="/danmaku" class="active">弹幕设置</a>
+      <a href="/voice">语音播报</a>
+      <a href="/music">歌曲点播</a>
+      <a href="/music/settings">歌曲设置</a>
+      <a href="/video">视频点播</a>
+      <a href="/video/settings">视频设置</a>
+      <a href="/settings">系统设置</a>
+      <a href="/credentials">凭据管理</a>
+    </nav>
+  </aside>
+  <main class="manager">
+    <header class="page-header">
+      <div><p class="eyebrow">DANMAKU MODULE</p><h1>弹幕设置</h1><p class="muted">弹幕接收状态与空闲随机提示</p></div>
+    </header>
+    <section class="panel">
+      <h2>弹幕连接状态</h2>
+      <div class="status-grid">
+        <div><span class="muted">B站登录</span><strong id="login-state">读取中…</strong></div>
+        <div><span class="muted">直播间连接</span><strong id="connection-state">读取中…</strong></div>
+        <div><span class="muted">直播间号</span><strong id="room-id">—</strong></div>
+      </div>
+      <p id="connection-message" class="muted" role="status">正在读取连接状态…</p>
+      <p class="muted">弹幕接收由接入中心的 B 站直播间连接控制；请先登录并连接直播间。弹幕框的位置、尺寸和字体仍在 Live2D 展示页调整。</p>
+      <div class="inline-controls">
+        <a href="/" target="_blank" rel="noopener">打开接入中心</a>
+        <a href="/danmaku/display" target="_blank" rel="noopener">打开弹幕 OBS 展示页</a>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>空闲随机提示</h2>
+      <p class="muted">仅在 B 站真实连接成功且没有新消息时显示；收到真实弹幕、礼物或醒目留言后会立即清除提示。提示为纯文字，不会触发 Live2D 动作，也不会进入语音播报队列。</p>
+      <div class="tts-switches"><label><input id="idle-enabled" type="checkbox"> 启用空闲随机提示</label></div>
+      <label class="setting-field"><span>提示间隔（秒）</span><input id="idle-interval" type="number" min="10" max="3600" step="5" value="60"></label>
+      <label class="setting-field"><span>普通随机提示语（每行一条）</span><textarea id="idle-messages" rows="4" spellcheck="false"></textarea></label>
+      <strong class="settings-subtitle">分时段问候语（每行一条，可留空禁用）</strong>
+      <label class="setting-field"><span>05:00–09:00 早晨</span><textarea id="time-early-morning" rows="2"></textarea></label>
+      <label class="setting-field"><span>09:00–12:00 上午</span><textarea id="time-morning" rows="2"></textarea></label>
+      <label class="setting-field"><span>12:00–13:00 午餐</span><textarea id="time-lunch" rows="2"></textarea></label>
+      <label class="setting-field"><span>13:00–14:00 午后</span><textarea id="time-after-lunch" rows="2"></textarea></label>
+      <label class="setting-field"><span>14:00–18:00 下午</span><textarea id="time-afternoon" rows="2"></textarea></label>
+      <label class="setting-field"><span>18:00–19:00 傍晚</span><textarea id="time-evening" rows="2"></textarea></label>
+      <label class="setting-field"><span>19:00–21:00 晚上</span><textarea id="time-night" rows="2"></textarea></label>
+      <label class="setting-field"><span>21:00–23:00 深夜</span><textarea id="time-late-night" rows="2"></textarea></label>
+      <label class="setting-field"><span>23:00–05:00 午夜</span><textarea id="time-midnight" rows="2"></textarea></label>
+      <div class="inline-controls"><button id="save-idle" type="button">保存空闲提示设置</button></div>
+      <p id="idle-status" class="muted" role="status">正在读取设置…</p>
+    </section>
+  </main>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const timeKeys=["early_morning","morning","lunch","after_lunch","afternoon","evening","night","late_night","midnight"];
+function toLines(values){return Array.isArray(values)?values.join("\n"):""}
+function fromLines(value){return String(value||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}
+async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
+async function loadIdle(){try{const d=await api("/api/danmaku/idle-tips/settings");const p=d.preferences||{};$("idle-enabled").checked=p.enabled!==false;$("idle-interval").value=p.interval_seconds??60;$("idle-messages").value=toLines(p.messages);for(const key of timeKeys)$("time-"+key).value=toLines((p.time_messages||{})[key]);$("idle-status").textContent="空闲提示设置已加载。"}catch(e){$("idle-status").textContent="读取设置失败："+e.message}}
+async function saveIdle(){const button=$("save-idle");button.disabled=true;$("idle-status").textContent="正在保存…";try{const time_messages={};for(const key of timeKeys)time_messages[key]=fromLines($("time-"+key).value);const payload={enabled:$("idle-enabled").checked,interval_seconds:Number($("idle-interval").value),messages:fromLines($("idle-messages").value),time_messages};const d=await api("/api/danmaku/idle-tips/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});const p=d.preferences;$("idle-interval").value=p.interval_seconds;$("idle-messages").value=toLines(p.messages);for(const key of timeKeys)$("time-"+key).value=toLines(p.time_messages[key]);$("idle-status").textContent="空闲提示设置已保存，并立即生效。"}catch(e){$("idle-status").textContent="保存失败："+e.message}finally{button.disabled=false}}
+async function refreshStatus(){try{const d=await api("/api/status");const b=d.bilibili||{};$("login-state").textContent=b.logged_in?"已登录":"未登录";$("connection-state").textContent=b.connected?"已连接":"未连接";$("room-id").textContent=b.room_id||"未设置";$("connection-message").textContent=b.message|| (b.connected?"直播间连接正常。":"等待 B 站直播间连接。");}catch(e){$("connection-message").textContent="读取连接状态失败："+e.message}}
+$("save-idle").addEventListener("click",saveIdle);loadIdle();refreshStatus();window.setInterval(refreshStatus,3000);
+</script>
+</body>
+</html>

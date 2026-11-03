@@ -169,14 +169,24 @@ def _load_user_settings() -> dict[str, Any]:
     manager = ConfigManager()
     live = manager.load("live", {})
     live2d = manager.load("live2d", {})
+    danmaku = manager.load("danmaku", {"idle_tips": {}})
     voice = manager.load("voice", {})
+    legacy_idle_tips = live2d.get("idle_tips")
+    idle_tips = danmaku.get("idle_tips") if isinstance(danmaku.get("idle_tips"), dict) else {}
+    # 首次升级时将旧 live2d.json 中的空闲提示迁移到 danmaku.json，保留用户原有设置。
+    if not idle_tips and isinstance(legacy_idle_tips, dict) and legacy_idle_tips:
+        idle_tips = legacy_idle_tips
+        danmaku["idle_tips"] = idle_tips
+        manager.save("danmaku", danmaku)
+    if "idle_tips" in live2d:
+        live2d.pop("idle_tips", None)
+        manager.save("live2d", live2d)
     default_model = str(live2d.get("default_model") or DEFAULT_MODEL)
     model_id = live2d.get("model")
     if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
         model_id = default_model
     models = live2d.get("models") if isinstance(live2d.get("models"), dict) else {}
     tts = voice.get("tts") if isinstance(voice.get("tts"), dict) else {}
-    idle_tips = live2d.get("idle_tips") if isinstance(live2d.get("idle_tips"), dict) else {}
     try:
         room_id = max(0, int(live.get("room_id", CONFIG.get("bilibili", {}).get("room_id", 0))))
     except (TypeError, ValueError):
@@ -222,10 +232,11 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
 
 
 def _save_user_settings(settings: dict[str, Any]) -> None:
-    """把用户设置分别保存到 live/live2d/voice 模块配置，不再写根目录 JSON。"""
+    """把用户设置分别保存到 live/live2d/danmaku/voice 模块配置。"""
     manager = ConfigManager()
     live = manager.load("live", {})
     live2d = manager.load("live2d", {})
+    danmaku = manager.load("danmaku", {"idle_tips": {}})
     voice = manager.load("voice", {})
 
     bilibili = settings.get("bilibili") if isinstance(settings.get("bilibili"), dict) else {}
@@ -239,13 +250,15 @@ def _save_user_settings(settings: dict[str, Any]) -> None:
         live2d["models"] = models
     idle_tips = settings.get("idle_tips")
     if isinstance(idle_tips, dict):
-        live2d["idle_tips"] = idle_tips
+        danmaku["idle_tips"] = idle_tips
+    live2d.pop("idle_tips", None)
     tts = settings.get("tts")
     if isinstance(tts, dict):
         voice["tts"] = tts
 
     manager.save("live", live)
     manager.save("live2d", live2d)
+    manager.save("danmaku", danmaku)
     manager.save("voice", voice)
 
 
@@ -1117,6 +1130,11 @@ def live2d_settings_page():
 @app.get("/dashboard")
 def dashboard_page():
     return render_template("combined_display.html", display_mode=False)
+
+
+@app.get("/danmaku")
+def danmaku_settings_page():
+    return render_template("danmaku.html")
 
 
 @app.get("/voice")

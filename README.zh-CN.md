@@ -138,6 +138,10 @@ http://127.0.0.1:8768/live2d/display
 
 建议浏览器源分辨率与 OBS 实际输出画布一致，例如 1920×1080，避免低分辨率拉伸造成模糊。
 
+## 弹幕设置
+
+管理页 `/danmaku` 用于配置空闲随机提示，并查看 B 站登录与直播间连接状态。空闲提示只会在真实连接成功且没有新消息时出现；收到真实弹幕、礼物或醒目留言后会立即清除。它是纯文字提示，不触发 Live2D 动作，也不会进入语音播报队列。设置保存在 `config/local/danmaku.json`。旧版本保存在 `live2d.json` 的空闲提示会在首次启动时自动迁移，原有设置不会丢失。
+
 ## 弹幕对话框
 
 在展示页面左上角点击“设置”，可调整：
@@ -153,7 +157,7 @@ http://127.0.0.1:8768/live2d/display
 
 ## 语音播报（Edge TTS）
 
-在展示页面设置面板的“Edge TTS 语音播报”区域进行配置：
+在语音播报管理页 `/voice` 配置 Edge TTS：
 
 - 普通弹幕、礼物、醒目留言（SC）开关。
 - 语音音色。
@@ -163,7 +167,7 @@ http://127.0.0.1:8768/live2d/display
 
 语音由 Edge TTS 在线合成，合成后的 MP3 文件暂存在系统临时目录 `bili_live_danmaku_tts`。程序在后续合成请求时清理超过一小时的旧文件。
 
-展示页会自动尝试初始化和恢复 Web Audio，并在直播连接后处理语音队列。浏览器或 OBS 的自动播放策略可能影响音频启动；如果音频没有播放，请检查 OBS 浏览器源和浏览器的音频/自动播放设置。页面保留“测试语音”按钮，便于诊断音频输出与嘴型同步。
+展示页会自动尝试初始化和恢复 Web Audio，并在直播连接后处理语音队列。浏览器或 OBS 的自动播放策略可能影响音频启动；如果音频没有播放，请检查 OBS 浏览器源和浏览器的音频/自动播放设置。语音播报管理页保留“生成并试听”功能，便于诊断音频输出与嘴型同步。
 
 ## OBS 配置与自动控制
 
@@ -188,13 +192,13 @@ OBS WebSocket 普通配置保存在 `config/local/obs.json`，包含地址、端
 - `data/`：运行数据，例如歌曲/视频队列缓存、Chrome Profile 和综合展示布局。
 - `logs/`：运行日志，不得包含 Cookie、密码或 Token。
 
-当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。当前本机配置统一位于 `config/local/`；直播间号位于 `config/local/live.json`，Live2D 模型和展示偏好位于 `config/local/live2d.json`，语音播报偏好位于 `config/local/voice.json`，OBS 普通设置位于 `config/local/obs.json`。系统管理员 UID 只保存在 `config/local/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
+当前版本不再读取或迁移旧版 `user_settings.json`、根目录 `config.json`、`room_config.txt`、`obs_config.txt` 或独立管理员 UID 文本文件。当前本机配置统一位于 `config/local/`；直播间号位于 `config/local/live.json`，Live2D 模型和按模型保存的弹幕框布局偏好位于 `config/local/live2d.json`，弹幕空闲提示位于 `config/local/danmaku.json`，语音播报偏好位于 `config/local/voice.json`，OBS 普通设置位于 `config/local/obs.json`。系统管理员 UID 只保存在 `config/local/app.json`。OBS 密码和 B 站 Cookie 分别保存在 `credentials/obs.json`、`credentials/bilibili.json`，不要把 `credentials/` 上传到 GitHub。
 
 ## 统一模块与综合展示
 
 管理入口：`http://127.0.0.1:8768/`
 
-侧边导航包含综合展示、接入中心、Live2D、语音播报、歌曲点播/设置、视频点播/设置、系统设置和凭据管理。
+侧边导航包含综合展示、接入中心、Live2D、弹幕设置、语音播报、歌曲点播/设置、视频点播/设置、系统设置和凭据管理。
 
 - 歌曲和视频模块相互独立，启动、暂停、恢复和关闭不会影响对方。
 - 每次主程序启动时，歌曲和视频模块默认关闭。
