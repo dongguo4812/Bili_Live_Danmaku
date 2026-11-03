@@ -1553,7 +1553,32 @@ def api_music_widget():
         result["name"] = str(status.get("name", "") or "")
         result["singer"] = str(status.get("singer", "") or "")
         result["albumName"] = str(status.get("albumName", "") or "")
-        result["picUrl"] = str(status.get("picUrl", "") or "")
+
+        # 兼容洛雪不同版本/音源返回的封面字段，避免只返回歌名和歌手。
+        cover_keys = ("picUrl", "pic_url", "img", "coverUrl", "cover_url", "cover", "image", "albumPic")
+        cover_value = ""
+        pending = [status]
+        visited = set()
+        while pending and not cover_value:
+            current_obj = pending.pop(0)
+            if not isinstance(current_obj, dict) or id(current_obj) in visited:
+                continue
+            visited.add(id(current_obj))
+            for key in cover_keys:
+                value = current_obj.get(key)
+                if isinstance(value, str) and value.strip():
+                    cover_value = value.strip()
+                    break
+            if not cover_value:
+                for value in current_obj.values():
+                    if isinstance(value, dict):
+                        pending.append(value)
+                    elif isinstance(value, list):
+                        pending.extend(item for item in value if isinstance(item, dict))
+
+        if cover_value.startswith("//"):
+            cover_value = "https:" + cover_value
+        result["picUrl"] = cover_value
         if urlparse(result["picUrl"]).scheme not in ("http", "https"):
             result["picUrl"] = ""
         return jsonify(result)
