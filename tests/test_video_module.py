@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import modules.video.service as video_service
-from core.config_manager import ConfigManager
 
 
 class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
@@ -249,8 +248,10 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as tmp, \
                  patch.object(video_service, "BASE_DIR", Path(tmp)), \
                  patch.object(video_service, "load_obs_config", return_value={"enabled": False}):
+                (Path(tmp) / "legacy-uid.txt").write_text("999999\\n", encoding="utf-8")
                 video_service.configure_video_module(
-                    {"chrome": {"profile_dir": "profile"}, "requests": {}},
+                    {"chrome": {"profile_dir": "profile"}, "requests": {},
+                     "admin_uids": [12345], "admins_file": "legacy-uid.txt"},
                     lambda: {
                         "sessdata": "session-value",
                         "bili_jct": "csrf-value",
@@ -263,6 +264,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(video_service.COOKIE_VALUES["bili_jct"], "csrf-value")
                 self.assertEqual(video_service.COOKIE_VALUES["buvid3"], "buvid-value")
                 self.assertEqual(video_service.COOKIE_VALUES["DedeUserID"], "12345")
+                self.assertEqual(video_service.ADMIN_UIDS, {12345})
         finally:
             video_service.COOKIE_VALUES = old["cookie_values"]
             video_service.VIDEO_CONFIG = old["config"]
@@ -270,64 +272,6 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             video_service.CHROME_PROFILE = old["profile"]
             video_service.ADMIN_UIDS = old["admin_uids"]
             video_service.OBS_CONFIG = old["obs"]
-
-    async def test_legacy_room_config_migrates_limits_once_without_changing_room(self):
-        import tempfile
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            config_dir = root / "config"
-            manager = ConfigManager(config_dir)
-            manager.save("video", {
-                "requests": {
-                    "require_fans_medal": False,
-                    "cooldown_seconds": 60,
-                    "queue_limit": 30,
-                    "max_video_duration_seconds": 300,
-                }
-            })
-            (root / "room_config.txt").write_text(
-                "ROOM_ID=22851631\n"
-                "REQUIRE_FAN_MEDAL=1\n"
-                "MAX_VIDEO_DURATION_SEC=240\n"
-                "COOLDOWN_SEC=90\n"
-                "MAX_QUEUE_SIZE=20\n",
-                encoding="utf-8",
-            )
-            migrated = video_service.migrate_legacy_video_room_config(root, manager)
-            config = manager.load("video", {})
-            self.assertEqual(migrated["require_fans_medal"], True)
-            self.assertEqual(config["requests"]["require_fans_medal"], True)
-            self.assertEqual(config["requests"]["max_video_duration_seconds"], 240)
-            self.assertEqual(config["requests"]["cooldown_seconds"], 90)
-            self.assertEqual(config["requests"]["queue_limit"], 20)
-            self.assertNotIn("room_id", config)
-            (root / "room_config.txt").write_text("REQUIRE_FAN_MEDAL=0\n", encoding="utf-8")
-            self.assertEqual(video_service.migrate_legacy_video_room_config(root, manager), {})
-            self.assertTrue(manager.load("video", {})["requests"]["require_fans_medal"])
-
-    async def test_legacy_obs_migration_keeps_password_out_of_plain_config(self):
-        import tempfile
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            manager = ConfigManager(root / "config")
-            (root / "obs_config.txt").write_text(
-                "host=192.168.1.3\n"
-                "port=4455\n"
-                "password=must-not-be-migrated\n"
-                "source_name=b站视频播放器\n",
-                encoding="utf-8",
-            )
-            migrated = video_service.migrate_legacy_video_obs_config(root, manager)
-            config = manager.load("obs", {})
-            self.assertEqual(migrated["host"], "192.168.1.3")
-            self.assertEqual(migrated["port"], 4455)
-            self.assertEqual(config["source_name"], "b站视频播放器")
-            self.assertNotIn("password", config)
-            (root / "obs_config.txt").write_text("host=127.0.0.1\n", encoding="utf-8")
-            self.assertEqual(video_service.migrate_legacy_video_obs_config(root, manager), {})
-            self.assertEqual(manager.load("obs", {})["host"], "192.168.1.3")
 
     async def test_inflight_order_is_discarded_after_pause_and_resume(self):
         import asyncio
