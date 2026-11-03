@@ -1187,7 +1187,6 @@ def video_display_page():
 
 
 @app.get("/api/live2d/settings")
-@app.get("/api/display/settings")
 def get_display_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
@@ -1207,7 +1206,6 @@ def get_display_settings():
 
 
 @app.post("/api/live2d/settings")
-@app.post("/api/display/settings")
 def save_display_settings():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
