@@ -339,6 +339,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderLive2DPreview(body){
+    // 每次切换前先销毁旧 iframe，确保模块中最多只有一个 Live2D 实例。
+    body.replaceChildren();
     // 关闭预览时让 Live2D 模块保持空白，不在模型展示区域放置提示文字。
     if(!live2dPreviewEnabled) return;
     const frame=document.createElement("iframe");
