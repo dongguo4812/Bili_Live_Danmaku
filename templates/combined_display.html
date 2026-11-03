@@ -204,18 +204,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const frame=body?.querySelector("iframe");
     if(!body || !frame) return;
 
-    // Live2D 必须按整个展示舞台的尺寸渲染，模块窗口只负责裁剪可见区域。
-    // iframe 仍放在模块内部，但将其扩展到舞台大小并反向偏移到舞台原点，
-    // 这样模型的视口坐标与独立 /live2d/display 页面保持一致。
-    const stageRect=stage.getBoundingClientRect();
-    const bodyRect=body.getBoundingClientRect();
+    // 保留完整舞台尺寸的 Live2D 视口，避免模块尺寸改变模型缩放。
+    // 将完整视口居中放在模块内部：模型默认位于视口中心，因此无论模块
+    // 放在舞台哪个位置，模型中心都会落在模块可见区域，而不会被裁到模块外。
     frame.style.position="absolute";
     frame.style.width=stage.clientWidth+"px";
     frame.style.height=stage.clientHeight+"px";
     frame.style.maxWidth="none";
     frame.style.maxHeight="none";
-    frame.style.left=-(bodyRect.left-stageRect.left)+"px";
-    frame.style.top=-(bodyRect.top-stageRect.top)+"px";
+    frame.style.left=((body.clientWidth-stage.clientWidth)/2)+"px";
+    frame.style.top=((body.clientHeight-stage.clientHeight)/2)+"px";
     frame.style.border="0";
   }
 
