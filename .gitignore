@@ -30,7 +30,8 @@ uid.txt
 *.key
 chrome_profile/
 
-# Legacy local configuration files are intentionally ignored; no runtime migration is performed.
+# Retired migration markers/journals may remain on user machines; keep them ignored.
+# The current runtime never reads, writes, or deletes these historical marker files.
 config.json
 user_settings.json
 config/.legacy_config_migrated_v1.json
