@@ -264,7 +264,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       item.x=Math.max(0,Math.min(100-item.w,original.x+dx));
       item.y=Math.max(0,Math.min(100-item.h,original.y+dy));
     }else{
-      const minSize=5;
+      const minSize=12;
       if(mode.includes("e")) item.w=Math.max(minSize,Math.min(100-original.x,original.w+dx));
       if(mode.includes("s")) item.h=Math.max(minSize,Math.min(100-original.y,original.h+dy));
       if(mode.includes("w")){
