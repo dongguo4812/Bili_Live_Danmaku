@@ -34,6 +34,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget-body{flex:1;min-height:0;overflow:auto;padding:10px 12px;font-size:14px;line-height:1.55}
 .display-mode .widget-body{padding:5px 8px}
 .widget.live2d .widget-body,.widget.music_widget .widget-body{padding:0;overflow:hidden}
+.widget.live2d .widget-body{position:relative;display:flex;align-items:center;justify-content:center;background:rgba(15,20,30,.35)}
+.live2d-static-preview{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
+.live2d-preview-placeholder{padding:12px;color:#aeb9ca;font-size:13px;text-align:center;line-height:1.6}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
@@ -236,6 +239,29 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     });
   }
 
+  async function renderLive2DPreview(body){
+    const placeholder=make("div","live2d-preview-placeholder","正在读取当前 Live2D 模型预览…");
+    body.appendChild(placeholder);
+    try{
+      // 只读取当前模型 ID；编辑页不创建 Live2D iframe，也不启动模型或音频。
+      const settings=await api("/api/live2d/settings");
+      const modelId=String(settings.model||"").trim();
+      if(!modelId) throw new Error("当前没有可用的 Live2D 模型。");
+      const image=document.createElement("img");
+      image.className="live2d-static-preview";
+      image.alt="Live2D 模型静态预览："+modelId;
+      image.draggable=false;
+      image.addEventListener("error",()=>{
+        body.replaceChildren(make("div","live2d-preview-placeholder","模型“"+modelId+"”暂无静态预览图。请将透明 PNG 放入 static/live2d_preview/"+modelId+".png"));
+      },{once:true});
+      image.addEventListener("load",()=>placeholder.remove(),{once:true});
+      image.src="/static/live2d_preview/"+encodeURIComponent(modelId)+".png";
+      body.appendChild(image);
+    }catch(error){
+      placeholder.textContent="无法读取 Live2D 模型预览："+error.message;
+    }
+  }
+
   function renderWidgetContent(body,type){
     body.replaceChildren();
     if(type==="live2d"){
@@ -246,7 +272,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         frame.allow="autoplay";
         body.appendChild(frame);
       }else{
-        body.appendChild(make("div","empty","Live2D OBS 展示模块（编辑页不启动音频与模型渲染）"));
+        renderLive2DPreview(body);
       }
     }else if(type==="music_widget") renderMusicWidget(body);
     else if(type==="music") renderMusic(body);
