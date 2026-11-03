@@ -970,6 +970,15 @@
     outputs["bubble-font"].textContent = controls["bubble-font"].value + "px";
   }
 
+  function applyLive2DTransform() {
+    if (!canvas) return;
+    const p = currentPreferences();
+    const dx = p.x * canvas.clientWidth / 2;
+    const dy = -p.y * canvas.clientHeight / 2;
+    canvas.style.transformOrigin = "50% 50%";
+    canvas.style.transform = "translate(" + dx + "px, " + dy + "px) scale(" + p.scale + ")";
+  }
+
   function applyLive2DCrop() {
     if (!canvas) return;
     const p = currentPreferences();
@@ -1065,12 +1074,8 @@
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
 
-      // 只有缩放或位置参数变化时，才在当前 WebGL 上下文中重新载入模型。
-      // 弹幕轮询、TTS 队列、Web Audio 和空闲提示均不随模型替换重启。
-      if (transformChangedSinceLoad(preferences)) {
-        const token = ++modelSwitchToken;
-        await queueModelSwitch(modelSelect.value, token, result.preferences);
-      }
+      // 模型大小和位置已在拖动时实时应用；保存只持久化设置，不重载模型。
+      loadedTransform = transformSnapshot(preferences);
     } catch (error) {
       setSaveStatus((settingsSaved ? "设置已保存，但模型刷新失败：" : "保存失败：") + error.message, true);
     } finally {
@@ -1082,6 +1087,7 @@
   function markUnsaved() {
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DTransform();
     applyLive2DCrop();
     hasUnsavedChanges = true;
     setSaveStatus("有未保存的更改；点击下方“保存设置”后才会保存并尝试刷新 OBS。");
@@ -1125,6 +1131,7 @@
     controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DTransform();
     applyLive2DCrop();
     return currentModel;
   }
@@ -1565,6 +1572,7 @@
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
       controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
       updateSliderLabels();
+      applyLive2DTransform();
       applyLive2DCrop();
       markUnsaved();
 
@@ -1588,6 +1596,7 @@
     slider.addEventListener("input", () => {
       updateSliderLabels();
       applyBubblePreferences();
+      applyLive2DTransform();
       applyLive2DCrop();
       if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
