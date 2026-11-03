@@ -621,7 +621,7 @@ def get_lx_status() -> Optional[dict[str, Any]]:
                     "filter": (
                         "status,name,singer,albumName,"
                         "duration,progress,playbackRate,"
-                        "picUrl,lyricLineText"
+                        "picUrl,img,coverUrl,cover_url,lyricLineText"
                     )
                 },
                 timeout=2,
