@@ -175,7 +175,7 @@ http://127.0.0.1:8768/display
 - 正常退出程序时，尝试隐藏匹配的展示来源。
 - 会遍历场景及嵌套分组中的场景项目，处理匹配浏览器源对应的场景项。
 
-OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、超时和来源名称。密码统一在凭据管理页录入，保存在 `credentials/obs.json`；Windows 使用 DPAPI 加密，页面不会回显密码原文。
+OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、超时和来源名称。密码统一在凭据管理页录入，保存在 `credentials/obs.json`；Windows 使用当前 Windows 用户上下文的 DPAPI 加密，页面不会回显密码原文。非 Windows 开发环境使用仅本机文件权限保护的存储格式，不应将该环境的凭据文件复制到其他设备；正式 Windows 使用时应由目标 Windows 用户重新保存凭据。
 
 系统设置页面：`http://127.0.0.1:8768/settings`；统一凭据入口：`http://127.0.0.1:8768/credentials`。请在 OBS 的“工具 → WebSocket 服务器设置”中启用 WebSocket 服务器，并确认地址、端口和来源名称正确。
 
@@ -202,10 +202,13 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - 视频模块保留 Chrome/Selenium 播放、BV 校验、队列、播放结束监控和 OBS 来源显隐；网页全屏只在确认视频进度后尝试 W；视频暂停/关闭不会控制洛雪。
 - 歌曲设置页：`/music/settings`；视频设置页：`/video/settings`。修改模块配置前需要先关闭对应模块。
 - Live2D 和语音模块接入统一生命周期；直播断线时暂停互动，重连后按断线前状态恢复。
-- 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存当前布局；支持恢复默认布局，恢复后仍需手动保存才会覆盖本地布局。
-- OBS 综合展示地址：`/display/combined`。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
+- 系统管理员 UID 在系统设置页 `/settings` 统一配置，歌曲和视频模块共用；不再分别维护 `data/music/uid.txt`、`data/video/uid.txt`。
+- 独立透明展示页面：Live2D `/display/live2d`、弹幕 `/display/danmaku`、语音 `/display/tts`、歌曲队列 `/display/music`、视频队列 `/display/video`、歌曲信息组件 `/display/music-widget`。原地址 `/display`（Live2D+弹幕+TTS 完整展示）、`/music/display`、`/music/widget` 和 `/video/display` 继续兼容。
+- Live2D 设置 API 统一使用 `/api/live2d/` 前缀；旧 `/api/display/settings` 地址保留为兼容接口。
+- 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
+- OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
 
-当前 GitHub Actions 已通过 Python 全量编译和 27 项离线单元测试。歌曲和视频模块的完整本机联调仍需分别验证洛雪音乐、Chrome、OBS WebSocket 和实际直播间弹幕。
+GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置/凭据回归测试及离线测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置迁移回归测试。CI 通过不等于已完成所有设备上的人工联调；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
 ## 常见问题
 
