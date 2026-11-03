@@ -1657,6 +1657,8 @@ def save_music_settings():
             "queue_limit": queue_limit,
             "require_fans_medal": require_medal,
         })
+        config["admin_uids"] = _load_system_admin_uids()
+        config["admins_file"] = ""
         ConfigManager().save("music", config)
         MUSIC_MODULE.reload_config(config)
         return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
