@@ -79,6 +79,7 @@
 | 静态资源 | `style.css`、`display.js`、`live2d.min.js`、`display_media.css`、`display_media.js` 均被页面引用 | 未发现可安全删除的孤立静态资源 |
 | 视频粉丝牌配置字段 | 配置模板/模块使用 `require_fans_medal`，设置 API 曾误用单数 `require_fan_medal` 持久化，造成页面与运行时配置脱节 | 已统一持久化字段为 `require_fans_medal`；保留前端请求/响应字段 `require_fan_medal` 以维持页面契约；默认值统一为模板中的 `false` |
 | 无效默认配置 | `live.connect_on_start`、Live2D 的固定目录/配置路径及画布尺寸字段未被当前代码使用；日志 `daily_rotation` 也没有对应开关逻辑 | 从默认模板和运行时默认值中移除无效字段；保留实际读取的 `format`、`default_model` 等字段 |
+| 其他无效默认配置 | OBS `password_file` 仅被传入一个不使用该参数的函数；语音模板中的 `enabled`、`rate`、`volume` 不参与当前默认值解析 | 已移除这些模板字段与 OBS 伪路径参数；OBS 密码始终由凭据库读取，语音速率/音量由用户偏好设置保存 |
 
 ### 第二批验证状态
 
