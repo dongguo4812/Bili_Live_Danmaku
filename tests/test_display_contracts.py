@@ -192,6 +192,33 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('loadedModelId', script)
         self.assertNotIn('loadlive2d(canvas.id', script[script.index('function captureLive2DCanvasPng'):script.index('function waitForRenderedPixels')])
 
+    def test_combined_layout_supports_independent_content_scales_and_edge_resize(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        media_css = (root / "static" / "display_media.css").read_text(encoding="utf-8")
+        music_widget = (root / "templates" / "music_widget.html").read_text(encoding="utf-8")
+        self.assertIn('"font_scale": round(font_scale, 1)', main)
+        self.assertIn('"content_scale": round(content_scale, 1)', main)
+        for direction in ('"n"', '"s"', '"e"', '"w"', '"ne"', '"nw"', '"se"', '"sw"'):
+            self.assertIn(direction, combined)
+        self.assertIn('id="font-scale"', combined)
+        self.assertIn('id="content-scale"', combined)
+        self.assertIn('font_scale', combined)
+        self.assertIn('content_scale', combined)
+        self.assertIn('var(--content-scale, 1)', media_css)
+        self.assertIn('var(--widget-scale, 1)', music_widget)
+
+    def test_combined_tts_exposes_current_and_pending_speech(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('type: "combined-tts-state"', display_script)
+        self.assertIn('speechQueue.map(entry => entry.text)', display_script)
+        self.assertIn('正在播报', combined)
+        self.assertIn('等待播报（', combined)
+        self.assertIn('combined-tts-state', combined)
+
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         start = source.index("function renderVideo(")
