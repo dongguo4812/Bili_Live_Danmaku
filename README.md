@@ -26,12 +26,12 @@ py -3 -m venv .venv
 
 ## Bilibili login and live room
 
-1. Enter your live-room ID in the management page and save it. The value is stored in `config/live.json`.
+1. Enter your live-room ID in the management page and save it. The value is stored in `config/local/live.json`.
 2. Click **扫码登录** and scan the QR code with the Bilibili mobile app.
 3. After the login is confirmed, the server captures the login cookies from Bilibili's QR-login response and stores them atomically in \`credentials/bilibili.json\`.
 4. The server validates the saved login on startup and again before starting a live-room connection. Anonymous connections are rejected.
 5. Click **连接直播间**. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event.
-6. Unexpected disconnects are retried using the reconnect settings in `config/live.json`. Use **断开连接** to stop the connection.
+6. Unexpected disconnects are retried using the reconnect settings in `config/local/live.json`. Use **断开连接** to stop the connection.
 
 The credential directory and local settings file are excluded by \`.gitignore\`. Do not share \`credentials/bilibili.json\`; it contains account login credentials. If the Bilibili QR-login flow changes, a successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check.
 
@@ -50,7 +50,7 @@ The \`/display\` page polls the local event queue and displays incoming danmaku 
 
 Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
 
-OBS WebSocket ordinary settings are stored in `config/obs.json`. Enter the password separately on the system settings page; it is stored in `credentials/obs.json` and protected with Windows DPAPI. The UI never reads back or displays the saved password.
+OBS WebSocket ordinary settings are stored in `config/local/obs.json`. Enter the password separately on the system settings page; it is stored in `credentials/obs.json` and protected with Windows DPAPI. The UI never reads back or displays the saved password.
 
 System settings: `http://127.0.0.1:8768/settings`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**.
 
