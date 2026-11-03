@@ -1672,7 +1672,7 @@ def get_music_settings():
         "requests": {
             "cooldown_seconds": requests_config.get("cooldown_seconds", 10),
             "queue_limit": requests_config.get("queue_limit", 100),
-            "require_fans_medal": requests_config.get("require_fans_medal", 0),
+            "require_fans_medal": bool(requests_config.get("require_fans_medal", False)),
         },
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state", "stopped"),
     })
@@ -1697,17 +1697,26 @@ def save_music_settings():
         max_results = int(payload.get("max_results_per_platform", search.get("max_results_per_platform", 20)))
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
-        require_medal = int(payload.get("require_fans_medal", req.get("require_fans_medal", 0)))
+        raw_require_medal = payload.get("require_fans_medal", req.get("require_fans_medal", False))
+        if isinstance(raw_require_medal, bool):
+            require_medal = raw_require_medal
+        elif raw_require_medal in (0, 1, "0", "1"):
+            # 兼容旧页面/旧 API：0=要求粉丝牌，1=不要求粉丝牌。
+            require_medal = str(raw_require_medal) == "0"
+        elif isinstance(raw_require_medal, str) and raw_require_medal.strip().lower() in {"true", "false"}:
+            require_medal = raw_require_medal.strip().lower() == "true"
+        else:
+            raise ValueError("粉丝牌选项必须是布尔值。")
         if not 2 <= timeout <= 30 or not 1 <= max_results <= 50:
             raise ValueError("接口超时应为 2–30 秒，单平台搜索数量应为 1–50。")
-        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000 or require_medal not in {0, 1}:
+        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000:
             raise ValueError("冷却时间、队列上限或粉丝牌选项无效。")
         lx.update({"base_url": base_url, "timeout_seconds": timeout})
         search["max_results_per_platform"] = max_results
         req.update({
             "cooldown_seconds": cooldown,
             "queue_limit": queue_limit,
-            "require_fans_medal": require_medal,
+            "require_fans_medal": bool(require_medal),
         })
         ConfigManager().save("music", config)
         runtime_config = dict(config)
