@@ -308,7 +308,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertTrue((root / "models" / "moc3" / ".gitkeep").is_file())
         self.assertTrue((root / "models" / "moc2").is_dir())
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('directory.name in {"moc2", "moc3"}', main)
+        self.assertIn('directory.name not in {"moc2", "moc3"}', main)
         self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
 
 
