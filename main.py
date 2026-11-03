@@ -1557,6 +1557,27 @@ def get_music_settings():
     lx = config.get("lx_music", {})
     search = config.get("search", {})
     requests_config = config.get("requests", {})
+    admin_uids = set()
+    for value in config.get("admin_uids", []) if isinstance(config.get("admin_uids", []), list) else []:
+        try:
+            uid = int(value)
+            if uid > 0:
+                admin_uids.add(uid)
+        except (TypeError, ValueError):
+            continue
+    admins_file = str(config.get("admins_file", "data/music/uid.txt") or "").strip()
+    if admins_file:
+        admin_path = (BASE_DIR / admins_file).resolve()
+        try:
+            admin_path.relative_to(BASE_DIR.resolve())
+            if admin_path.is_file():
+                for raw in admin_path.read_text(encoding="utf-8-sig").splitlines():
+                    line = raw.split("#", 1)[0].strip()
+                    for item in re.split(r"[,;\\s]+", line):
+                        if item.isdigit() and int(item) > 0:
+                            admin_uids.add(int(item))
+        except (OSError, ValueError):
+            logger.exception("读取歌曲管理员 UID 文件失败。")
     return jsonify({
         "ok": True,
         "lx_music": {
@@ -1569,6 +1590,7 @@ def get_music_settings():
             "queue_limit": requests_config.get("queue_limit", 100),
             "require_fans_medal": requests_config.get("require_fans_medal", 0),
         },
+        "admin_uids": sorted(admin_uids),
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state", "stopped"),
     })
 
@@ -1593,6 +1615,19 @@ def save_music_settings():
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
         require_medal = int(payload.get("require_fans_medal", req.get("require_fans_medal", 0)))
+        raw_admin_uids = payload.get("admin_uids", [])
+        if not isinstance(raw_admin_uids, list):
+            raise ValueError("管理员 UID 必须以列表形式提交。")
+        admin_uids = []
+        for value in raw_admin_uids:
+            text_value = str(value).strip()
+            if not text_value.isdigit() or int(text_value) <= 0:
+                raise ValueError(f"管理员 UID 无效：{text_value or '空值'}")
+            uid = int(text_value)
+            if uid not in admin_uids:
+                admin_uids.append(uid)
+        if len(admin_uids) > 100:
+            raise ValueError("歌曲管理员最多设置 100 个 UID。")
         if not 2 <= timeout <= 30 or not 1 <= max_results <= 50:
             raise ValueError("接口超时应为 2–30 秒，单平台搜索数量应为 1–50。")
         if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000 or require_medal not in {0, 1}:
@@ -1604,9 +1639,19 @@ def save_music_settings():
             "queue_limit": queue_limit,
             "require_fans_medal": require_medal,
         })
+        # 管理员名单统一由网页控制，并写入原有 admins_file，避免旧文件中的 UID 被继续隐式授权。
+        admins_file = str(config.get("admins_file", "data/music/uid.txt") or "data/music/uid.txt").strip()
+        admin_path = (BASE_DIR / admins_file).resolve()
+        admin_path.relative_to(BASE_DIR.resolve())
+        admin_path.parent.mkdir(parents=True, exist_ok=True)
+        admin_path.write_text(
+            "".join(f"{uid}\\n" for uid in admin_uids),
+            encoding="utf-8",
+        )
+        config["admin_uids"] = []
         ConfigManager().save("music", config)
         MUSIC_MODULE.reload_config(config)
-        return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
+        return jsonify({"ok": True, "message": "歌曲模块配置及管理员 UID 已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
 
