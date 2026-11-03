@@ -1653,10 +1653,23 @@ def _sanitize_display_layout(payload: Any) -> dict[str, Any]:
         h = max(12.0, min(100.0, h))
         x = max(0.0, min(100.0 - w, x))
         y = max(0.0, min(100.0 - h, y))
+        try:
+            font_scale = float(item.get("font_scale", 100))
+            content_scale = float(item.get("content_scale", 100))
+        except (TypeError, ValueError):
+            font_scale, content_scale = 100.0, 100.0
+        if not math.isfinite(font_scale):
+            font_scale = 100.0
+        if not math.isfinite(content_scale):
+            content_scale = 100.0
+        font_scale = max(50.0, min(200.0, font_scale))
+        content_scale = max(50.0, min(200.0, content_scale))
         widgets.append({
             "id": widget_type, "type": widget_type,
             "x": round(x, 2), "y": round(y, 2),
             "w": round(w, 2), "h": round(h, 2),
+            "font_scale": round(font_scale, 1),
+            "content_scale": round(content_scale, 1),
         })
         used_types.add(widget_type)
     return {"version": 1, "widgets": widgets}
