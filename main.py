@@ -232,7 +232,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any
 
 
 def _save_user_settings(settings: dict[str, Any]) -> None:
-    """把用户设置分别保存到 live/live2d/voice 模块配置，不再写根目录 JSON。"""
+    """把用户设置分别保存到 live/live2d/danmaku/voice 模块配置。"""
     manager = ConfigManager()
     live = manager.load("live", {})
     live2d = manager.load("live2d", {})
