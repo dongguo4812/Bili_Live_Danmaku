@@ -264,6 +264,16 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
         self.assertNotIn('bubble.style.clipPath', script)
 
+    def test_live2d_transform_sliders_apply_without_reloading_model(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('function applyLive2DTransform()', script)
+        self.assertIn('canvas.style.transform = "translate(" + dx + "px, " + dy + "px) scale(" + p.scale + ")"', script)
+        self.assertIn('applyLive2DTransform();\n      applyLive2DCrop();', script)
+        self.assertIn('applyLive2DTransform();\n    applyLive2DCrop();', script)
+        self.assertIn('模型大小和位置已在拖动时实时应用；保存只持久化设置，不重载模型。', script)
+        self.assertNotIn('await queueModelSwitch(modelSelect.value, token, result.preferences)', script)
+
 
 if __name__ == "__main__":
     unittest.main()
