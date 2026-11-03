@@ -57,6 +57,11 @@ class CombinedDisplayContractTests(unittest.TestCase):
             self.assertNotIn(key, voice)
         self.assertNotIn("password_file", obs)
         self.assertNotIn("daily_rotation", logging)
+        music = read("music")
+        video = read("video")
+        self.assertNotIn("enabled_on_start", music)
+        self.assertNotIn("enabled_on_start", video)
+        self.assertNotIn("platform_order", music.get("search", {}))
 
     def test_obs_password_is_read_only_from_credential_store(self):
         root = Path(__file__).resolve().parents[1]
