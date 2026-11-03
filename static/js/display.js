@@ -1291,13 +1291,16 @@
       return false;
     }
 
-    // 只保存模型刚加载完成时的原始矩阵，不把用户设置值混入基准。
+    // /models/<id>/model.json 已经把已保存的 scale/x/y 写入 layout，
+    // Cubism 2 加载时也已经应用过一次。这里必须同时记录这组基准设置，
+    // 后续实时预览只应用“当前值相对已保存值的差量”，不能重复应用完整设置。
     live2dTransformBase = {
       matrix,
       scaleX,
       scaleY,
       centerX: Number(matrix.tr[12]) + width * scaleX / 2,
-      centerY: Number(matrix.tr[13]) + height * scaleY / 2
+      centerY: Number(matrix.tr[13]) + height * scaleY / 2,
+      preferences: transformSnapshot()
     };
     return true;
   }
@@ -1308,10 +1311,14 @@
     const current = transformSnapshot(preferences);
     if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
 
-    // 滑块值始终相对于模型刚加载时的原始矩阵计算，避免基准漂移和累计误差。
-    base.matrix.scale(base.scaleX * current.scale, base.scaleY * current.scale);
-    base.matrix.centerX(base.centerX + current.x);
-    base.matrix.centerY(base.centerY + current.y);
+    // 模型矩阵已经包含后端应用的已保存设置，因此只叠加相对差量。
+    // 每次都从加载完成时的矩阵计算，避免拖动滑块时累计误差。
+    const saved = base.preferences || { scale: 1, x: 0, y: 0 };
+    const scaleRatio = current.scale / saved.scale;
+    if (!Number.isFinite(scaleRatio) || scaleRatio <= 0) return false;
+    base.matrix.scale(base.scaleX * scaleRatio, base.scaleY * scaleRatio);
+    base.matrix.centerX(base.centerX + current.x - saved.x);
+    base.matrix.centerY(base.centerY + current.y - saved.y);
     return true;
   }
 
