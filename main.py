@@ -30,7 +30,7 @@ from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from core.logger_manager import setup_logging
-from modules.music.service import MusicModuleFacade
+from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
 from modules.video.service import VideoModuleFacade
 from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
@@ -1520,6 +1520,41 @@ def api_music_queue():
     except Exception as exc:
         logger.exception("读取歌曲队列快照失败。")
         return jsonify({"ok": False, "error": f"读取歌曲队列失败：{type(exc).__name__}"}), 503
+
+@app.get("/api/music/widget")
+def api_music_widget():
+    """提供洛雪当前播放歌曲信息，供封面/歌名/歌手展示组件使用。"""
+    try:
+        status = get_lx_status()
+        if not isinstance(status, dict):
+            return jsonify({
+                "ok": True,
+                "available": False,
+                "playing": False,
+                "name": "",
+                "singer": "",
+                "albumName": "",
+                "duration": 0,
+                "progress": 0,
+                "playbackRate": 1,
+                "picUrl": "",
+                "lyricLineText": "",
+            })
+
+        result = dict(status)
+        result["ok"] = True
+        result["available"] = True
+        result["playing"] = is_lx_playing(status)
+        result["name"] = str(status.get("name", "") or "")
+        result["singer"] = str(status.get("singer", "") or "")
+        result["albumName"] = str(status.get("albumName", "") or "")
+        result["picUrl"] = str(status.get("picUrl", "") or "")
+        if urlparse(result["picUrl"]).scheme not in ("http", "https"):
+            result["picUrl"] = ""
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("读取歌曲信息组件数据失败。")
+        return jsonify({"ok": False, "error": f"读取歌曲信息失败：{type(exc).__name__}"}), 503
 
 
 @app.get("/api/video/queue")
