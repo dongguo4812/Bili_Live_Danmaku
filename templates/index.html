@@ -40,10 +40,7 @@
         <div><span class="muted">直播连接</span><strong id="connection-state">未连接</strong></div>
         <div class="runtime-status-cell">
           <span class="muted">MOC2 运行时</span>
-          <div class="runtime-status-row">
-            <strong id="runtime-state">尚未接入</strong>
-            <button id="open-display" type="button" class="secondary-button">打开展示页</button>
-          </div>
+          <strong id="runtime-state">尚未接入</strong>
         </div>
       </div>
       <p id="status-message" class="muted">正在读取状态…</p>
@@ -138,6 +135,7 @@
         <div>
           <strong id="model-name">live_uu</strong>
           <p class="muted">Live2D Cubism 2（MOC2）</p>
+          <a href="/live2d/moc2/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
@@ -173,7 +171,6 @@
       <code>http://127.0.0.1:8768/live2d/display</code>
       <p>独立展示页面：</p>
       <div class="inline-controls">
-        <a href="/live2d/moc2/display" target="_blank" rel="noopener">Live2D</a>
         <a href="/danmaku/display" target="_blank" rel="noopener">弹幕</a>
         <a href="/voice/display" target="_blank" rel="noopener">语音</a>
         <a href="/music/display" target="_blank" rel="noopener">歌曲队列</a>
@@ -305,10 +302,6 @@
     $("music-toggle-request").addEventListener("click", () => {
       const enabled = $("music-toggle-request").dataset.enabled !== "true";
       musicQueueAction({ action: "set_song_request", enabled });
-    });
-
-    $("open-display").addEventListener("click", () => {
-      window.open("http://127.0.0.1:8768/live2d/display", "_blank", "noopener,noreferrer");
     });
 
     async function refreshStatus() {
