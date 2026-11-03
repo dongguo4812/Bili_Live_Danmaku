@@ -124,46 +124,6 @@
     </label>
 
 
-    <div class="settings-divider"></div>
-    <strong class="settings-subtitle">Edge TTS 语音播报</strong>
-
-    <div class="tts-switches">
-      <label><input id="tts-danmaku-enabled" type="checkbox" checked> 普通弹幕</label>
-      <label><input id="tts-gift-enabled" type="checkbox" checked> 礼物</label>
-      <label><input id="tts-sc-enabled" type="checkbox" checked> 醒目留言（SC）</label>
-    </div>
-
-    <label class="setting-field">
-      <span>语音音色</span>
-      <select id="tts-voice"></select>
-    </label>
-
-    <label class="setting-field">
-      <span>语速 <output id="tts-rate-value">0%</output></span>
-      <input id="tts-rate-slider" type="range" min="-50" max="100" step="5" value="0">
-    </label>
-
-    <label class="setting-field">
-      <span>音量 <output id="tts-volume-value">0%</output></span>
-      <input id="tts-volume-slider" type="range" min="-50" max="50" step="5" value="0">
-    </label>
-
-    <label class="setting-field">
-      <span>最大等待语音数量 <output id="tts-queue-value">30 条</output></span>
-      <input id="tts-queue-slider" type="range" min="1" max="200" step="1" value="30">
-    </label>
-
-    <label class="setting-field">
-      <span>礼物最低播报金额（元）</span>
-      <input id="tts-gift-min" type="number" min="0" max="100000" step="0.1" value="0">
-    </label>
-
-    <div class="tts-actions">
-      <button id="tts-test-button" class="secondary-button" type="button">测试语音</button>
-      <button id="tts-save-button" class="settings-save-button" type="button">保存语音设置</button>
-    </div>
-    <p id="tts-status" class="settings-save-status" role="status">页面启动时会自动尝试初始化 Web Audio；测试语音仅用于试听。</p>
-
     <div class="settings-footer">
       <p id="settings-save-status" class="settings-save-status" role="status">调整完成后点击保存；保存时会尝试刷新 OBS 浏览器源。</p>
       <button id="settings-save-button" class="settings-save-button" type="button">保存设置</button>
