@@ -39,7 +39,7 @@ The WEB QR login implementation explicitly follows Bilibili's cross-domain ticke
 
 ## Live danmaku speech bubble
 
-The \`/display\` page polls the local event queue and displays incoming danmaku above the Live2D model. The bubble is manually positioned by the user:
+The \`/live2d/display\` page polls the local event queue and displays incoming danmaku above the Live2D model. The bubble is manually positioned by the user:
 
 - Horizontal position and bottom anchor position can be adjusted independently.
 - Width and maximum height are adjustable.
