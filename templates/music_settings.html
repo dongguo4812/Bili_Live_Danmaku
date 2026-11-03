@@ -27,13 +27,18 @@
 <label class="setting-field"><span>普通观众冷却时间（秒）</span><input id="cooldown" type="number" min="0" max="3600"></label>
 <label class="setting-field"><span>歌曲队列上限</span><input id="queue-limit" type="number" min="1" max="1000"></label>
 <label class="setting-field"><span>粉丝牌要求</span><select id="fan-medal"><option value="0">需要本直播间粉丝牌</option><option value="1">不要求粉丝牌</option></select></label>
+</section>
+<section class="panel">
+<h2>歌曲模块管理员 UID</h2>
+<p class="muted">每行填写一个 B 站 UID，也支持用逗号或空格分隔。管理员不受粉丝牌、普通观众冷却和点歌开关限制，并拥有「切歌」权限。此名单仅作用于歌曲模块。</p>
+<label class="setting-field"><span>管理员 UID 列表</span><textarea id="admin-uids" rows="6" placeholder="例如：&#10;285519962&#10;123456789"></textarea></label>
 <button id="save" type="button">保存歌曲配置</button><p id="status" class="muted" role="status"></p>
 </section>
 </main></div>
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
-async function load(){try{const d=await api("/api/settings/music");$("base-url").value=d.lx_music.base_url;$("timeout").value=d.lx_music.timeout_seconds;$("max-results").value=d.search.max_results_per_platform;$("cooldown").value=d.requests.cooldown_seconds;$("queue-limit").value=d.requests.queue_limit;$("fan-medal").value=String(d.requests.require_fans_medal);$("status").textContent="歌曲模块状态："+d.module_state+"。请先关闭模块再保存配置。";}catch(e){$("status").textContent="读取失败："+e.message}}
-$("save").addEventListener("click",async()=>{try{const d=await api("/api/settings/music",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({base_url:$("base-url").value,timeout_seconds:Number($("timeout").value),max_results_per_platform:Number($("max-results").value),cooldown_seconds:Number($("cooldown").value),queue_limit:Number($("queue-limit").value),require_fans_medal:Number($("fan-medal").value)})});$("status").textContent=d.message;}catch(e){$("status").textContent="保存失败："+e.message}});
+async function load(){try{const d=await api("/api/settings/music");$("base-url").value=d.lx_music.base_url;$("timeout").value=d.lx_music.timeout_seconds;$("max-results").value=d.search.max_results_per_platform;$("cooldown").value=d.requests.cooldown_seconds;$("queue-limit").value=d.requests.queue_limit;$("fan-medal").value=String(d.requests.require_fans_medal);$("admin-uids").value=(d.admin_uids||[]).join("\\n");$("status").textContent="歌曲模块状态："+d.module_state+"。请先关闭模块再保存配置。";}catch(e){$("status").textContent="读取失败："+e.message}}
+$("save").addEventListener("click",async()=>{try{const d=await api("/api/settings/music",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({base_url:$("base-url").value,timeout_seconds:Number($("timeout").value),max_results_per_platform:Number($("max-results").value),cooldown_seconds:Number($("cooldown").value),queue_limit:Number($("queue-limit").value),require_fans_medal:Number($("fan-medal").value),admin_uids:$("admin-uids").value.split(/[\\s,;，；]+/).filter(Boolean)})});$("status").textContent=d.message;}catch(e){$("status").textContent="保存失败："+e.message}});
 load();
 </script></body></html>
