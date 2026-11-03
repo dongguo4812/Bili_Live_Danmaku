@@ -1223,6 +1223,57 @@ def get_display_settings():
     })
 
 
+@app.post("/api/live2d/preview")
+def save_live2d_preview():
+    """Save a transparent PNG captured from the already-running Live2D canvas."""
+    model_id = request.form.get("model_id", "").strip()
+    if _safe_model_dir(model_id) is None:
+        return jsonify({"ok": False, "error": "模型 ID 无效或模型目录不存在。"}), 400
+
+    image_file = request.files.get("image")
+    if image_file is None:
+        return jsonify({"ok": False, "error": "没有收到 PNG 图片。"}), 400
+
+    max_bytes = 32 * 1024 * 1024
+    png_data = image_file.read(max_bytes + 1)
+    if len(png_data) > max_bytes:
+        return jsonify({"ok": False, "error": "PNG 图片过大，不能超过 32 MB。"}), 413
+    if (
+        len(png_data) < 33
+        or png_data[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+        or png_data[12:16] != b"IHDR"
+        or png_data[25] != 6
+        or b"IEND" not in png_data[-16:]
+    ):
+        return jsonify({"ok": False, "error": "图片不是有效的 RGBA PNG。"}), 400
+
+    width = int.from_bytes(png_data[16:20], "big")
+    height = int.from_bytes(png_data[20:24], "big")
+    if width < 1 or height < 1 or width > 8192 or height > 8192 or width * height > 40000000:
+        return jsonify({"ok": False, "error": "PNG 图片尺寸超出允许范围。"}), 400
+
+    preview_dir = BASE_DIR / "static" / "live2d_preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    target = preview_dir / (model_id + ".png")
+    temporary = preview_dir / (model_id + ".png.tmp")
+    try:
+        temporary.write_bytes(png_data)
+        temporary.replace(target)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        logger.exception("保存 Live2D 静态预览图失败：%s", model_id)
+        return jsonify({"ok": False, "error": "保存预览图失败：" + str(exc)}), 500
+
+    logger.info("已生成 Live2D 静态预览图：model=%s size=%sx%s", model_id, width, height)
+    return jsonify({
+        "ok": True,
+        "model": model_id,
+        "filename": "static/live2d_preview/" + model_id + ".png",
+        "width": width,
+        "height": height,
+    })
+
+
 @app.post("/api/live2d/settings")
 def save_display_settings():
     payload = request.get_json(silent=True)
