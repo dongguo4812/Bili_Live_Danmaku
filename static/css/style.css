@@ -24,12 +24,6 @@ h2 { margin: 0 0 18px; font-size: 18px; }
 .status-grid div { display: grid; gap: 8px; }
 .status-grid strong { font-size: 17px; }
 .runtime-status-cell { min-width: 0; }
-.runtime-status-row {
-  display: flex !important; align-items: center; gap: 12px; flex-wrap: wrap;
-}
-.runtime-status-row button {
-  padding: 7px 10px; font-size: 13px; white-space: nowrap;
-}
 .status-pill {
   display: inline-flex; align-items: center; padding: 7px 11px;
   border: 1px solid #596477; border-radius: 999px; color: #c5cede;
