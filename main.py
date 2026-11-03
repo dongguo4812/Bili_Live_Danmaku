@@ -195,8 +195,8 @@ def _read_model_config(model_id: str) -> tuple[Path, dict[str, Any]]:
     config_path = _model_config_path(directory, model_id)
     if config_path is None:
         raise FileNotFoundError(
-            f"模型配置不存在：models/{model_id}/model.json 或 "
-            f"models/{model_id}/{model_id}.model.json"
+            f"模型配置不存在：models/moc2/{model_id}/model.json 或 "
+            f"models/moc2/{model_id}/{model_id}.model.json"
         )
     data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
