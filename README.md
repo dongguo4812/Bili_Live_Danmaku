@@ -12,7 +12,7 @@ Requirements: Python 3.10 or newer.
 2. Double-click \`start.bat\`.
 3. On the first launch, the script creates a local \`.venv\` virtual environment and installs dependencies.
 4. Open the management page at \`http://127.0.0.1:8768/\`.
-5. The transparent OBS display page is at \`http://127.0.0.1:8768/display\`.
+5. The transparent OBS display page is at \`http://127.0.0.1:8768/live2d/display\`.
 
 Keep the console window open while using the application. Press \`Ctrl+C\` in that window to stop the server.
 
@@ -48,7 +48,7 @@ The \`/display\` page polls the local event queue and displays incoming danmaku 
 - Older entries are removed when the configured item limit is exceeded.
 - Each Live2D model stores its own model transform and speech-bubble settings in `config/live2d.json`.
 
-Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
+Use the settings button at the upper-left of the display page. The sliders preview changes immediately; changes are saved only when **保存设置** is clicked at the bottom of the panel. After saving, the server attempts to connect to OBS WebSocket (default `127.0.0.1:4455`) and refresh browser sources whose URL path is `/live2d/display`. If OBS WebSocket is unavailable, authentication fails, or no matching source exists, the settings are still saved and the refresh is skipped.
 
 OBS WebSocket ordinary settings are stored in `config/local/obs.json`. Enter the password separately on the system settings page; it is stored in `credentials/obs.json` and protected with Windows DPAPI. The UI never reads back or displays the saved password.
 
@@ -67,7 +67,7 @@ The display page calls the legacy runtime API \`loadlive2d(canvasId, modelJsonUr
 Add the OBS Browser Source URL:
 
 \`\`\`text
-http://127.0.0.1:8768/display
+http://127.0.0.1:8768/live2d/display
 \`\`\`
 
 For best clarity, set the OBS Browser Source resolution to the intended output resolution (normally 1920×1080) rather than stretching a small source.
@@ -94,7 +94,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - The combined layout editor is `/dashboard`. It supports multiple named layouts; each layout has its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
 - Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
-- Dedicated transparent display URLs are available: `/display/live2d`, `/display/danmaku`, `/display/tts`, `/display/music`, `/display/video` and `/display/music-widget`. The legacy `/display` remains the complete Live2D + danmaku + TTS display. Existing `/music/display`, `/music/widget` and `/video/display` URLs remain supported.
+- Dedicated transparent display URLs: the complete Live2D + danmaku + TTS display is `/live2d/display`; the MOC2-only display is `/live2d/moc2/display`; standalone danmaku and voice displays are `/danmaku/display` and `/voice/display`. Music queue, video queue and music-widget displays are `/music/display`, `/video/display` and `/music/widget`. Legacy display paths (`/display`, `/display/live2d`, `/display/danmaku`, `/display/tts`, `/display/music`, `/display/video` and `/display/music-widget`) remain temporarily available for testing and will be removed after confirmation.
 - Live2D settings APIs use the `/api/live2d/` namespace. The former `/api/display/settings` endpoints remain as compatibility aliases.
 
 ## Current scope
@@ -111,7 +111,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
-Open the settings panel on the `/display` page to configure Edge TTS. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
+Open the settings panel on the `/live2d/display` page to configure Edge TTS. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
 ## Development principles
 

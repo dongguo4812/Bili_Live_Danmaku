@@ -76,7 +76,7 @@ SC 播报示例：
 
 6. OBS Live2D 透明展示页面：
 
-   `http://127.0.0.1:8768/display`
+   `http://127.0.0.1:8768/live2d/display`
 
 使用期间请保持启动程序的控制台窗口运行。正常停止时，可在控制台按 `Ctrl+C`；也可以使用窗口关闭按钮退出。程序正常退出时会尝试清理 OBS 展示来源状态。
 
@@ -133,7 +133,7 @@ static/js/display.js
 在 OBS 中添加“浏览器”来源，URL 填写：
 
 ```text
-http://127.0.0.1:8768/display
+http://127.0.0.1:8768/live2d/display
 ```
 
 建议浏览器源分辨率与 OBS 实际输出画布一致，例如 1920×1080，避免低分辨率拉伸造成模糊。
@@ -169,7 +169,7 @@ http://127.0.0.1:8768/display
 
 程序可通过 OBS WebSocket v5 自动控制展示页面对应的浏览器源：
 
-- B 站直播间 WebSocket 真实连接成功后，程序自动查找 URL 与当前服务地址及 `/display` 路径匹配的浏览器源。
+- B 站直播间 WebSocket 真实连接成功后，程序自动查找 URL 与当前服务地址及 `/live2d/display` 路径匹配的浏览器源。
 - 自动刷新并显示匹配的场景来源。
 - OBS 尚未启动、WebSocket 暂时不可用或尚未找到来源时，后台每 3 秒重试。
 - 正常退出程序时，尝试隐藏匹配的展示来源。
@@ -203,7 +203,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - 歌曲设置页：`/music/settings`；视频设置页：`/video/settings`。修改模块配置前需要先关闭对应模块。
 - Live2D 和语音模块接入统一生命周期；直播断线时暂停互动，重连后按断线前状态恢复。
 - 系统管理员 UID 在系统设置页 `/settings` 统一配置，歌曲和视频模块共用；不再分别维护 `data/music/uid.txt`、`data/video/uid.txt`。
-- 独立透明展示页面：Live2D `/display/live2d`、弹幕 `/display/danmaku`、语音 `/display/tts`、歌曲队列 `/display/music`、视频队列 `/display/video`、歌曲信息组件 `/display/music-widget`。原地址 `/display`（Live2D+弹幕+TTS 完整展示）、`/music/display`、`/music/widget` 和 `/video/display` 继续兼容。
+- 独立透明展示页面：Live2D 完整展示 `/live2d/display`（包含 Live2D、弹幕和 TTS）、MOC2 单独展示 `/live2d/moc2/display`、弹幕 `/danmaku/display`、语音 `/voice/display`、歌曲队列 `/music/display`、视频队列 `/video/display`、歌曲信息组件 `/music/widget`。旧展示地址 `/display`、`/display/live2d`、`/display/danmaku`、`/display/tts`、`/display/music`、`/display/video` 和 `/display/music-widget` 暂时保留兼容，测试通过后再移除。
 - Live2D 设置 API 统一使用 `/api/live2d/` 前缀；旧 `/api/display/settings` 地址保留为兼容接口。
 - 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
 - OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
@@ -226,7 +226,7 @@ GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与凭据回归�
 
 ### OBS 没有自动显示 Live2D
 
-确认 OBS 正在运行、OBS WebSocket 服务器已启用、地址和端口正确、密码文件内容正确，并确认浏览器源 URL 指向当前程序的 `/display` 页面。自动显示以 B 站直播间 WebSocket 连接成功为触发条件。
+确认 OBS 正在运行、OBS WebSocket 服务器已启用、地址和端口正确、密码文件内容正确，并确认浏览器源 URL 指向当前程序的 `/live2d/display` 页面。自动显示以 B 站直播间 WebSocket 连接成功为触发条件。
 
 ### OBS 没有语音
 

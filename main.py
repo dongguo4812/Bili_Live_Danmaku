@@ -515,7 +515,7 @@ def _read_obs_password() -> str:
 
 
 def _refresh_obs_browser_sources() -> dict[str, Any]:
-    """尝试通过 OBS WebSocket 刷新指向 /display 的浏览器源；失败时不影响设置保存。"""
+    """尝试通过 OBS WebSocket 刷新指向 /live2d/display 的浏览器源；失败时不影响设置保存。"""
     obs_config = CONFIG.get("obs_websocket", {})
     if not isinstance(obs_config, dict):
         obs_config = {}
@@ -576,7 +576,7 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         if refreshed:
             message = f"已通过 OBS WebSocket 刷新 {refreshed} 个展示浏览器源。"
         else:
-            message = "已连接 OBS，但未找到 URL 指向 /display 的浏览器源，已跳过刷新。"
+            message = "已连接 OBS，但未找到 URL 指向 /live2d/display 的浏览器源，已跳过刷新。"
         logger.info("%s", message)
         return {"attempted": True, "refreshed": refreshed, "message": message}
     except Exception as exc:
@@ -660,7 +660,7 @@ def _display_service_address() -> tuple[str, int]:
 
 
 def _is_display_browser_url(value: Any) -> bool:
-    """只匹配当前程序 IP、端口和 /display 路径。"""
+    """只匹配当前程序 IP、端口和 /live2d/display 路径。"""
     if not isinstance(value, str) or not value.strip():
         return False
     try:
@@ -675,7 +675,7 @@ def _is_display_browser_url(value: Any) -> bool:
             actual_host in loopbacks and expected_host in loopbacks
         )
         return parsed.scheme.lower() in {"http", "https"} and same_host and (
-            actual_port == expected_port and parsed.path.rstrip("/") == "/display"
+            actual_port == expected_port and parsed.path.rstrip("/") == "/live2d/display"
         )
     except (TypeError, ValueError):
         return False
@@ -686,7 +686,7 @@ def _obs_set_display_sources_enabled(
     refresh: bool = False,
     shutdown_mode: bool = False,
 ) -> dict[str, Any]:
-    """在 OBS 所有场景（含嵌套组）中启用或隐藏全部 /display 浏览器源。"""
+    """在 OBS 所有场景（含嵌套组）中启用或隐藏全部 /live2d/display 浏览器源。"""
     with OBS_DISPLAY_LOCK:
         ws = None
         try:
@@ -709,7 +709,7 @@ def _obs_set_display_sources_enabled(
                     "ok": False,
                     "matched_inputs": 0,
                     "scene_items": 0,
-                    "message": "未找到 URL 指向 /display 的浏览器源。",
+                    "message": "未找到 URL 指向 /live2d/display 的浏览器源。",
                 }
 
             if enabled and refresh:
@@ -760,7 +760,7 @@ def _obs_set_display_sources_enabled(
 
             action = "显示" if enabled else "隐藏"
             message = (
-                f"已{action} {changed} 个 /display 场景项，"
+                f"已{action} {changed} 个 /live2d/display 场景项，"
                 f"匹配到 {len(matching_inputs)} 个浏览器源。"
             )
             logger.info("OBS Live2D 自动控制：%s", message)
@@ -788,7 +788,7 @@ def _obs_live2d_watchdog() -> None:
     while not OBS_DISPLAY_STOP.wait(3.0):
         with BILIBILI_STATE_LOCK:
             bilibili_connected = BILIBILI_STATE.get("connection_state") == "connected"
-        # 不等待 /display 报告模型加载：展示页由 OBS 浏览器源自己加载。
+        # 不等待 /live2d/display 报告模型加载：展示页由 OBS 浏览器源自己加载。
         if not bilibili_connected:
             continue
         if OBS_DISPLAY_SHOWN:
@@ -1087,22 +1087,27 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/live2d/display")
 @app.get("/display")
 def display():
-    # 兼容旧地址：保留 Live2D、弹幕和 TTS 的完整组合展示。
+    # Live2D 完整展示：包含模型、弹幕和 TTS；旧 /display 地址暂时兼容。
     return render_template("display.html", display_mode="all")
 
 
+@app.get("/live2d/moc2/display")
 @app.get("/display/live2d")
 def live2d_display_page():
+    # MOC2 独立展示；旧地址暂时兼容。
     return render_template("display.html", display_mode="live2d")
 
 
+@app.get("/danmaku/display")
 @app.get("/display/danmaku")
 def danmaku_display_page():
     return render_template("display.html", display_mode="danmaku")
 
 
+@app.get("/voice/display")
 @app.get("/display/tts")
 def tts_display_page():
     return render_template("display.html", display_mode="tts")

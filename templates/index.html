@@ -170,15 +170,15 @@
     <section class="panel">
       <h2>OBS 展示</h2>
       <p>完整组合展示：</p>
-      <code>http://127.0.0.1:8768/display</code>
+      <code>http://127.0.0.1:8768/live2d/display</code>
       <p>独立展示页面：</p>
       <div class="inline-controls">
-        <a href="/display/live2d" target="_blank" rel="noopener">Live2D</a>
-        <a href="/display/danmaku" target="_blank" rel="noopener">弹幕</a>
-        <a href="/display/tts" target="_blank" rel="noopener">语音</a>
-        <a href="/display/music" target="_blank" rel="noopener">歌曲队列</a>
-        <a href="/display/video" target="_blank" rel="noopener">视频队列</a>
-        <a href="/display/music-widget" target="_blank" rel="noopener">歌曲信息</a>
+        <a href="/live2d/moc2/display" target="_blank" rel="noopener">Live2D</a>
+        <a href="/danmaku/display" target="_blank" rel="noopener">弹幕</a>
+        <a href="/voice/display" target="_blank" rel="noopener">语音</a>
+        <a href="/music/display" target="_blank" rel="noopener">歌曲队列</a>
+        <a href="/video/display" target="_blank" rel="noopener">视频队列</a>
+        <a href="/music/widget" target="_blank" rel="noopener">歌曲信息</a>
       </div>
       <p class="muted">建议 OBS 浏览器源画布分辨率与实际输出分辨率一致。Live2D 模型与弹幕布局设置仍在完整组合展示页左上角「设置」中调整。</p>
     </section>
@@ -308,7 +308,7 @@
     });
 
     $("open-display").addEventListener("click", () => {
-      window.open("http://127.0.0.1:8768/display", "_blank", "noopener,noreferrer");
+      window.open("http://127.0.0.1:8768/live2d/display", "_blank", "noopener,noreferrer");
     });
 
     async function refreshStatus() {

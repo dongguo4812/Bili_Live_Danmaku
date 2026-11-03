@@ -25,9 +25,18 @@ class CombinedDisplayContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         template = (root / "templates" / "display.html").read_text(encoding="utf-8")
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
-        for route in ("/display/live2d", "/display/danmaku", "/display/tts",
-                      "/display/music", "/display/video", "/display/music-widget"):
+        canonical_routes = (
+            "/live2d/display", "/live2d/moc2/display",
+            "/danmaku/display", "/voice/display",
+            "/music/display", "/video/display", "/music/widget",
+        )
+        legacy_routes = (
+            "/display", "/display/live2d", "/display/danmaku", "/display/tts",
+            "/display/music", "/display/video", "/display/music-widget",
+        )
+        for route in canonical_routes + legacy_routes:
             self.assertIn(f'@app.get("{route}")', main)
+        self.assertIn('frame.src="/live2d/display?embedded=1"', (root / "templates" / "combined_display.html").read_text(encoding="utf-8"))
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
             self.assertIn(mode, template)
         self.assertIn('const showLive2D =', script)
