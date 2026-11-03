@@ -43,8 +43,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget.live2d .widget-body{position:relative;display:flex;align-items:center;justify-content:center;background:rgba(15,20,30,.35)}
 .editor-mode .widget.live2d .widget-header,.editor-mode .widget.music_widget .widget-header{position:absolute;z-index:10;top:0;left:0;right:0}
 .editor-mode .widget.live2d .widget-body,.editor-mode .widget.music_widget .widget-body{position:absolute;inset:0;width:auto;height:auto;padding:0;overflow:hidden}
-.live2d-static-preview{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
-.live2d-preview-placeholder{padding:12px;color:#aeb9ca;font-size:13px;text-align:center;line-height:1.6}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
@@ -115,6 +113,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   <button type="button" class="primary" id="save-layout">保存当前布局</button>
   <button type="button" id="reset-layout">恢复默认布局</button>
   <button type="button" id="open-output">打开 OBS 展示页</button>
+  <button type="button" id="live2d-preview-toggle">关闭静音预览</button>
   <label class="editor-control">当前模块
     <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
   </label>
@@ -142,6 +141,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   let refreshInFlight = false;
   let dragState = null;
   let selectedWidgetType = "";
+  let live2dPreviewEnabled = true;
   let latestData = {voiceSpeech:{current:"",queue:[]}};
   window.addEventListener("message",event=>{
     if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-tts-state") return;
@@ -338,69 +338,18 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     });
   }
 
-  async function renderLive2DPreview(body){
-    const placeholder=make("div","live2d-preview-placeholder","正在读取当前 Live2D 模型预览…");
-    body.appendChild(placeholder);
-    try{
-      // 只读取当前模型 ID；编辑页不创建 Live2D iframe，也不启动模型或音频。
-      const settings=await api("/api/live2d/settings");
-      const modelId=String(settings.model||"").trim();
-      if(!modelId) throw new Error("当前没有可用的 Live2D 模型。");
-      const preferences=settings.preferences||{scale:1,x:0,y:0};
-      let metadata=null;
-      try{
-        const response=await fetch("/static/live2d_preview/"+encodeURIComponent(modelId)+".json",{cache:"no-store"});
-        if(response.ok) metadata=await response.json();
-      }catch(_){ metadata=null; }
-      const image=document.createElement("img");
-      image.className="live2d-static-preview";
-      image.alt="Live2D 模型静态预览："+modelId;
-      image.draggable=false;
-      image.addEventListener("error",()=>{
-        body.replaceChildren(make("div","live2d-preview-placeholder","模型“"+modelId+"”暂无静态预览图。请将透明 PNG 放入 static/live2d_preview/"+modelId+".png"));
-      },{once:true});
-      image.addEventListener("load",()=>{
-        placeholder.remove();
-        const viewport=document.createElement("div");
-        viewport.style.position="absolute";
-        viewport.style.inset="0";
-        viewport.style.overflow="hidden";
-        const crop=[preferences.crop_top,preferences.crop_right,preferences.crop_bottom,preferences.crop_left]
-          .map(value=>Math.max(0,Math.min(45,Number(value)||0))+"%");
-        viewport.style.clipPath="inset("+crop.join(" ")+")";
-        viewport.style.webkitClipPath=viewport.style.clipPath;
-        body.appendChild(viewport);
-        viewport.appendChild(image);
-        const frame=metadata&&metadata.frame;
-        const baseline=metadata&&metadata.preferences;
-        if(frame&&baseline&&frame.canvas_width>0&&frame.canvas_height>0){
-          image.style.position="absolute";
-          image.style.objectFit="fill";
-          image.style.left=(frame.left/frame.canvas_width*100)+"%";
-          image.style.top=(frame.top/frame.canvas_height*100)+"%";
-          image.style.width=(frame.width/frame.canvas_width*100)+"%";
-          image.style.height=(frame.height/frame.canvas_height*100)+"%";
-          image.style.transformOrigin=((frame.canvas_width/2-frame.left)/frame.width*100)+"% "+((frame.canvas_height/2-frame.top)/frame.height*100)+"%";
-          const applyTransform=()=>{
-            const scale=(Number(preferences.scale)||1)/(Number(baseline.scale)||1);
-            const dx=(Number(preferences.x||0)-Number(baseline.x||0))*body.clientWidth/2;
-            const dy=-(Number(preferences.y||0)-Number(baseline.y||0))*body.clientHeight/2;
-            image.style.transform="translate("+dx+"px,"+dy+"px) scale("+scale+")";
-          };
-          applyTransform();
-          if(typeof ResizeObserver!=="undefined"){
-            const observer=new ResizeObserver(applyTransform);
-            observer.observe(body);
-          }else{
-            window.addEventListener("resize",applyTransform,{passive:true});
-          }
-        }
-      },{once:true});
-      image.src="/static/live2d_preview/"+encodeURIComponent(modelId)+".png?v="+Date.now();
-      body.appendChild(image);
-    }catch(error){
-      placeholder.textContent="无法读取 Live2D 模型预览："+error.message;
+  function renderLive2DPreview(body){
+    if(!live2dPreviewEnabled){
+      body.appendChild(make("div","live2d-preview-placeholder","静音预览已关闭；点击上方“开启静音预览”可重新显示。"));
+      return;
     }
+    const frame=document.createElement("iframe");
+    frame.src="/live2d/display?embedded=1&silent=1";
+    frame.title="Live2D 静音预览（包含模型和弹幕框）";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    body.appendChild(frame);
   }
 
   function renderWidgetContent(body,type,item){
@@ -408,7 +357,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(type==="live2d"){
       if(displayMode){
         const frame=document.createElement("iframe");
-        frame.src="/live2d/moc2/display?embedded=1";
+        frame.src="/live2d/display?embedded=1";
         frame.title="Live2D 展示";
         frame.allow="autoplay";
         body.appendChild(frame);
@@ -469,6 +418,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       document.querySelectorAll("[data-add]").forEach(button=>{
         button.disabled=layout.widgets.some(w=>w.type===button.dataset.add);
       });
+      const previewToggle=document.getElementById("live2d-preview-toggle");
+      if(previewToggle){
+        previewToggle.hidden=displayMode || !layout.widgets.some(w=>w.type==="live2d");
+        previewToggle.textContent=live2dPreviewEnabled?"关闭静音预览":"开启静音预览";
+      }
       const select=document.getElementById("selected-widget");
       if(select){
         const previous=selectedWidgetType;
@@ -554,6 +508,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
   document.querySelectorAll("[data-add]").forEach(button=>{
     button.addEventListener("click",()=>addWidget(button.dataset.add));
+  });
+  const previewToggle=document.getElementById("live2d-preview-toggle");
+  if(previewToggle) previewToggle.addEventListener("click",()=>{
+    live2dPreviewEnabled=!live2dPreviewEnabled;
+    previewToggle.textContent=live2dPreviewEnabled?"关闭静音预览":"开启静音预览";
+    const body=stage.querySelector('[data-widget="live2d"] .widget-body');
+    if(body) renderLive2DPreview(body);
   });
   const selectedWidgetSelect=document.getElementById("selected-widget");
   if(selectedWidgetSelect) selectedWidgetSelect.addEventListener("change",()=>selectWidget(selectedWidgetSelect.value));
