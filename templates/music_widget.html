@@ -38,6 +38,12 @@ body {
     color: var(--text);
 }
 
+/* 综合展示嵌入时，歌曲卡片从 iframe 左上角开始布局，不沿用独立页面的居中定位。 */
+body.embedded {
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
 /* 默认隐藏，只有明确播放时才显示 */
 #widget {
     width: min(405px, 100vw);
@@ -332,6 +338,9 @@ body {
 </div>
 
 <script>
+if (new URLSearchParams(window.location.search).get("embedded") === "1") {
+    document.body.classList.add("embedded");
+}
 (() => {
 
     "use strict";
