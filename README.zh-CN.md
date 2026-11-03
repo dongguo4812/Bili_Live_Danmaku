@@ -204,7 +204,7 @@ OBS WebSocket 普通配置保存在 `config/obs.json`，包含地址、端口、
 - Live2D 和语音模块接入统一生命周期；直播断线时暂停互动，重连后按断线前状态恢复。
 - 系统管理员 UID 在系统设置页 `/settings` 统一配置，歌曲和视频模块共用；不再分别维护 `data/music/uid.txt`、`data/video/uid.txt`。
 - 独立透明展示页面：Live2D 完整展示 `/live2d/display`（包含 Live2D、弹幕和 TTS）、MOC2 单独展示 `/live2d/moc2/display`、弹幕 `/danmaku/display`、语音 `/voice/display`、歌曲队列 `/music/display`、视频队列 `/video/display`、歌曲信息组件 `/music/widget`
-- Live2D 设置 API 统一使用 `/api/live2d/` 前缀；旧 `/api/display/settings` 地址保留为兼容接口。
+- Live2D 设置 API 统一使用 `/api/live2d/` 前缀。
 - 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
 - OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
 
