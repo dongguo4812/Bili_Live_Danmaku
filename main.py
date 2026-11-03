@@ -1573,7 +1573,7 @@ def get_music_settings():
             if admin_path.is_file():
                 for raw in admin_path.read_text(encoding="utf-8-sig").splitlines():
                     line = raw.split("#", 1)[0].strip()
-                    for item in re.split(r"[,;\\s]+", line):
+                    for item in re.split(r"[,;\s]+", line):
                         if item.isdigit() and int(item) > 0:
                             admin_uids.add(int(item))
         except (OSError, ValueError):
@@ -1645,7 +1645,7 @@ def save_music_settings():
         admin_path.relative_to(BASE_DIR.resolve())
         admin_path.parent.mkdir(parents=True, exist_ok=True)
         admin_path.write_text(
-            "".join(f"{uid}\\n" for uid in admin_uids),
+            "".join(f"{uid}\n" for uid in admin_uids),
             encoding="utf-8",
         )
         config["admin_uids"] = []
