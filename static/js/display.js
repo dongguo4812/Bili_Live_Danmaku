@@ -1061,7 +1061,9 @@
       settingsSaved = true;
       hasUnsavedChanges = false;
       const obs = result.obs_refresh || {};
-      setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
+      setSaveStatus("设置已保存，正在刷新展示页面。" + (obs.message ? " " + obs.message : ""));
+      // 让页面从服务器重新读取已保存配置，确保刷新后看到持久化后的最终效果。
+      window.setTimeout(() => window.location.reload(), 350);
 
       // 保存只负责持久化；不要重置当前模型的原始矩阵基准。
     } catch (error) {
