@@ -264,15 +264,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
         self.assertNotIn('bubble.style.clipPath', script)
 
-    def test_live2d_transform_sliders_apply_without_reloading_model(self):
+    def test_live2d_transform_is_applied_by_model_layout_after_save(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
-        self.assertIn('function applyLive2DTransform()', script)
-        self.assertIn('canvas.style.transform = "translate(" + dx + "px, " + dy + "px) scale(" + p.scale + ")"', script)
-        self.assertIn('applyLive2DTransform();\n      applyLive2DCrop();', script)
-        self.assertIn('applyLive2DTransform();\n    applyLive2DCrop();', script)
-        self.assertIn('模型大小和位置已在拖动时实时应用；保存只持久化设置，不重载模型。', script)
-        self.assertNotIn('await queueModelSwitch(modelSelect.value, token, result.preferences)', script)
+        self.assertNotIn("function applyLive2DTransform()", script)
+        self.assertNotIn("canvas.style.transform", script)
+        self.assertIn('if (transformChangedSinceLoad(preferences))', script)
+        self.assertIn('await queueModelSwitch(modelSelect.value, token, result.preferences)', script)
+        self.assertIn('applyLive2DCrop();', script)
 
 
 if __name__ == "__main__":
