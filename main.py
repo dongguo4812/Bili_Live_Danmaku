@@ -251,8 +251,12 @@ def _load_user_settings() -> dict[str, Any]:
     }
 
 
-def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
-    raw = settings.get("models", {}).get(model_id, {})
+def _model_preferences(settings: dict[str, Any], model_id: str, model_version: str = "moc2") -> dict[str, Any]:
+    models = settings.get("models", {})
+    if not isinstance(models, dict):
+        models = {}
+    # 优先读取带版本前缀的新键；旧版纯 model_id 设置作为迁移回退。
+    raw = models.get(f"{model_version}:{model_id}", models.get(model_id, {}))
     if not isinstance(raw, dict):
         raw = {}
 
@@ -1347,7 +1351,7 @@ def save_display_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["model"] = model_id
-        settings.setdefault("models", {})[model_id] = preferences
+        settings.setdefault("models", {})[f"moc2:{model_id}"] = preferences
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
