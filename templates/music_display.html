@@ -22,11 +22,17 @@ body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-s
     if(inFlight)return;
     inFlight=true;
     try{
-      const response=await fetch("/api/music/queue?t="+Date.now(),{cache:"no-store"});
-      const data=await response.json();
-      if(!response.ok||!data||data.ok===false)throw new Error(data&&data.message||"歌曲队列接口暂不可用");
+      const [queueResponse,widgetResponse]=await Promise.all([
+        fetch("/api/music/queue?t="+Date.now(),{cache:"no-store"}),
+        fetch("/api/music/widget?t="+Date.now(),{cache:"no-store"})
+      ]);
+      const data=await queueResponse.json();
+      const widget=await widgetResponse.json();
+      if(!queueResponse.ok||!data||data.ok===false)throw new Error(data&&data.message||"歌曲队列接口暂不可用");
+      if(!widgetResponse.ok||!widget||widget.ok===false)throw new Error(widget&&widget.error||"歌曲信息接口暂不可用");
+      data.widget=widget;
       const queue=Array.isArray(data.queue)?data.queue:[];
-      if(data.song_request_enabled===false&&queue.length===0){
+      if(data.song_request_enabled===false&&queue.length===0&&!String(widget.name||"").trim()){
         root.style.display="none";
         return;
       }
