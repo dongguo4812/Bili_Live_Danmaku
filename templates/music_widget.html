@@ -9,6 +9,13 @@
   const raw = Number(new URLSearchParams(location.search).get("scale"));
   const scale = Number.isFinite(raw) ? Math.max(0.5, Math.min(2, raw)) : 1;
   document.documentElement.style.setProperty("--widget-scale", String(scale));
+  window.addEventListener("message", event => {
+    if (event.origin !== window.location.origin || !event.data || event.data.type !== "music-widget-scale") return;
+    const next = Number(event.data.scale);
+    if (Number.isFinite(next)) {
+      document.documentElement.style.setProperty("--widget-scale", String(Math.max(0.5, Math.min(2, next))));
+    }
+  });
 })();
 </script>
 
