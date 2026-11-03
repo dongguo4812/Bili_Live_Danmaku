@@ -135,9 +135,12 @@ def _safe_model_dir(model_id: str) -> Path | None:
             continue
         # moc2/moc3 是版本目录，不是模型目录。
         if directory.is_dir() and directory.name not in {"moc2", "moc3"}:
-            if candidate_root == MODEL_ROOT and (MODEL_ROOT / "moc2" / model_id).is_dir():
-                continue
-            return directory
+            has_config = any(
+                (directory / filename).is_file()
+                for filename in ("model.json", f"{model_id}.model.json")
+            )
+            if has_config:
+                return directory
     return None
 
 
@@ -920,23 +923,22 @@ def _register_windows_console_handler() -> None:
 def _available_models() -> list[dict[str, str]]:
     """扫描 MOC2 模型目录，并兼容尚未迁移的旧版平铺模型目录。"""
     result: list[dict[str, str]] = []
-    directories: dict[str, Path] = {}
-
+    directories: list[Path] = []
     moc2_root = MODEL_ROOT / "moc2"
     if moc2_root.is_dir():
-        for directory in moc2_root.iterdir():
-            if directory.is_dir():
-                directories[directory.name] = directory
+        directories.extend(directory for directory in moc2_root.iterdir() if directory.is_dir())
 
     # 兼容用户机器上尚未迁移的 models/<model_id>/ 自定义模型。
     if MODEL_ROOT.is_dir():
-        for directory in MODEL_ROOT.iterdir():
-            if not directory.is_dir() or directory.name in {"moc2", "moc3"}:
-                continue
-            directories.setdefault(directory.name, directory)
+        directories.extend(
+            directory for directory in MODEL_ROOT.iterdir()
+            if directory.is_dir() and directory.name not in {"moc2", "moc3"}
+        )
 
-    for model_id, directory in sorted(directories.items(), key=lambda item: item[0].casefold()):
-        if _safe_model_dir(model_id) is None:
+    seen: set[str] = set()
+    for directory in sorted(directories, key=lambda item: (item.name.casefold(), 0 if item.parent == moc2_root else 1)):
+        model_id = directory.name
+        if model_id in seen or _safe_model_dir(model_id) is None:
             continue
         config_path = _model_config_path(directory, model_id)
         if config_path is None:
@@ -948,6 +950,7 @@ def _available_models() -> list[dict[str, str]]:
             if not isinstance(data.get("textures"), list) or not data["textures"]:
                 continue
             result.append({"id": model_id, "name": str(data.get("name") or model_id), "version": "moc2"})
+            seen.add(model_id)
         except Exception:
             logger.warning("跳过无效 MOC2 模型配置：%s", config_path)
     return result
