@@ -30,7 +30,7 @@ uid.txt
 *.key
 chrome_profile/
 
-# Legacy local configuration is migrated once into config/*.json at runtime
+# Legacy local configuration files are intentionally ignored; no runtime migration is performed.
 config.json
 user_settings.json
 config/.legacy_config_migrated_v1.json
