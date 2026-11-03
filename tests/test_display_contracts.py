@@ -246,6 +246,9 @@ class CombinedDisplayContractTests(unittest.TestCase):
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn("function captureLive2DTransformBase(", script)
         self.assertIn("function applyLive2DTransform(", script)
+        # Cubism 2 stores its transform in Float32Array, not a plain JavaScript Array.
+        self.assertIn("ArrayBuffer.isView(matrix.tr)", script)
+        self.assertNotIn("Array.isArray(matrix.tr)", script)
         self.assertIn("base.matrix.scale(base.scaleX * ratio, base.scaleY * ratio)", script)
         self.assertIn("base.matrix.centerX(", script)
         self.assertIn("base.matrix.centerY(", script)
