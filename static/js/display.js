@@ -544,6 +544,8 @@
 
     if (voiceModuleActive && !nextVoice) {
       speechQueue.length = 0;
+      currentSpeech = null;
+      publishSpeechState();
       if (currentAudioSource) {
         try { currentAudioSource.stop(); } catch (_) {}
       }
@@ -652,6 +654,7 @@
           console.warn("TTS playback failed:", error);
           if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
             speechQueue.unshift(next);
+            publishSpeechState();
             audioUnlocked = false;
             break;
           }
