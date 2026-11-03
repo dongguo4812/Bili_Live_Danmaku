@@ -170,7 +170,9 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/static/live2d_preview/"+encodeURIComponent(modelId)+".png', template)
         self.assertIn('renderLive2DPreview(body)', template)
         self.assertIn('模型“"+modelId+"”暂无静态预览图。', template)
-        self.assertIn('frame.src="/live2d/display?embedded=1"', template)
+        self.assertIn('frame.src="/live2d/moc2/display?embedded=1"', template)
+                self.assertIn('.display-mode .widget.live2d .widget-header{display:none}', template)
+                self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}', template)
         preview = (root / "static" / "live2d_preview" / "README.md").read_text(encoding="utf-8")
         self.assertIn('static/live2d_preview/<model_id>.png', preview)
 
