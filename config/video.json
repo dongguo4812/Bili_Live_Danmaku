@@ -1,5 +1,4 @@
 {
-  "enabled_on_start": false,
   "chrome": {
     "binary_path": "",
     "profile_dir": "data/video/chrome_profile",
