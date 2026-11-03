@@ -57,7 +57,8 @@
   const showTts = displayMode === "all" || displayMode === "tts";
 
   const ids = [
-    "scale", "x", "y", "bubble-x", "bubble-bottom", "bubble-width",
+    "scale", "x", "y", "crop-top", "crop-right", "crop-bottom", "crop-left",
+    "bubble-x", "bubble-bottom", "bubble-width",
     "bubble-height", "bubble-items", "bubble-duration", "bubble-font"
   ];
   const controls = Object.fromEntries(ids.map(key => [key, document.getElementById(key + "-slider")]));
@@ -938,6 +939,10 @@
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
+      crop_top: Number(controls["crop-top"].value),
+      crop_right: Number(controls["crop-right"].value),
+      crop_bottom: Number(controls["crop-bottom"].value),
+      crop_left: Number(controls["crop-left"].value),
       bubble_x: Number(controls["bubble-x"].value),
       bubble_bottom: Number(controls["bubble-bottom"].value),
       bubble_width: Number(controls["bubble-width"].value),
@@ -952,6 +957,9 @@
     outputs.scale.textContent = controls.scale.value + "%";
     outputs.x.textContent = (Number(controls.x.value) / 100).toFixed(2);
     outputs.y.textContent = (Number(controls.y.value) / 100).toFixed(2);
+    for (const key of ["crop-top", "crop-right", "crop-bottom", "crop-left"]) {
+      outputs[key].textContent = controls[key].value + "%";
+    }
     outputs["bubble-x"].textContent = controls["bubble-x"].value + "%";
     outputs["bubble-bottom"].textContent = controls["bubble-bottom"].value + "%";
     outputs["bubble-width"].textContent = controls["bubble-width"].value + "px";
@@ -959,6 +967,17 @@
     outputs["bubble-items"].textContent = controls["bubble-items"].value + " 条";
     outputs["bubble-duration"].textContent = controls["bubble-duration"].value + " 秒";
     outputs["bubble-font"].textContent = controls["bubble-font"].value + "px";
+  }
+
+  function applyLive2DCrop() {
+    if (!canvas) return;
+    const p = currentPreferences();
+    const inset = [p.crop_top, p.crop_right, p.crop_bottom, p.crop_left]
+      .map(value => Math.max(0, Math.min(45, Number(value) || 0)) + "%")
+      .join(" ");
+    const clip = "inset(" + inset + ")";
+    canvas.style.clipPath = clip;
+    canvas.style.webkitClipPath = clip;
   }
 
   function applyBubblePreferences() {
@@ -1061,6 +1080,7 @@
   function markUnsaved() {
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DCrop();
     hasUnsavedChanges = true;
     setSaveStatus("有未保存的更改；点击下方“保存设置”后才会保存并尝试刷新 OBS。");
   }
@@ -1090,6 +1110,10 @@
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
+    controls["crop-top"].value = String(p.crop_top ?? 0);
+    controls["crop-right"].value = String(p.crop_right ?? 0);
+    controls["crop-bottom"].value = String(p.crop_bottom ?? 0);
+    controls["crop-left"].value = String(p.crop_left ?? 0);
     controls["bubble-x"].value = String(p.bubble_x ?? 50);
     controls["bubble-bottom"].value = String(p.bubble_bottom ?? 45);
     controls["bubble-width"].value = String(p.bubble_width ?? 420);
@@ -1099,6 +1123,7 @@
     controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
     updateSliderLabels();
     applyBubblePreferences();
+    applyLive2DCrop();
     return currentModel;
   }
 
@@ -1526,6 +1551,10 @@
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
+      controls["crop-top"].value = String(p.crop_top ?? 0);
+      controls["crop-right"].value = String(p.crop_right ?? 0);
+      controls["crop-bottom"].value = String(p.crop_bottom ?? 0);
+      controls["crop-left"].value = String(p.crop_left ?? 0);
       controls["bubble-x"].value = String(p.bubble_x ?? 50);
       controls["bubble-bottom"].value = String(p.bubble_bottom ?? 45);
       controls["bubble-width"].value = String(p.bubble_width ?? 420);
@@ -1533,6 +1562,8 @@
       controls["bubble-items"].value = String(p.bubble_max_items ?? 5);
       controls["bubble-duration"].value = String(p.bubble_duration ?? 10);
       controls["bubble-font"].value = String(p.bubble_font_size ?? 20);
+      updateSliderLabels();
+      applyLive2DCrop();
       markUnsaved();
 
       // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
@@ -1555,6 +1586,7 @@
     slider.addEventListener("input", () => {
       updateSliderLabels();
       applyBubblePreferences();
+      applyLive2DCrop();
       if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
     slider.addEventListener("change", markUnsaved);
