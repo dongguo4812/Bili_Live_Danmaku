@@ -33,6 +33,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
 
+    def test_video_fan_medal_setting_uses_one_persisted_config_key(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        service = (root / "modules" / "video" / "service.py").read_text(encoding="utf-8")
+        self.assertIn('"require_fan_medal": bool(req.get("require_fans_medal", False))', main)
+        self.assertIn('"require_fans_medal": require_medal', main)
+        self.assertIn('requests_config.get("require_fans_medal", False)', service)
+
     def test_danmaku_cursor_prevents_replaying_cached_messages(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         self.assertIn('/api/danmaku?latest=1', source)
