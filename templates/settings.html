@@ -33,6 +33,13 @@
       <a href="/credentials">打开凭据管理</a>
     </section>
     <section class="panel">
+      <h2>统一管理员 UID</h2>
+      <p class="muted">在此统一设置歌曲点播与视频点播的管理员。每行一个 B 站 UID，也支持逗号或空格分隔。修改后两个模块同步使用同一名单。</p>
+      <label class="setting-field"><span>管理员 UID 列表</span><textarea id="system-admin-uids" rows="6" placeholder="例如：&#10;285519962&#10;123456789"></textarea></label>
+      <button id="save-admin-uids" type="button">保存管理员名单</button>
+      <p id="admin-status" class="muted" role="status"></p>
+    </section>
+    <section class="panel">
       <h2>OBS 普通配置</h2>
       <p class="muted">地址、端口和来源名称保存在 config/obs.json，不包含密码。</p>
       <label class="setting-field"><span>OBS WebSocket 地址</span><input id="obs-host" type="text" placeholder="127.0.0.1"></label>
@@ -66,7 +73,8 @@
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
-async function load(){try{const [obs,logs]=await Promise.all([api("/api/settings/obs"),api("/api/settings/logging")]);$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("log-level").value=logs.level;$("log-retention").value=String(logs.retention_days);}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+async function load(){try{const [obs,logs,admins]=await Promise.all([api("/api/settings/obs"),api("/api/settings/logging"),api("/api/settings/admins")]);$("system-admin-uids").value=(admins.admin_uids||[]).join("\n");$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("log-level").value=logs.level;$("log-retention").value=String(logs.retention_days);}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+$("save-admin-uids").addEventListener("click",async()=>{try{const ids=$("system-admin-uids").value.split(/[\\s,;，；]+/).filter(Boolean);const d=await api("/api/settings/admins",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({admin_uids:ids})});$("admin-status").textContent=d.message;}catch(e){$("admin-status").textContent="保存失败："+e.message}});
 $("save-logging").addEventListener("click",async()=>{try{const d=await api("/api/settings/logging",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({level:$("log-level").value,retention_days:Number($("log-retention").value)})});$("logging-status").textContent=d.message;}catch(e){$("logging-status").textContent="保存失败："+e.message}});
 $("save-obs").addEventListener("click",async()=>{try{const d=await api("/api/settings/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:$("obs-host").value,port:Number($("obs-port").value),timeout:Number($("obs-timeout").value),source_name:$("obs-source").value})});$("obs-status").textContent=d.message;}catch(e){$("obs-status").textContent="保存失败："+e.message}});
 
