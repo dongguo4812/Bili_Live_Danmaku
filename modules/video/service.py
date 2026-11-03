@@ -1417,7 +1417,7 @@ async def on_dan_mu(msg_json):
             pending_video_uids.add(uid)
 
         try:
-            # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 config/video.json 控制。
+            # 管理员 UID 始终跳过粉丝勋章校验。普通观众是否需要粉丝牌由 config/local/video.json 控制。
             # require_fans_medal=false 时跳过勋章查询，但冷却、时长、队列等其他限制仍然生效。
             if is_admin:
                 logger.info("管理员点播：跳过粉丝勋章校验（UID: %s）", uid)
