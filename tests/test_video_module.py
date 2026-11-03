@@ -265,6 +265,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(video_service.COOKIE_VALUES["buvid3"], "buvid-value")
                 self.assertEqual(video_service.COOKIE_VALUES["DedeUserID"], "12345")
                 self.assertEqual(video_service.ADMIN_UIDS, {12345})
+                self.assertFalse(video_service.REQUIRE_FAN_MEDAL)
         finally:
             video_service.COOKIE_VALUES = old["cookie_values"]
             video_service.VIDEO_CONFIG = old["config"]
