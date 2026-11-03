@@ -397,6 +397,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       }
       header.appendChild(actions);
       header.addEventListener("pointerdown",event=>startPointerEdit(event,item,"move"));
+      widget.addEventListener("pointerdown",event=>{
+        if(event.target.closest(".resize-handle,button,select,input,textarea,iframe,.widget-header")) return;
+        startPointerEdit(event,item,"move");
+      });
       const body=make("div","widget-body");
       renderWidgetContent(body,item.type,item);
       widget.appendChild(header);
