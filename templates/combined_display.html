@@ -309,10 +309,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(refreshInFlight) return;
     refreshInFlight=true;
     try{
-      const [music,widget,video,voice,modules]=await Promise.all([
-        api("/api/music/queue"),api("/api/music/widget"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
+      const [music,video,voice,modules]=await Promise.all([
+        api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
       ]);
-      music.widget=widget;
       latestData.music=music;
       latestData.video=video;
       latestData.voice=voice;
