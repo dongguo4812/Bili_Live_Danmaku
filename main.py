@@ -121,35 +121,28 @@ LIVE_CLIENT = LiveRoomClient(
 
 
 def _safe_model_dir(model_id: str) -> Path | None:
-    """解析 MOC2 模型目录；新目录优先，兼容旧版 models/<id>/。"""
+    """解析独立的 MOC2 模型目录。"""
     if not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", model_id):
         return None
 
-    roots = (MODEL_ROOT / "moc2", MODEL_ROOT)
-    for candidate_root in roots:
-        root = candidate_root.resolve()
-        directory = (root / model_id).resolve()
-        try:
-            directory.relative_to(root)
-        except ValueError:
-            continue
-        # moc2/moc3 是版本目录，不是模型目录。
-        if directory.is_dir() and directory.name not in {"moc2", "moc3"}:
-            has_config = any(
-                (directory / filename).is_file()
-                for filename in ("model.json", f"{model_id}.model.json")
-            )
-            if has_config:
-                return directory
-    return None
+    root = (MODEL_ROOT / "moc2").resolve()
+    directory = (root / model_id).resolve()
+    try:
+        directory.relative_to(root)
+    except ValueError:
+        return None
+    if not directory.is_dir():
+        return None
+    has_config = any(
+        (directory / filename).is_file()
+        for filename in ("model.json", f"{model_id}.model.json")
+    )
+    return directory if has_config else None
 
 
 def _model_asset_prefix(directory: Path) -> str:
-    """返回模型资源的站点绝对 URL 前缀；旧版平铺目录返回空字符串。"""
-    try:
-        relative = directory.resolve().relative_to((MODEL_ROOT / "moc2").resolve())
-    except ValueError:
-        return ""
+    """返回版本化 MOC2 模型资源的站点绝对 URL 前缀。"""
+    relative = directory.resolve().relative_to((MODEL_ROOT / "moc2").resolve())
     return "/models/moc2/" + relative.as_posix().rstrip("/") + "/"
 
 
@@ -925,26 +918,16 @@ def _register_windows_console_handler() -> None:
 
 
 def _available_models() -> list[dict[str, str]]:
-    """扫描 MOC2 模型目录，并兼容尚未迁移的旧版平铺模型目录。"""
+    """只扫描 models/moc2/ 下的 Cubism 2 模型。"""
     result: list[dict[str, str]] = []
-    directories: list[Path] = []
     moc2_root = MODEL_ROOT / "moc2"
-    if moc2_root.is_dir():
-        directories.extend(directory for directory in moc2_root.iterdir() if directory.is_dir())
+    if not moc2_root.is_dir():
+        return result
 
-    # 兼容用户机器上尚未迁移的 models/<model_id>/ 自定义模型。
-    if MODEL_ROOT.is_dir():
-        directories.extend(
-            directory for directory in MODEL_ROOT.iterdir()
-            if directory.is_dir() and directory.name not in {"moc2", "moc3"}
-        )
-
-    seen: set[str] = set()
-    for directory in sorted(directories, key=lambda item: (item.name.casefold(), 0 if item.parent == moc2_root else 1)):
-        model_id = directory.name
-        if model_id in seen or _safe_model_dir(model_id) is None:
+    for directory in sorted(moc2_root.iterdir(), key=lambda item: item.name.casefold()):
+        if not directory.is_dir() or _safe_model_dir(directory.name) is None:
             continue
-        config_path = _model_config_path(directory, model_id)
+        config_path = _model_config_path(directory, directory.name)
         if config_path is None:
             continue
         try:
@@ -953,8 +936,7 @@ def _available_models() -> list[dict[str, str]]:
                 continue
             if not isinstance(data.get("textures"), list) or not data["textures"]:
                 continue
-            result.append({"id": model_id, "name": str(data.get("name") or model_id), "version": "moc2"})
-            seen.add(model_id)
+            result.append({"id": directory.name, "name": str(data.get("name") or directory.name), "version": "moc2"})
         except Exception:
             logger.warning("跳过无效 MOC2 模型配置：%s", config_path)
     return result
