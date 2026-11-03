@@ -292,6 +292,8 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('moc2_root = MODEL_ROOT / "moc2"', main)
         self.assertIn('directories.extend(', main)
         self.assertIn('"version": "moc2"', main)
+        self.assertIn('models.get(f"{model_version}:{model_id}"', main)
+        self.assertIn('[f"moc2:{model_id}"] = preferences', main)
 
     def test_versioned_model_assets_are_served_from_their_new_directory(self):
         root = Path(__file__).resolve().parents[1]
