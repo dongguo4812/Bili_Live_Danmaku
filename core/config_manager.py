@@ -1,23 +1,29 @@
 # -*- coding: utf-8 -*-
-"""普通配置管理：只读写 config/，拒绝保存敏感凭据。"""
+"""普通配置管理：默认模板只读，本机配置独立读写。"""
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
 import threading
-
-from core.paths import get_base_dir
 from pathlib import Path
 from typing import Any
 
+from core.paths import get_base_dir
+
 BASE_DIR = get_base_dir()
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_ROOT = BASE_DIR / "config"
+DEFAULT_CONFIG_DIR = CONFIG_ROOT / "default"
+LOCAL_CONFIG_DIR = CONFIG_ROOT / "local"
+# 保留旧常量名，指向运行时配置目录，避免外部模块引用时改变语义。
+CONFIG_DIR = LOCAL_CONFIG_DIR
 _LOCK = threading.RLock()
 _SECRET_KEY = re.compile(
     r"(?:^|_)(?:cookie|sess_?data|bili_jct|buvid[34]|ac_time_value|password|passwd|secret|token|api_key|access_key|private_key|authorization)(?:$|_)",
     re.IGNORECASE,
 )
+
 
 class ConfigError(ValueError):
     """配置文件内容或路径不合法。"""
@@ -56,11 +62,66 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
-class ConfigManager:
-    """模块独立配置读写器。文件名必须是简单 JSON 文件名。"""
+def _deep_merge(defaults: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    """递归补齐缺失默认项；已有本机值始终优先。"""
+    result = copy.deepcopy(defaults)
+    for key, value in values.items():
+        if isinstance(result.get(key), dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
 
-    def __init__(self, directory: Path | None = None):
-        self.directory = (directory or CONFIG_DIR).resolve()
+
+def _normalize_config(name: str, data: dict[str, Any]) -> dict[str, Any]:
+    """规范历史配置格式，统一粉丝牌开关为布尔值。"""
+    if name == "music":
+        requests_config = data.get("requests")
+        if isinstance(requests_config, dict):
+            value = requests_config.get("require_fans_medal", False)
+            # 旧点歌配置：0=要求粉丝牌，1=不要求粉丝牌。
+            if isinstance(value, bool):
+                pass
+            elif value == 0 or (isinstance(value, str) and value.strip() == "0"):
+                requests_config["require_fans_medal"] = True
+            elif value == 1 or (isinstance(value, str) and value.strip() == "1"):
+                requests_config["require_fans_medal"] = False
+            elif isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+                requests_config["require_fans_medal"] = value.strip().lower() == "true"
+    return data
+
+
+def _read_json(path: Path, name: str) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"读取 {name}.json 失败：{exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(f"{name}.json 顶层必须是 JSON 对象。")
+    _assert_no_secrets(data)
+    return data
+
+
+class ConfigManager:
+    """配置模板只读；所有运行时读写统一落在 config/local/。"""
+
+    def __init__(
+        self,
+        directory: Path | None = None,
+        default_directory: Path | None = None,
+    ):
+        self._managed_layout = directory is None
+        if self._managed_layout:
+            self.directory = LOCAL_CONFIG_DIR.resolve()
+            self.default_directory = (default_directory or DEFAULT_CONFIG_DIR).resolve()
+            # 兼容用户从旧版本升级、尚未迁移旧 config/*.json 的情况。
+            self.legacy_directory: Path | None = CONFIG_ROOT.resolve()
+        else:
+            self.directory = Path(directory).resolve()
+            self.default_directory = (
+                Path(default_directory).resolve() if default_directory is not None else None
+            )
+            self.legacy_directory = None
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def _path(self, name: str) -> Path:
@@ -71,26 +132,47 @@ class ConfigManager:
             raise ConfigError("配置路径越界。")
         return path
 
+    def _defaults(self, name: str, supplied: dict[str, Any] | None) -> dict[str, Any]:
+        result = copy.deepcopy(supplied) if isinstance(supplied, dict) else {}
+        if self.default_directory is not None:
+            template = (self.default_directory / f"{name}.json").resolve()
+            if template.parent == self.default_directory and template.is_file():
+                result = _deep_merge(result, _read_json(template, name))
+        return result
+
     def load(self, name: str, defaults: dict[str, Any] | None = None) -> dict[str, Any]:
         path = self._path(name)
         with _LOCK:
-            if not path.is_file():
-                return dict(defaults or {})
-            try:
-                data = json.loads(path.read_text(encoding="utf-8-sig"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise ConfigError(f"读取 {name}.json 失败：{exc}") from exc
-            if not isinstance(data, dict):
-                raise ConfigError(f"{name}.json 顶层必须是 JSON 对象。")
-            _assert_no_secrets(data)
-            return data
+            default_data = self._defaults(name, defaults)
+            source_path = path
+            if not path.is_file() and self.legacy_directory is not None:
+                legacy = (self.legacy_directory / f"{name}.json").resolve()
+                if legacy.parent == self.legacy_directory and legacy.is_file():
+                    source_path = legacy
+
+            if source_path.is_file():
+                current = _read_json(source_path, name)
+            else:
+                current = {}
+
+            merged = _normalize_config(name, _deep_merge(default_data, current))
+            _assert_no_secrets(merged)
+
+            # 正常运行模式会创建本机配置，并将新增模板字段补齐到本机文件。
+            if self._managed_layout and (not path.is_file() or merged != current):
+                _write_json_atomic(path, merged)
+            elif not self._managed_layout and not source_path.is_file():
+                return copy.deepcopy(default_data)
+            return merged
 
     def save(self, name: str, data: dict[str, Any]) -> Path:
         if not isinstance(data, dict):
             raise ConfigError("配置内容必须是 JSON 对象。")
-        _assert_no_secrets(data)
         path = self._path(name)
         with _LOCK:
-            _write_json_atomic(path, data)
+            normalized = _normalize_config(name, copy.deepcopy(data))
+            if self._managed_layout:
+                normalized = _deep_merge(self._defaults(name, None), normalized)
+            _assert_no_secrets(normalized)
+            _write_json_atomic(path, normalized)
         return path
-

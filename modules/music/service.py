@@ -33,12 +33,25 @@ ROOM_ID = 0
 COOKIE_DICT: dict[str, str] = {}
 MEDAL_CACHE: dict[int, tuple[float, bool, str]] = {}
 ADMIN_UIDS: set[int] = set()
-REQUIRE_FANS_MEDAL = str(_MUSIC_CONFIG.get("requests", {}).get("require_fans_medal", 0))
+REQUIRE_FANS_MEDAL = bool(_MUSIC_CONFIG.get("requests", {}).get("require_fans_medal", False))
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
 QUEUE_LIMIT = max(1, int(_MUSIC_CONFIG.get("requests", {}).get("queue_limit", 100)))
 SEARCH_LIMIT = min(20, max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20))))
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
+
+
+def _require_fans_medal(value: Any) -> bool:
+    """兼容旧版 0/1，同时统一为布尔值：true=要求，false=不要求。"""
+    if isinstance(value, bool):
+        return value
+    if value == 0 or (isinstance(value, str) and value.strip() == "0"):
+        return True
+    if value == 1 or (isinstance(value, str) and value.strip() == "1"):
+        return False
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    return False
 
 
 def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id: int = 0) -> None:
@@ -51,7 +64,7 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     LX_API = str(lx.get("base_url", "http://127.0.0.1:23330")).rstrip("/")
     HTTP_TIMEOUT = max(2, int(lx.get("timeout_seconds", 5)))
     ROOM_ID = max(0, int(room_id or 0))
-    REQUIRE_FANS_MEDAL = str(req.get("require_fans_medal", 0))
+    REQUIRE_FANS_MEDAL = _require_fans_medal(req.get("require_fans_medal", False))
     COOLDOWN_SECONDS = max(0, int(req.get("cooldown_seconds", 10)))
     QUEUE_LIMIT = max(1, int(req.get("queue_limit", 100)))
     SEARCH_LIMIT = min(20, max(1, int(search.get("max_results_per_platform", 20))))
@@ -835,7 +848,7 @@ class MusicModule:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._skip_requested = asyncio.Event()
         self._worker: Optional[asyncio.Task] = None
-        self._medal_enabled = REQUIRE_FANS_MEDAL == "0"
+        self._medal_enabled = REQUIRE_FANS_MEDAL
         self._restore_snapshot: Optional[dict[str, Any]] = None
         self.enabled = False
         self.paused = False
@@ -1474,7 +1487,7 @@ class MusicModuleFacade:
         # 每次启动前刷新统一登录态，确保扫码登录后粉丝牌检查使用最新 Cookie。
         configure_music_module(self.config, self.cookie_provider, self.room_id)
         self.bot.admin_uids = set(ADMIN_UIDS)
-        self.bot._medal_enabled = REQUIRE_FANS_MEDAL == "0"
+        self.bot._medal_enabled = REQUIRE_FANS_MEDAL
         await self.bot.start()
 
     async def pause(self):
@@ -1484,7 +1497,7 @@ class MusicModuleFacade:
         # 断线重连或手动恢复时重新读取主程序当前有效 Cookie，避免继续使用过期登录态。
         configure_music_module(self.config, self.cookie_provider, self.room_id)
         self.bot.admin_uids = set(ADMIN_UIDS)
-        self.bot._medal_enabled = REQUIRE_FANS_MEDAL == "0"
+        self.bot._medal_enabled = REQUIRE_FANS_MEDAL
         await self.bot.resume()
 
     async def close(self):

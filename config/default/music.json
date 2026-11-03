@@ -9,6 +9,6 @@
   "requests": {
     "cooldown_seconds": 10,
     "queue_limit": 100,
-    "require_fans_medal": 0
+    "require_fans_medal": false
   }
 }
