@@ -6,7 +6,8 @@
 <title>Now Playing</title>
 <script>
 (() => {
-  const raw = Number(new URLSearchParams(location.search).get("scale"));
+  const scaleParam = new URLSearchParams(location.search).get("scale");
+  const raw = scaleParam === null ? 1 : Number(scaleParam);
   const scale = Number.isFinite(raw) ? Math.max(0.5, Math.min(2, raw)) : 1;
   document.documentElement.style.setProperty("--widget-scale", String(scale));
   window.addEventListener("message", event => {
