@@ -361,6 +361,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       },{once:true});
       image.addEventListener("load",()=>{
         placeholder.remove();
+        const viewport=document.createElement("div");
+        viewport.style.position="absolute";
+        viewport.style.inset="0";
+        viewport.style.overflow="hidden";
+        const crop=[preferences.crop_top,preferences.crop_right,preferences.crop_bottom,preferences.crop_left]
+          .map(value=>Math.max(0,Math.min(45,Number(value)||0))+"%");
+        viewport.style.clipPath="inset("+crop.join(" ")+")";
+        viewport.style.webkitClipPath=viewport.style.clipPath;
+        body.appendChild(viewport);
+        viewport.appendChild(image);
         const frame=metadata&&metadata.frame;
         const baseline=metadata&&metadata.preferences;
         if(frame&&baseline&&frame.canvas_width>0&&frame.canvas_height>0){
