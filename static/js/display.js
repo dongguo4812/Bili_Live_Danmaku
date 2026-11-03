@@ -1063,8 +1063,7 @@
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
 
-      // 缩放和位置已在拖动滑块时直接应用到 Cubism 矩阵；保存只负责持久化。
-      captureLive2DTransformBase(preferences);
+      // 保存只负责持久化；不要重置当前模型的原始矩阵基准。
     } catch (error) {
       setSaveStatus((settingsSaved ? "设置已保存，但模型刷新失败：" : "保存失败：") + error.message, true);
     } finally {
@@ -1266,7 +1265,7 @@
     };
   }
 
-  function captureLive2DTransformBase(preferences = currentPreferences()) {
+  function captureLive2DTransformBase() {
     const manager = window.__live2dManager;
     const model = manager && typeof manager.getModel === "function" ? manager.getModel(0) : null;
     const matrix = model && typeof model.getModelMatrix === "function" ? model.getModelMatrix() : null;
@@ -1275,6 +1274,7 @@
         typeof matrix.scale !== "function" || typeof matrix.centerX !== "function" ||
         typeof matrix.centerY !== "function") {
       live2dTransformBase = null;
+      console.warn("Live2D 实时变换基准尚不可用：模型矩阵接口不完整。");
       return false;
     }
 
@@ -1285,16 +1285,17 @@
     if (![width, height, scaleX, scaleY, Number(matrix.tr[12]), Number(matrix.tr[13])]
       .every(Number.isFinite) || width <= 0 || height <= 0) {
       live2dTransformBase = null;
+      console.warn("Live2D 实时变换基准尚不可用：模型矩阵数据无效。");
       return false;
     }
 
+    // 只保存模型刚加载完成时的原始矩阵，不把用户设置值混入基准。
     live2dTransformBase = {
       matrix,
       scaleX,
       scaleY,
       centerX: Number(matrix.tr[12]) + width * scaleX / 2,
-      centerY: Number(matrix.tr[13]) + height * scaleY / 2,
-      preferences: transformSnapshot(preferences)
+      centerY: Number(matrix.tr[13]) + height * scaleY / 2
     };
     return true;
   }
@@ -1303,13 +1304,12 @@
     const base = live2dTransformBase;
     if (!base || !base.matrix) return false;
     const current = transformSnapshot(preferences);
-    const ratio = current.scale / base.preferences.scale;
-    if (!Number.isFinite(ratio) || ratio <= 0) return false;
+    if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
 
-    // 直接更新 Cubism 2 的模型矩阵，不重载模型，也不重启渲染循环。
-    base.matrix.scale(base.scaleX * ratio, base.scaleY * ratio);
-    base.matrix.centerX(base.centerX + current.x - base.preferences.x);
-    base.matrix.centerY(base.centerY + current.y - base.preferences.y);
+    // 滑块值始终相对于模型刚加载时的原始矩阵计算，避免基准漂移和累计误差。
+    base.matrix.scale(base.scaleX * current.scale, base.scaleY * current.scale);
+    base.matrix.centerX(base.centerX + current.x);
+    base.matrix.centerY(base.centerY + current.y);
     return true;
   }
 
@@ -1349,7 +1349,7 @@
       await waitForRenderedPixels();
 
       loadedModelId = modelId;
-      captureLive2DTransformBase(modelPreferences || currentPreferences());
+      captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       statusSent = true;
       updateModelActionAvailability();
@@ -1428,7 +1428,7 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
-      captureLive2DTransformBase(currentPreferences());
+      captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       updateModelActionAvailability();
       showMessage("");
