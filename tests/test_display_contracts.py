@@ -176,6 +176,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('let live2dPreviewEnabled = true', template)
         self.assertIn('new URLSearchParams(window.location.search).get("silent") === "1"', display_script)
         self.assertIn('const showTts = !silentPreview', display_script)
+        self.assertIn('silentPreview || live2dModuleState !== "stopped"', display_script)
         self.assertIn('if (silentPreview) return;', display_script)
         self.assertNotIn("live2d-preview-export", display_page + display_script)
         self.assertNotIn('/api/live2d/preview', main)
