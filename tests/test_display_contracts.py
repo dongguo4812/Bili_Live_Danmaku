@@ -20,6 +20,43 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('fetch("/api/live2d/settings', script)
         self.assertNotIn('fetch("/api/display/settings', script)
 
+    def test_module_api_routes_use_canonical_prefixes_with_temporary_aliases(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        voice_page = (root / "templates" / "voice.html").read_text(encoding="utf-8")
+        music_page = (root / "templates" / "music_settings.html").read_text(encoding="utf-8")
+        video_page = (root / "templates" / "video_settings.html").read_text(encoding="utf-8")
+
+        # Canonical routes are registered while old routes remain temporary aliases.
+        route_pairs = (
+            ("/api/danmaku/idle-tips/settings", "/api/idle-tips/settings"),
+            ("/api/voice/tts/settings", "/api/tts/settings"),
+            ("/api/voice/tts/synthesize", "/api/tts/synthesize"),
+            ("/api/voice/tts/audio/<filename>", "/api/tts/audio/<filename>"),
+            ("/api/music/settings", "/api/settings/music"),
+            ("/api/video/settings", "/api/settings/video"),
+        )
+        for canonical, legacy in route_pairs:
+            self.assertIn(canonical, main)
+            self.assertIn(legacy, main)
+
+        self.assertIn('/api/voice/tts/audio/{filename}', main)
+        self.assertIn('/api/danmaku/idle-tips/settings', display_script)
+        self.assertIn('/api/voice/tts/settings', display_script)
+        self.assertIn('/api/voice/tts/synthesize', display_script)
+        self.assertIn('/api/voice/tts/settings', voice_page)
+        self.assertIn('/api/voice/tts/synthesize', voice_page)
+        self.assertIn('/api/music/settings', music_page)
+        self.assertIn('/api/video/settings', video_page)
+
+        # Browser code must no longer call the old aliases.
+        for legacy in (
+            '/api/idle-tips/settings', '/api/tts/settings',
+            '/api/tts/synthesize', '/api/settings/music', '/api/settings/video',
+        ):
+            self.assertNotIn(legacy, display_script + voice_page + music_page + video_page)
+
     def test_each_display_module_has_a_dedicated_route_and_mode(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
