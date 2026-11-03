@@ -246,6 +246,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
         page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
 
@@ -255,8 +256,10 @@ class CombinedDisplayContractTests(unittest.TestCase):
             self.assertIn(f'"crop_{side}": bounded_number("crop_{side}", 0.0, 0.0, 45.0)', main)
             self.assertIn(f'controls["crop-{side}"]', script)
 
-        self.assertIn('canvas.style.clipPath = clip', script)
-        self.assertIn('canvas.style.webkitClipPath = clip', script)
+        self.assertIn('id="live2d-viewport"', page)
+        self.assertIn('#live2d-viewport {', css)
+        self.assertIn('target.style.clipPath = clip', script)
+        self.assertIn('target.style.webkitClipPath = clip', script)
         self.assertIn('viewport.style.clipPath="inset("+crop.join(" ")+")"', combined)
         self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
         self.assertNotIn('bubble.style.clipPath', script)
