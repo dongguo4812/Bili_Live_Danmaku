@@ -115,7 +115,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
-Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **测试语音** button remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
+Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **生成并试听** control on `/voice` remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
 ## Development principles
 
