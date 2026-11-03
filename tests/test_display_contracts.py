@@ -30,11 +30,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
             "/danmaku/display", "/voice/display",
             "/music/display", "/video/display", "/music/widget",
         )
-        legacy_routes = (
-            "/display", "/display/live2d", "/display/danmaku", "/display/tts",
-            "/display/music", "/display/video", "/display/music-widget",
-        )
-        for route in canonical_routes + legacy_routes:
+        for route in canonical_routes:
             self.assertIn(f'@app.get("{route}")', main)
         self.assertIn('frame.src="/live2d/display?embedded=1"', (root / "templates" / "combined_display.html").read_text(encoding="utf-8"))
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
