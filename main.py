@@ -121,15 +121,64 @@ LIVE_CLIENT = LiveRoomClient(
 
 
 def _safe_model_dir(model_id: str) -> Path | None:
+    """解析 MOC2 模型目录；新目录优先，兼容旧版 models/<id>/。"""
     if not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", model_id):
         return None
-    root = MODEL_ROOT.resolve()
-    directory = (root / model_id).resolve()
+
+    roots = (MODEL_ROOT / "moc2", MODEL_ROOT)
+    for candidate_root in roots:
+        root = candidate_root.resolve()
+        directory = (root / model_id).resolve()
+        try:
+            directory.relative_to(root)
+        except ValueError:
+            continue
+        # moc2/moc3 是版本目录，不是模型目录。
+        if directory.is_dir() and directory.name not in {"moc2", "moc3"}:
+            if candidate_root == MODEL_ROOT and (MODEL_ROOT / "moc2" / model_id).is_dir():
+                continue
+            return directory
+    return None
+
+
+def _model_asset_prefix(directory: Path) -> str:
+    """返回模型资源的站点绝对 URL 前缀；旧版平铺目录返回空字符串。"""
     try:
-        directory.relative_to(root)
+        relative = directory.resolve().relative_to((MODEL_ROOT / "moc2").resolve())
     except ValueError:
-        return None
-    return directory if directory.is_dir() else None
+        return ""
+    return "/models/moc2/" + relative.as_posix().rstrip("/") + "/"
+
+
+def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """为新目录布局中的 MOC2 资源补上稳定 URL，避免相对路径解析发生变化。"""
+    if not prefix:
+        return data
+
+    def prefixed(value: Any) -> Any:
+        if not isinstance(value, str) or not value:
+            return value
+        if value.startswith(("/", "http://", "https://", "data:")):
+            return value
+        return prefix + value.lstrip("./")
+
+    for key in ("model", "physics", "pose"):
+        if isinstance(data.get(key), str):
+            data[key] = prefixed(data[key])
+    if isinstance(data.get("textures"), list):
+        data["textures"] = [prefixed(item) for item in data["textures"]]
+    if isinstance(data.get("expressions"), list):
+        for item in data["expressions"]:
+            if isinstance(item, dict) and isinstance(item.get("file"), str):
+                item["file"] = prefixed(item["file"])
+    motions = data.get("motions")
+    if isinstance(motions, dict):
+        for group in motions.values():
+            if isinstance(group, list):
+                for item in group:
+                    if isinstance(item, dict) and isinstance(item.get("file"), str):
+                        item["file"] = prefixed(item["file"])
+    return data
 
 
 def _model_config_path(directory: Path, model_id: str) -> Path | None:
@@ -867,13 +916,27 @@ def _register_windows_console_handler() -> None:
 
 
 def _available_models() -> list[dict[str, str]]:
+    """扫描 MOC2 模型目录，并兼容尚未迁移的旧版平铺模型目录。"""
     result: list[dict[str, str]] = []
-    if not MODEL_ROOT.is_dir():
-        return result
-    for directory in sorted(MODEL_ROOT.iterdir(), key=lambda item: item.name.casefold()):
-        if not directory.is_dir() or _safe_model_dir(directory.name) is None:
+    directories: dict[str, Path] = {}
+
+    moc2_root = MODEL_ROOT / "moc2"
+    if moc2_root.is_dir():
+        for directory in moc2_root.iterdir():
+            if directory.is_dir():
+                directories[directory.name] = directory
+
+    # 兼容用户机器上尚未迁移的 models/<model_id>/ 自定义模型。
+    if MODEL_ROOT.is_dir():
+        for directory in MODEL_ROOT.iterdir():
+            if not directory.is_dir() or directory.name in {"moc2", "moc3"}:
+                continue
+            directories.setdefault(directory.name, directory)
+
+    for model_id, directory in sorted(directories.items(), key=lambda item: item[0].casefold()):
+        if _safe_model_dir(model_id) is None:
             continue
-        config_path = _model_config_path(directory, directory.name)
+        config_path = _model_config_path(directory, model_id)
         if config_path is None:
             continue
         try:
@@ -882,9 +945,9 @@ def _available_models() -> list[dict[str, str]]:
                 continue
             if not isinstance(data.get("textures"), list) or not data["textures"]:
                 continue
-            result.append({"id": directory.name, "name": str(data.get("name") or directory.name)})
+            result.append({"id": model_id, "name": str(data.get("name") or model_id), "version": "moc2"})
         except Exception:
-            logger.warning("跳过无效模型配置：%s", config_path)
+            logger.warning("跳过无效 MOC2 模型配置：%s", config_path)
     return result
 
 
@@ -1300,6 +1363,7 @@ def model_config_file(model_id: str):
     with SETTINGS_LOCK:
         settings = _load_user_settings()
     preferences = _model_preferences(settings, model_id)
+    data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))
     layout = data.get("layout")
     if not isinstance(layout, dict):
         layout = {}
