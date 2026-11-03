@@ -82,7 +82,6 @@ def load_config() -> dict[str, Any]:
     voice_config = manager.load("voice", {})
     obs_config = manager.load("obs", {
         "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
-        "password_file": "credentials/obs.json",
     })
     return {
         "app": app_config,
@@ -505,7 +504,7 @@ def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | N
     raise TimeoutError(f"等待 OBS 请求响应超时：{request_type}")
 
 
-def _read_obs_password(password_file: str | None = None) -> str:
+def _read_obs_password() -> str:
     """只从统一凭据库读取 OBS 密码，不再读取旧明文密码文件。"""
     try:
         secret = CredentialStore().load("obs") or {}
@@ -528,8 +527,7 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         port, timeout = 4455, 2.5
     ws = None
     try:
-        password_file = obs_config.get("password_file")
-        password = _read_obs_password(password_file)
+        password = _read_obs_password()
         ws = websocket.create_connection(
             f"ws://{host}:{port}",
             timeout=timeout,
@@ -1875,11 +1873,10 @@ def save_obs_settings():
         if not host or not 1 <= port <= 65535 or not source_name:
             raise ValueError("OBS 地址、有效端口和来源名称不能为空。")
         config = {"host": host, "port": port, "timeout": timeout,
-                  "source_name": source_name, "password_file": "credentials/obs.json"}
+                  "source_name": source_name}
         ConfigManager().save("obs", config)
         CONFIG["obs_websocket"] = {
             "host": host, "port": port, "timeout": timeout,
-            "password_file": "credentials/obs.json",
         }
         VIDEO_MODULE.reload_obs_settings()
         _refresh_obs_browser_sources()
