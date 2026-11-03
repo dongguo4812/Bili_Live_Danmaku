@@ -242,5 +242,25 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("<iframe", video_renderer.lower())
 
 
+    def test_live2d_custom_crop_is_independent_from_danmaku(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+
+        for side in ("top", "right", "bottom", "left"):
+            self.assertIn(f'id="crop-{side}-slider"', page)
+            self.assertIn(f'"crop_{side}": number("crop_{side}", 0.0, 0.0, 45.0)', main)
+            self.assertIn(f'"crop_{side}": bounded_number("crop_{side}", 0.0, 0.0, 45.0)', main)
+            self.assertIn(f'controls["crop-{side}"]', script)
+
+        self.assertIn('canvas.style.clipPath = clip', script)
+        self.assertIn('canvas.style.webkitClipPath = clip', script)
+        self.assertIn('viewport.style.clipPath="inset("+crop.join(" ")+")"', combined)
+        self.assertIn('const bubble = document.getElementById("danmaku-bubble")', script)
+        self.assertNotIn('bubble.style.clipPath', script)
+
+
 if __name__ == "__main__":
     unittest.main()
