@@ -554,12 +554,6 @@ def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], 
     return [], "未找到歌名完全匹配且通过版本过滤的歌曲"
 
 
-def find_matching_song(title: str, artist: str) -> tuple[Optional[dict[str, Any]], str]:
-    """兼容旧调用：返回搜索顺序中的首个有效候选。"""
-    matches, reason = find_matching_songs(title, artist)
-    return (matches[0], reason) if matches else (None, reason)
-
-
 def lx_scheme_play(song: dict[str, Any]) -> str:
     """用已验证的歌曲 ID 和音源调用官方 music/play Scheme，不让洛雪重新搜索选歌。"""
     info = song.get("music_info") if isinstance(song.get("music_info"), dict) else song
