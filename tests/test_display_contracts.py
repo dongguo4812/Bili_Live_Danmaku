@@ -175,6 +175,10 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn('frame.src="/live2d/moc2/display?embedded=1"', template)
         self.assertIn('.display-mode .widget.live2d .widget-header{display:none}', template)
         self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}', template)
+        self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden;background:transparent}', template)
+        display_page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        self.assertIn('if (window.self !== window.top)', display_page)
+        self.assertNotIn('get("embedded")', display_page)
         preview = (root / "static" / "live2d_preview" / "README.md").read_text(encoding="utf-8")
         self.assertIn('static/live2d_preview/<model_id>.png', preview)
 
