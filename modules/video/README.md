@@ -25,8 +25,6 @@
 
 配置与管理员：
 - 普通设置：`config/video.json`；默认冷却 60 秒、队列 30 条、普通观众最长 300 秒、默认不要求粉丝牌。
-- 管理员 UID 文件：`data/video/uid.txt`，每行一个 UID；该目录属于本地运行数据，不提交到 Git。
-- 若旧项目存在 `room_config.txt`，首次整合启动前将其复制到整合项目根目录；程序会一次性迁移粉丝牌要求、冷却、视频时长和队列上限，不会覆盖主程序统一房间号。
-- 若旧项目存在 `obs_config.txt`，也可复制到整合项目根目录；首次启动会迁移 OBS 地址、端口和来源名称，但不会迁移明文密码。请在管理页面的 OBS 设置中重新填写密码，保存后由凭据库加密存储。
-- 从旧独立视频项目迁移时，请将旧项目根目录的 `uid.txt` 手动复制到整合项目的 `data/video/uid.txt`；管理员列表不会从旧公开仓库自动下载或提交。
+- 管理员 UID：统一在系统设置页 `/settings` 配置，保存在 `config/app.json`，歌曲和视频模块共用。
+- 视频限制：直接配置 `config/video.json`；OBS 普通地址、端口和来源名称配置在 `config/obs.json`。
 - OBS 密码由 `CredentialStore` 从 `credentials/obs.json` 读取；普通 OBS 地址、端口和来源名称来自 `config/obs.json`。
