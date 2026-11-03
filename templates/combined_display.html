@@ -55,7 +55,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 </style>
 <link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
 </head>
-<body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}">
+<body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}" data-layout-id="{{ layout_id }}">
 {% if not display_mode %}
 <aside class="editor-sidebar">
   <div class="brand">B站直播互动中心</div>
@@ -75,6 +75,12 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 {% endif %}
 <div class="toolbar" id="toolbar" {% if display_mode %}hidden{% endif %}>
   <strong>综合展示布局</strong>
+  <select id="layout-select" aria-label="选择布局" style="max-width:170px;padding:7px 9px;border:1px solid #53627c;border-radius:7px;background:#202b3b;color:#f4f6fb"></select>
+  <button type="button" id="new-layout">新建布局</button>
+  <button type="button" id="duplicate-layout">复制布局</button>
+  <button type="button" id="rename-layout">重命名</button>
+  <button type="button" id="delete-layout">删除布局</button>
+  <button type="button" id="activate-layout">设为默认</button>
   <button type="button" data-add="live2d">添加 Live2D</button>
   <button type="button" data-add="voice">添加语音</button>
   <button type="button" data-add="music">添加歌曲</button>
@@ -315,7 +321,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       const data=await api("/api/display/layout",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify(layout)
+        body:JSON.stringify({layout_id:layoutId,layout})
       });
       layout=data.layout;
       setMessage(data.message||"布局已保存。");
@@ -367,17 +373,130 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   if(saveButton) saveButton.addEventListener("click",saveLayout);
   const resetButton=document.getElementById("reset-layout");
   if(resetButton) resetButton.addEventListener("click",resetLayout);
-  const openOutput=document.getElementById("open-output");
-  if(openOutput) openOutput.addEventListener("click",()=>window.open("/display/combined","_blank","noopener"));
 
-  loadLayout().then(()=>{
-    const requestedWidget=new URLSearchParams(window.location.search).get("add");
-    if(requestedWidget==="music_widget"){
-      addWidget("music_widget");
-      window.history.replaceState({},document.title,window.location.pathname);
+  let layoutId="";
+  let layoutItems=[];
+  let activeLayoutId="";
+  const layoutSelect=document.getElementById("layout-select");
+
+  async function loadLayoutList(){
+    const data=await api("/api/display/layouts");
+    layoutItems=data.layouts||[];
+    activeLayoutId=data.active_layout_id||"";
+    if(layoutSelect){
+      layoutSelect.replaceChildren();
+      layoutItems.forEach(item=>{
+        const option=document.createElement("option");
+        option.value=item.id;
+        option.textContent=item.name+(item.id===activeLayoutId?"（默认）":"");
+        layoutSelect.appendChild(option);
+      });
     }
-    refreshData();
-  });
+  }
+
+  async function selectLayout(nextId,discard=true){
+    if(!nextId||nextId===layoutId)return;
+    if(discard&&!window.confirm("切换布局会放弃当前尚未保存的修改，确定继续吗？")){
+      if(layoutSelect)layoutSelect.value=layoutId;
+      return;
+    }
+    const data=await api("/api/display/layout?layout_id="+encodeURIComponent(nextId));
+    layoutId=nextId;
+    layout=data.layout||{version:1,widgets:[]};
+    renderLayout();
+    if(layoutSelect)layoutSelect.value=layoutId;
+    const url=new URL(window.location.href);
+    url.searchParams.set("layout",layoutId);
+    window.history.replaceState({},document.title,url.pathname+url.search);
+    setMessage("已切换到布局："+(data.name||layoutId));
+  }
+
+  async function createLayout(copyCurrent=false){
+    const name=window.prompt("请输入新布局名称：");
+    if(!name||!name.trim())return;
+    try{
+      const data=await api("/api/display/layouts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim(),source_layout_id:copyCurrent?layoutId:""})});
+      await loadLayoutList();
+      await selectLayout(data.layout_id,false);
+      setMessage("布局“"+data.name+"”已创建。");
+    }catch(error){setMessage("创建布局失败："+error.message,true);}
+  }
+
+  async function renameLayout(){
+    const current=layoutItems.find(item=>item.id===layoutId);
+    if(!current)return;
+    const name=window.prompt("请输入新的布局名称：",current.name);
+    if(!name||!name.trim())return;
+    try{
+      await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name.trim()})});
+      await loadLayoutList();
+      if(layoutSelect)layoutSelect.value=layoutId;
+      setMessage("布局已重命名。");
+    }catch(error){setMessage("重命名失败："+error.message,true);}
+  }
+
+  async function deleteLayout(){
+    const current=layoutItems.find(item=>item.id===layoutId);
+    if(!current||layoutItems.length<=1){setMessage("至少需要保留一套布局。",true);return;}
+    if(!window.confirm("确定删除布局“"+current.name+"”？此操作不可撤销。"))return;
+    try{
+      const data=await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"DELETE"});
+      await loadLayoutList();
+      await selectLayout(data.active_layout_id,false);
+      setMessage("布局已删除，已切换到默认布局。");
+    }catch(error){setMessage("删除失败："+error.message,true);}
+  }
+
+  async function activateLayout(){
+    try{
+      await api("/api/display/layouts/"+encodeURIComponent(layoutId),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({activate:true})});
+      await loadLayoutList();
+      if(layoutSelect)layoutSelect.value=layoutId;
+      setMessage("已将当前布局设为 /display/combined 默认展示。");
+    }catch(error){setMessage("设置默认布局失败："+error.message,true);}
+  }
+
+  if(layoutSelect)layoutSelect.addEventListener("change",()=>selectLayout(layoutSelect.value));
+  const newButton=document.getElementById("new-layout");
+  if(newButton)newButton.addEventListener("click",()=>createLayout(false));
+  const duplicateButton=document.getElementById("duplicate-layout");
+  if(duplicateButton)duplicateButton.addEventListener("click",()=>createLayout(true));
+  const renameButton=document.getElementById("rename-layout");
+  if(renameButton)renameButton.addEventListener("click",renameLayout);
+  const deleteButton=document.getElementById("delete-layout");
+  if(deleteButton)deleteButton.addEventListener("click",deleteLayout);
+  const activateButton=document.getElementById("activate-layout");
+  if(activateButton)activateButton.addEventListener("click",activateLayout);
+
+  const openOutput=document.getElementById("open-output");
+  if(openOutput)openOutput.addEventListener("click",()=>window.open("/display/combined/"+encodeURIComponent(layoutId),"_blank","noopener"));
+
+  (async()=>{
+    try{
+      if(displayMode){
+        layoutId=document.body.dataset.layoutId||"";
+        const endpoint="/api/display/layout"+(layoutId?"?layout_id="+encodeURIComponent(layoutId):"");
+        const data=await api(endpoint);
+        layoutId=data.layout_id||layoutId;
+        layout=data.layout||{version:1,widgets:[]};
+        renderLayout();
+      }else{
+        await loadLayoutList();
+        const requested=new URLSearchParams(window.location.search).get("layout");
+        layoutId=layoutItems.some(item=>item.id===requested)?requested:activeLayoutId;
+        const data=await api("/api/display/layout?layout_id="+encodeURIComponent(layoutId));
+        layout=data.layout||{version:1,widgets:[]};
+        renderLayout();
+        if(layoutSelect)layoutSelect.value=layoutId;
+      }
+      const requestedWidget=new URLSearchParams(window.location.search).get("add");
+      if(requestedWidget==="music_widget"&&!displayMode){
+        addWidget("music_widget");
+        window.history.replaceState({},document.title,window.location.pathname+"?layout="+encodeURIComponent(layoutId));
+      }
+      refreshData();
+    }catch(error){setMessage("读取布局失败："+error.message,true);}
+  })();
   setInterval(refreshData,2000);
 })();
 </script>
