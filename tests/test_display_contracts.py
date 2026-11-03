@@ -172,7 +172,6 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('模型“"+modelId+"”暂无静态预览图。', template)
         self.assertIn('frame.src="/live2d/moc2/display?embedded=1"', template)
         self.assertIn('.display-mode .widget.live2d .widget-header{display:none}', template)
-        self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}', template)
         self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden;background:transparent}', template)
         display_page = (root / "templates" / "display.html").read_text(encoding="utf-8")
         self.assertIn('new URLSearchParams(window.location.search).get("embedded") === "1"', display_page)
