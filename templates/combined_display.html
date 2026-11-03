@@ -234,7 +234,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       const frame=body.querySelector("iframe");
       if(frame){
         const scale=(Number(item.content_scale)||100)/100;
-        frame.src="/music/widget?embedded=1&scale="+encodeURIComponent(scale);
+        frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
       }
     }
     if(item.type==="live2d" && !displayMode && body){
