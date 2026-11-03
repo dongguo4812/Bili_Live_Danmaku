@@ -1244,6 +1244,11 @@ def music_settings_page():
 def music_display_page():
     return render_template("music_display.html")
 
+@app.get("/music/widget")
+def music_widget_page():
+    """独立歌曲信息展示页。"""
+    return render_template("music_widget.html")
+
 
 @app.get("/video")
 def video_control_page():
