@@ -8,15 +8,15 @@ from pathlib import Path
 
 
 class CombinedDisplayContractTests(unittest.TestCase):
-    def test_live2d_api_has_canonical_prefix_and_legacy_compatibility(self):
+    def test_live2d_api_uses_only_canonical_prefix(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn('@app.get("/api/live2d/settings")', source)
         self.assertIn('@app.post("/api/live2d/settings")', source)
         self.assertIn('@app.get("/api/live2d/status")', source)
         self.assertIn('@app.post("/api/live2d/status")', source)
-        self.assertIn('@app.get("/api/display/settings")', source)
-        self.assertIn('@app.post("/api/display/settings")', source)
+        self.assertNotIn('@app.get("/api/display/settings")', source)
+        self.assertNotIn('@app.post("/api/display/settings")', source)
         self.assertIn('fetch("/api/live2d/settings', script)
         self.assertNotIn('fetch("/api/display/settings', script)
 
