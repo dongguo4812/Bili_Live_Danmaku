@@ -374,7 +374,7 @@ async def set_obs_visibility_async(visible):
 
 
 def fetch_streamer_uid_sync():
-    """通过 room_config.txt 中的直播间号查询直播间主播 UID。"""
+    """通过当前配置的直播间号查询直播间主播 UID。"""
     global _streamer_uid_cache, _streamer_uid_cache_at
     now = time.monotonic()
     if _streamer_uid_cache and now - _streamer_uid_cache_at < STREAMER_UID_CACHE_SEC:
