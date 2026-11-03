@@ -163,24 +163,21 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/voice/tts/settings', source)
         self.assertNotIn('/api/tts/settings', source)
 
-    def test_combined_live2d_editor_uses_silent_full_display_preview(self):
+    def test_combined_live2d_editor_uses_full_display_preview_without_silent_toggle(self):
         root = Path(__file__).resolve().parents[1]
         template = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
-        display_page = (root / "templates" / "display.html").read_text(encoding="utf-8")
         display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         main = (root / "main.py").read_text(encoding="utf-8")
 
-        self.assertIn('frame.src="/live2d/display?embedded=1&silent=1"', template)
         self.assertIn('frame.src="/live2d/display?embedded=1"', template)
-        self.assertIn('id="live2d-preview-toggle"', template)
-        self.assertIn('let live2dPreviewEnabled = true', template)
-        self.assertIn('new URLSearchParams(window.location.search).get("silent") === "1"', display_script)
-        self.assertIn('const showTts = !silentPreview', display_script)
-        self.assertIn('silentPreview || live2dModuleState !== "stopped"', display_script)
-        self.assertIn('if (silentPreview) return;', display_script)
-        self.assertNotIn("live2d-preview-export", display_page + display_script)
+        self.assertNotIn('silent=1', template)
+        self.assertNotIn('live2d-preview-toggle', template)
+        self.assertNotIn('live2dPreviewEnabled', template)
+        self.assertNotIn('silentPreview', display_script)
+        self.assertIn('const showTts = displayMode === "all" || displayMode === "tts";', display_script)
+        self.assertNotIn("live2d-preview-export", display_script)
         self.assertNotIn('/api/live2d/preview', main)
-        self.assertNotIn('static/live2d_preview', template + display_page + display_script + main)
+        self.assertNotIn('static/live2d_preview', template + display_script + main)
 
     def test_combined_layout_supports_independent_content_scales_and_edge_resize(self):
         root = Path(__file__).resolve().parents[1]
