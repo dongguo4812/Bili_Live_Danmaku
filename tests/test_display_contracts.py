@@ -94,6 +94,23 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
 
+    def test_danmaku_settings_page_and_config_ownership(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "danmaku.html").read_text(encoding="utf-8")
+        display = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        live2d_defaults = json.loads((root / "config" / "default" / "live2d.json").read_text(encoding="utf-8"))
+        danmaku_defaults = json.loads((root / "config" / "default" / "danmaku.json").read_text(encoding="utf-8"))
+        self.assertIn('@app.get("/danmaku")', main)
+        self.assertIn('return render_template("danmaku.html")', main)
+        self.assertIn('/api/danmaku/idle-tips/settings', page)
+        self.assertIn('/api/status', page)
+        self.assertNotIn("空闲随机提示", display)
+        self.assertNotIn("idle_tips", live2d_defaults)
+        self.assertIn("idle_tips", danmaku_defaults)
+        self.assertIn('manager.save("danmaku", danmaku)', main)
+        self.assertIn('legacy_idle_tips', main)
+
     def test_video_fan_medal_setting_uses_one_persisted_config_key(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
