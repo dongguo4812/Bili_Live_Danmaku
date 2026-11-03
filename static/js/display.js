@@ -1409,7 +1409,13 @@
   checkLiveConnectionForAudio();
   connectionTimer = window.setInterval(checkLiveConnectionForAudio, 3000);
 
-  if (showLive2D) start();
+  if (showLive2D) {
+    start();
+  } else if (showDanmaku) {
+    loadDisplaySettings().catch(displayError => {
+      console.warn("Unable to load danmaku display preferences:", displayError);
+    });
+  }
 
   // TTS 设置独立加载；无论接口慢、失败还是语音不可用，都不阻塞弹幕显示。
   if (showDanmaku) {
