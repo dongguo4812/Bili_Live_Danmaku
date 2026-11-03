@@ -85,7 +85,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
             self.assertNotIn(f'@app.get("{route}")', main)
 
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
-        self.assertIn('frame.src="/live2d/display?embedded=1"', combined)
+        self.assertIn('frame.src="/live2d/moc2/display"', combined)
+        self.assertNotIn('frame.src="/live2d/moc2/display?embedded=1"', combined)
         self.assertIn('/api/voice/tts/settings', combined)
         self.assertNotIn('/api/tts/settings', combined)
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
