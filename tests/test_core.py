@@ -8,6 +8,7 @@ import base64
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from core.config_manager import ConfigError, ConfigManager
@@ -89,7 +90,7 @@ class ConfigManagerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with (
-                unittest.mock.patch.object(config_manager_module, "LOCAL_CONFIG_DIR", local),
+                patch.object(config_manager_module, "LOCAL_CONFIG_DIR", local),
                 unittest.mock.patch.object(config_manager_module, "DEFAULT_CONFIG_DIR", defaults),
                 unittest.mock.patch.object(config_manager_module, "CONFIG_ROOT", legacy),
             ):
