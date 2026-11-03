@@ -9,6 +9,9 @@ credentials/
 !models/.gitkeep
 !models/live_uu/.gitkeep
 
+# Local runtime configuration (default templates remain tracked)
+config/local/
+
 # Unified runtime data and logs (keep documentation tracked)
 logs/
 data/*
