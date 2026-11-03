@@ -24,6 +24,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .toolbar button:disabled{opacity:.45;cursor:not-allowed}
 #layout-message{font-size:12px;color:#b8c4d8}
 .editor-control{display:flex;align-items:center;gap:6px;font-size:12px;color:#d6deeb}
+.editor-control[hidden]{display:none!important}
 .editor-control select,.editor-control input{accent-color:#789be0}
 .editor-control input[type=range]{width:110px}
 .editor-control output{min-width:42px;color:#ffd66b;font-variant-numeric:tabular-nums}
@@ -205,7 +206,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
     node.style.setProperty("--content-scale",String((Number(item.font_scale)||100)/100));
-    node.style.setProperty("--overall-scale",String((Number(item.content_scale)||100)/100));
   }
 
   function selectWidget(type){
@@ -239,10 +239,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         const scale=(Number(item.content_scale)||100)/100;
         frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
       }
-    }
-    if(item.type==="live2d" && !displayMode && body){
-      const image=body.querySelector(".live2d-static-preview");
-      if(image) image.style.transform="scale("+((Number(item.content_scale)||100)/100)+")";
     }
   }
 
