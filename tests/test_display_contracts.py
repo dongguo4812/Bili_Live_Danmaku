@@ -163,6 +163,17 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/voice/tts/settings', source)
         self.assertNotIn('/api/tts/settings', source)
 
+    def test_combined_live2d_editor_uses_model_specific_static_preview(self):
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('api("/api/live2d/settings")', template)
+        self.assertIn('/static/live2d_preview/"+encodeURIComponent(modelId)+".png', template)
+        self.assertIn('renderLive2DPreview(body)', template)
+        self.assertIn('模型“"+modelId+"”暂无静态预览图。', template)
+        self.assertIn('frame.src="/live2d/display?embedded=1"', template)
+        preview = (root / "static" / "live2d_preview" / "README.md").read_text(encoding="utf-8")
+        self.assertIn('static/live2d_preview/<model_id>.png', preview)
+
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         start = source.index("function renderVideo(")
