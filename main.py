@@ -1618,7 +1618,7 @@ def _write_display_layout_store(store: dict[str, Any]) -> None:
 
 
 def _load_display_layout_store() -> dict[str, Any]:
-    """读取多布局仓库；首次运行时把旧单布局无损迁移为默认布局。"""
+    """读取多布局仓库；首次运行时创建默认布局。"""
     with DISPLAY_LAYOUT_LOCK:
         if DISPLAY_LAYOUTS_PATH.is_file():
             raw = json.loads(DISPLAY_LAYOUTS_PATH.read_text(encoding="utf-8"))
