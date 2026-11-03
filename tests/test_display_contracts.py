@@ -39,12 +39,12 @@ class CombinedDisplayContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         service = (root / "modules" / "video" / "service.py").read_text(encoding="utf-8")
         self.assertIn('"require_fan_medal": bool(req.get("require_fans_medal", False))', main)
-        self.assertIn('"require_fans_medal": require_medal', main)
+        self.assertIn('"require_fans_medal": bool(require_medal)', main)
         self.assertIn('requests_config.get("require_fans_medal", False)', service)
 
     def test_shipped_config_templates_exclude_unused_settings(self):
         root = Path(__file__).resolve().parents[1]
-        read = lambda name: json.loads((root / "config" / name).read_text(encoding="utf-8"))
+        read = lambda name: json.loads((root / "config" / "default" / name).read_text(encoding="utf-8"))
         live = read("live.json")
         live2d = read("live2d.json")
         voice = read("voice.json")
@@ -62,6 +62,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("enabled_on_start", music)
         self.assertNotIn("enabled_on_start", video)
         self.assertNotIn("platform_order", music.get("search", {}))
+        self.assertIs(music["requests"]["require_fans_medal"], False)
+        self.assertIs(video["requests"]["require_fans_medal"], False)
 
     def test_obs_password_is_read_only_from_credential_store(self):
         root = Path(__file__).resolve().parents[1]
