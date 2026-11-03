@@ -241,7 +241,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(type==="live2d"){
       if(displayMode){
         const frame=document.createElement("iframe");
-        frame.src="/display?embedded=1";
+        frame.src="/live2d/display?embedded=1";
         frame.title="Live2D 展示";
         frame.allow="autoplay";
         body.appendChild(frame);
@@ -286,7 +286,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(displayMode && layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
       const engine=document.createElement("iframe");
       engine.className="voice-engine";
-      engine.src="/display?embedded=1";
+      engine.src="/live2d/display?embedded=1";
       engine.title="语音播报音频引擎";
       engine.allow="autoplay";
       stage.appendChild(engine);
