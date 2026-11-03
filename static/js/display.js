@@ -1270,7 +1270,7 @@
     const manager = window.__live2dManager;
     const model = manager && typeof manager.getModel === "function" ? manager.getModel(0) : null;
     const matrix = model && typeof model.getModelMatrix === "function" ? model.getModelMatrix() : null;
-    if (!matrix || !Array.isArray(matrix.tr) || matrix.tr.length < 16 ||
+    if (!matrix || !ArrayBuffer.isView(matrix.tr) || matrix.tr.length < 16 ||
         typeof matrix.getScaleX !== "function" || typeof matrix.getScaleY !== "function" ||
         typeof matrix.scale !== "function" || typeof matrix.centerX !== "function" ||
         typeof matrix.centerY !== "function") {
