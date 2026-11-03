@@ -1374,11 +1374,7 @@ def save_room_setting():
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "请输入有效的 B 站直播间房间号。"}), 400
-    # 新版统一保存到普通直播配置；同时更新旧用户设置，兼容现有页面逻辑。
-    config_manager = ConfigManager()
-    live_config = config_manager.load("live", {})
-    live_config["room_id"] = room_id
-    config_manager.save("live", live_config)
+    # 直播间号统一保存到 config/live.json。
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["bilibili"]["room_id"] = room_id
@@ -2101,7 +2097,7 @@ def _credential_watchdog() -> None:
         if should_check:
             valid, message, _ = _login_status()
             if not valid:
-                logger.warning("B站登录凭据失效，已停止直播连接：%s", message)
+                logger.warning("B站登录凭据状态检查失败（可能是网络波动）；当前连接仍由 WebSocket 状态回调管理：%s", message)
 
 
 _initialize_login_state()
