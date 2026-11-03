@@ -29,14 +29,3 @@
 .md-compact .md-notice{font-size:11px}
 .md-compact .md-request-status,.md-compact .md-instruction{font-size:11px}
 @media(max-width:800px){.md-primary{font-size:16px}.md-queue-item{font-size:12px}.md-heading{font-size:12px}}
-
-.md-song-widget{display:flex;align-items:center;gap:12px;min-width:0;padding:7px 0}
-.md-song-cover{display:block;flex:none;width:76px;height:76px;object-fit:cover;border-radius:8px;background:rgba(255,255,255,.1);box-shadow:0 3px 12px rgba(0,0,0,.28)}
-.md-song-info{display:flex;flex:1;min-width:0;flex-direction:column;justify-content:center;gap:4px}
-.md-song-title{font-size:18px;font-weight:800;line-height:1.4;overflow-wrap:anywhere}
-.md-song-artist{color:#d7dfed;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
-.md-song-album,.md-song-progress{color:#aeb9ca;font-size:11px;line-height:1.4}
-.md-compact .md-song-cover{width:58px;height:58px;border-radius:6px}
-.md-compact .md-song-title{font-size:14px}
-.md-compact .md-song-artist{font-size:11px}
-@media(max-width:650px){.md-song-cover{width:60px;height:60px}.md-song-title{font-size:15px}}
