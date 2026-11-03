@@ -1256,15 +1256,57 @@ def save_live2d_preview():
     preview_dir.mkdir(parents=True, exist_ok=True)
     target = preview_dir / (model_id + ".png")
     temporary = preview_dir / (model_id + ".png.tmp")
+    metadata_target = preview_dir / (model_id + ".json")
+    metadata_temporary = preview_dir / (model_id + ".json.tmp")
+    metadata = None
+    try:
+        frame = json.loads(request.form.get("frame", "{}"))
+        preferences = json.loads(request.form.get("preferences", "{}"))
+        if isinstance(frame, dict) and isinstance(preferences, dict):
+            canvas_width = int(frame.get("canvas_width", 0))
+            canvas_height = int(frame.get("canvas_height", 0))
+            left = int(frame.get("left", -1))
+            top = int(frame.get("top", -1))
+            frame_width = int(frame.get("width", 0))
+            frame_height = int(frame.get("height", 0))
+            scale = float(preferences.get("scale", 1))
+            offset_x = float(preferences.get("x", 0))
+            offset_y = float(preferences.get("y", 0))
+            if (
+                0 < canvas_width <= 16384 and 0 < canvas_height <= 16384
+                and 0 <= left < canvas_width and 0 <= top < canvas_height
+                and 0 < frame_width <= canvas_width - left
+                and 0 < frame_height <= canvas_height - top
+                and math.isfinite(scale) and 0.25 <= scale <= 1.5
+                and math.isfinite(offset_x) and -1 <= offset_x <= 1
+                and math.isfinite(offset_y) and -1 <= offset_y <= 1
+            ):
+                metadata = {
+                    "version": 1,
+                    "frame": {
+                        "canvas_width": canvas_width, "canvas_height": canvas_height,
+                        "left": left, "top": top, "width": frame_width, "height": frame_height,
+                    },
+                    "preferences": {"scale": scale, "x": offset_x, "y": offset_y},
+                }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        metadata = None
+
     try:
         temporary.write_bytes(png_data)
         temporary.replace(target)
+        if metadata is not None:
+            metadata_temporary.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+            metadata_temporary.replace(metadata_target)
+        else:
+            metadata_target.unlink(missing_ok=True)
     except OSError as exc:
         temporary.unlink(missing_ok=True)
+        metadata_temporary.unlink(missing_ok=True)
         logger.exception("保存 Live2D 静态预览图失败：%s", model_id)
         return jsonify({"ok": False, "error": "保存预览图失败：" + str(exc)}), 500
 
-    logger.info("已生成 Live2D 静态预览图：model=%s size=%sx%s", model_id, width, height)
+    logger.info("已生成 Live2D 静态预览图：model=%s size=%sx%s metadata=%s", model_id, width, height, metadata is not None)
     return jsonify({
         "ok": True,
         "model": model_id,
