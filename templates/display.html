@@ -23,8 +23,8 @@
     html[data-display-mode="tts"] #display-placeholder { display: none !important; }
   </style>
   <script>
-    // Embedded display pages keep the standalone URL clean; hide interactive controls only inside an iframe.
-    if (window.self !== window.top) {
+    // Hide interactive controls only when explicitly embedded by another display page.
+    if (new URLSearchParams(window.location.search).get("embedded") === "1") {
       document.documentElement.classList.add("embedded-live2d");
     }
   </script>
