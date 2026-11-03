@@ -179,6 +179,20 @@ class CombinedDisplayContractTests(unittest.TestCase):
         preview = (root / "static" / "live2d_preview" / "README.md").read_text(encoding="utf-8")
         self.assertIn('static/live2d_preview/<model_id>.png', preview)
 
+    def test_live2d_preview_export_uses_the_active_canvas(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('@app.post("/api/live2d/preview")', main)
+        self.assertIn('static" / "live2d_preview', main)
+        self.assertIn('id="live2d-preview-export"', page)
+        self.assertIn('captureLive2DCanvasPng()', script)
+        self.assertIn('gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)', script)
+        self.assertIn('fetch("/api/live2d/preview"', script)
+        self.assertIn('loadedModelId', script)
+        self.assertNotIn('loadlive2d(canvas.id', script[script.index('function captureLive2DCanvasPng'):script.index('function waitForRenderedPixels')])
+
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         start = source.index("function renderVideo(")
