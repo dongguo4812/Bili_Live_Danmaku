@@ -1929,11 +1929,11 @@ def save_logging_settings():
         if retention not in allowed_retention:
             raise ValueError("日志保留天数无效。")
         config = ConfigManager().load("logging", {})
+        config.pop("daily_rotation", None)
         config.update({
             "level": level,
             "retention_days": retention,
             "retention_options": [3, 5, 7, 15, 30, 60, 90, 0],
-            "daily_rotation": True,
         })
         ConfigManager().save("logging", config)
         setup_logging()
