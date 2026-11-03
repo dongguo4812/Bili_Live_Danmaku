@@ -333,7 +333,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     refreshInFlight=true;
     try{
       const [music,video,voice,modules]=await Promise.all([
-        api("/api/music/queue"),api("/api/video/queue"),api("/api/tts/settings"),api("/api/modules")
+        api("/api/music/queue"),api("/api/video/queue"),api("/api/voice/tts/settings"),api("/api/modules")
       ]);
       latestData.music=music;
       latestData.video=video;
