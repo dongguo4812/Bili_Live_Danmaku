@@ -113,7 +113,7 @@
   }
 
   async function loadTtsSettings() {
-    const response = await fetch("/api/tts/settings", { cache: "no-store" });
+    const response = await fetch("/api/voice/tts/settings", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "无法读取语音设置。");
     const p = data.preferences || {};
@@ -155,7 +155,7 @@
     if (ttsSaveButton) ttsSaveButton.disabled = true;
     setTtsStatus("正在保存语音设置…");
     try {
-      const response = await fetch("/api/tts/settings", {
+      const response = await fetch("/api/voice/tts/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(currentTtsPreferences())
@@ -351,7 +351,7 @@
   }
 
   async function loadIdleTipSettings() {
-    const response = await fetch("/api/idle-tips/settings", { cache: "no-store" });
+    const response = await fetch("/api/danmaku/idle-tips/settings", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "无法读取空闲提示设置。");
     const p = data.preferences || {};
@@ -382,7 +382,7 @@
     if (idleTipsSaveButton) idleTipsSaveButton.disabled = true;
     setIdleTipsStatus("正在保存空闲提示设置…");
     try {
-      const response = await fetch("/api/idle-tips/settings", {
+      const response = await fetch("/api/danmaku/idle-tips/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(currentIdleTipPreferences())
@@ -565,7 +565,7 @@
 
   async function playSpeechText(text) {
     await unlockSpeechAudio();
-    const response = await fetch("/api/tts/synthesize", {
+    const response = await fetch("/api/voice/tts/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text })
@@ -644,7 +644,7 @@
   async function testSpeech() {
     try {
       await unlockSpeechAudio();
-      const saveResponse = await fetch("/api/tts/settings", {
+      const saveResponse = await fetch("/api/voice/tts/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(currentTtsPreferences())
