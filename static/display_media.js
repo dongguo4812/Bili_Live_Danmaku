@@ -36,7 +36,7 @@
     const cover=String(widget.picUrl||widget.cover||"").trim();
     if(!title&&!artist&&!cover) return;
     const card=node("div","md-song-widget");
-    if(/^https?:\\/\\//i.test(cover)){
+    if(/^https?:\/\//i.test(cover)){
       const image=node("img","md-song-cover");
       image.src=cover;
       image.alt=title?title+" 封面":"歌曲封面";
