@@ -611,8 +611,7 @@ def _open_obs_websocket(timeout_override: float | None = None):
     except (TypeError, ValueError):
         port, timeout = 4455, 2.5
 
-    password_file = obs_config.get("password_file")
-    password = _read_obs_password(password_file)
+    password = _read_obs_password()
     if timeout_override is not None:
         timeout = max(0.3, min(timeout, float(timeout_override)))
     ws = websocket.create_connection(
