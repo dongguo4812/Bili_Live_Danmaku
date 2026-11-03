@@ -71,7 +71,7 @@
   let currentModel = "live_uu";
   let selectedModelConfig = null;
   let loadedModelId = null;
-  let loadedTransform = null;
+  let live2dTransformBase = null;
   let modelSwitchPromise = Promise.resolve();
   let modelSwitchToken = 0;
   let isSaving = false;
@@ -1063,11 +1063,8 @@
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存。" + (obs.message ? " " + obs.message : ""));
 
-      // 缩放和位置由服务端生成的模型 layout 参数控制；保存后在当前 WebGL 上下文中重新载入模型。
-      if (transformChangedSinceLoad(preferences)) {
-        const token = ++modelSwitchToken;
-        await queueModelSwitch(modelSelect.value, token, result.preferences);
-      }
+      // 缩放和位置已在拖动滑块时直接应用到 Cubism 矩阵；保存只负责持久化。
+      captureLive2DTransformBase(preferences);
     } catch (error) {
       setSaveStatus((settingsSaved ? "设置已保存，但模型刷新失败：" : "保存失败：") + error.message, true);
     } finally {
@@ -1080,6 +1077,7 @@
     updateSliderLabels();
     applyBubblePreferences();
     applyLive2DCrop();
+    applyLive2DTransform();
     hasUnsavedChanges = true;
     setSaveStatus("有未保存的更改；点击下方“保存设置”后才会保存并尝试刷新 OBS。");
   }
@@ -1105,7 +1103,6 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
-    loadedTransform = transformSnapshot(p);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1269,11 +1266,51 @@
     };
   }
 
-  function transformChangedSinceLoad(preferences) {
-    if (!loadedTransform) return true;
-    return ["scale", "x", "y"].some(key =>
-      Math.abs(Number(preferences[key]) - Number(loadedTransform[key])) > 0.0001
-    );
+  function captureLive2DTransformBase(preferences = currentPreferences()) {
+    const manager = window.__live2dManager;
+    const model = manager && typeof manager.getModel === "function" ? manager.getModel(0) : null;
+    const matrix = model && typeof model.getModelMatrix === "function" ? model.getModelMatrix() : null;
+    if (!matrix || !Array.isArray(matrix.tr) || matrix.tr.length < 16 ||
+        typeof matrix.getScaleX !== "function" || typeof matrix.getScaleY !== "function" ||
+        typeof matrix.scale !== "function" || typeof matrix.centerX !== "function" ||
+        typeof matrix.centerY !== "function") {
+      live2dTransformBase = null;
+      return false;
+    }
+
+    const width = Number(matrix.width);
+    const height = Number(matrix.height);
+    const scaleX = Number(matrix.getScaleX());
+    const scaleY = Number(matrix.getScaleY());
+    if (![width, height, scaleX, scaleY, Number(matrix.tr[12]), Number(matrix.tr[13])]
+      .every(Number.isFinite) || width <= 0 || height <= 0) {
+      live2dTransformBase = null;
+      return false;
+    }
+
+    live2dTransformBase = {
+      matrix,
+      scaleX,
+      scaleY,
+      centerX: Number(matrix.tr[12]) + width * scaleX / 2,
+      centerY: Number(matrix.tr[13]) + height * scaleY / 2,
+      preferences: transformSnapshot(preferences)
+    };
+    return true;
+  }
+
+  function applyLive2DTransform(preferences = currentPreferences()) {
+    const base = live2dTransformBase;
+    if (!base || !base.matrix) return false;
+    const current = transformSnapshot(preferences);
+    const ratio = current.scale / base.preferences.scale;
+    if (!Number.isFinite(ratio) || ratio <= 0) return false;
+
+    // 直接更新 Cubism 2 的模型矩阵，不重载模型，也不重启渲染循环。
+    base.matrix.scale(base.scaleX * ratio, base.scaleY * ratio);
+    base.matrix.centerX(base.centerX + current.x - base.preferences.x);
+    base.matrix.centerY(base.centerY + current.y - base.preferences.y);
+    return true;
   }
 
   function replaceLive2DModel(modelUrl) {
@@ -1312,7 +1349,8 @@
       await waitForRenderedPixels();
 
       loadedModelId = modelId;
-      loadedTransform = transformSnapshot(modelPreferences || currentPreferences());
+      captureLive2DTransformBase(modelPreferences || currentPreferences());
+      applyLive2DTransform(currentPreferences());
       statusSent = true;
       updateModelActionAvailability();
       if (placeholder) placeholder.style.display = "none";
@@ -1390,7 +1428,8 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
-      loadedTransform = transformSnapshot();
+      captureLive2DTransformBase(currentPreferences());
+      applyLive2DTransform(currentPreferences());
       updateModelActionAvailability();
       showMessage("");
       if (placeholder) placeholder.style.display = "none";
@@ -1460,6 +1499,7 @@
       updateSliderLabels();
       applyBubblePreferences();
       applyLive2DCrop();
+      if (key === "scale" || key === "x" || key === "y") applyLive2DTransform();
       if (key.startsWith("bubble-") && panel && !panel.hidden) renderBubblePreview();
     });
     slider.addEventListener("change", markUnsaved);
