@@ -1,16 +1,9 @@
 {
-  "enabled_on_start": false,
   "lx_music": {
     "base_url": "http://127.0.0.1:23330",
     "timeout_seconds": 5
   },
   "search": {
-    "platform_order": [
-      "qq",
-      "kugou",
-      "netease",
-      "kuwo"
-    ],
     "max_results_per_platform": 20
   },
   "requests": {
