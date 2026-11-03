@@ -195,15 +195,12 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderMusicWidget(body){
-    if(displayMode){
-      const frame=document.createElement("iframe");
-      frame.src="/music/widget?embedded=1";
-      frame.title="歌曲信息展示组件";
-      frame.loading="eager";
-      body.appendChild(frame);
-    }else{
-      body.appendChild(make("div","empty","源点歌项目原版歌曲信息组件；展示封面、歌曲名称、歌手、播放进度和动态波形"));
-    }
+    // 编辑模式与 OBS 展示模式均加载独立歌曲信息页面，确保预览与最终显示一致。
+    const frame=document.createElement("iframe");
+    frame.src="/music/widget?embedded=1";
+    frame.title="歌曲信息展示组件";
+    frame.loading="eager";
+    body.appendChild(frame);
   }
 
   function renderVideo(body){
