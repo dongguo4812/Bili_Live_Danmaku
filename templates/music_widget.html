@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌曲信息展示</title>
+<style>
+:root{color-scheme:dark;--text:#f7f8fc;--muted:#bdc7d8;--panel:rgba(17,24,39,.82);--line:rgba(255,255,255,.13)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:transparent;color:var(--text);font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+body{padding:12px}.song-widget{display:flex;align-items:center;gap:16px;width:100%;min-width:0;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);backdrop-filter:blur(12px);box-shadow:0 8px 28px rgba(0,0,0,.22)}
+.cover-wrap{width:112px;height:112px;flex:0 0 112px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,.08)}.cover{width:100%;height:100%;display:block;object-fit:cover}
+.info{min-width:0;flex:1;display:flex;flex-direction:column;gap:8px}.label{font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:700}
+.name{font-size:clamp(18px,3vw,27px);font-weight:800;line-height:1.25;overflow-wrap:anywhere}.artist{font-size:clamp(13px,2vw,16px);color:#d4dbea;overflow-wrap:anywhere}.album{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.empty{display:none;min-height:112px;align-items:center;justify-content:center;color:var(--muted);font-size:14px}.song-widget.is-empty .cover-wrap,.song-widget.is-empty .info{display:none}.song-widget.is-empty .empty{display:flex;flex:1}
+@media(max-width:480px){body{padding:6px}.song-widget{gap:10px;padding:9px}.cover-wrap{width:76px;height:76px;flex-basis:76px}.name{font-size:17px}}
+</style></head>
+<body>
+<main id="songWidget" class="song-widget is-empty">
+<div class="cover-wrap"><img id="cover" class="cover" alt="歌曲封面"></div>
+<div class="info"><div class="label">NOW PLAYING</div><div id="name" class="name">暂无正在播放的歌曲</div><div id="artist" class="artist"></div><div id="album" class="album"></div></div>
+<div class="empty">暂无正在播放的歌曲</div>
+</main>
+<script>
+(function(){
+const root=document.getElementById("songWidget"),cover=document.getElementById("cover"),name=document.getElementById("name"),artist=document.getElementById("artist"),album=document.getElementById("album");let lastCover="";
+async function refresh(){try{
+const response=await fetch("/api/music/widget?t="+Date.now(),{cache:"no-store"});if(!response.ok)throw Error("歌曲信息接口暂不可用");
+const data=await response.json();if(!data||data.ok===false)throw Error(data&&data.error||"读取歌曲信息失败");
+const title=String(data.name||data.title||"").trim(),singer=String(data.singer||data.artist||"").trim(),image=String(data.picUrl||data.cover||"").trim();
+const hasSong=!!(title||singer||image)&&data.playing!==false;root.classList.toggle("is-empty",!hasSong);if(!hasSong)return;
+name.textContent=title||"未知歌曲";artist.textContent=singer?"歌手："+singer:"";album.textContent=data.albumName?"专辑："+data.albumName:"";
+if(image!==lastCover){lastCover=image;if(/^https?:\/\//i.test(image)){cover.src=image;cover.style.visibility="visible";}else{cover.removeAttribute("src");cover.style.visibility="hidden";}}
+}catch(error){root.classList.add("is-empty");console.warn("歌曲信息展示刷新失败：",error);}}
+refresh();setInterval(refresh,2000);
+})();
+</script></body></html>
