@@ -351,14 +351,16 @@ def _idle_tip_preferences(settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.get("/api/idle-tips/settings")
+@app.get("/api/idle-tips/settings")  # Temporary compatibility alias
+@app.get("/api/danmaku/idle-tips/settings")
 def get_idle_tip_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
     return jsonify({"ok": True, "preferences": _idle_tip_preferences(settings)})
 
 
-@app.post("/api/idle-tips/settings")
+@app.post("/api/idle-tips/settings")  # Temporary compatibility alias
+@app.post("/api/danmaku/idle-tips/settings")
 def save_idle_tip_settings():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -413,14 +415,16 @@ def _cleanup_tts_cache() -> None:
             pass
 
 
-@app.get("/api/tts/settings")
+@app.get("/api/tts/settings")  # Temporary compatibility alias
+@app.get("/api/voice/tts/settings")
 def get_tts_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
     return jsonify({"ok": True, "preferences": _tts_preferences(settings), "voices": TTS_VOICES})
 
 
-@app.post("/api/tts/settings")
+@app.post("/api/tts/settings")  # Temporary compatibility alias
+@app.post("/api/voice/tts/settings")
 def save_tts_settings():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -433,7 +437,8 @@ def save_tts_settings():
     return jsonify({"ok": True, "preferences": preferences})
 
 
-@app.post("/api/tts/synthesize")
+@app.post("/api/tts/synthesize")  # Temporary compatibility alias
+@app.post("/api/voice/tts/synthesize")
 def synthesize_tts():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -464,13 +469,14 @@ def synthesize_tts():
         asyncio.run(generate())
         if not target.is_file() or target.stat().st_size <= 0:
             raise RuntimeError("Edge TTS 未生成有效音频文件。")
-        return jsonify({"ok": True, "url": f"/api/tts/audio/{filename}"})
+        return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
     except Exception as exc:
         logger.exception("Edge TTS 语音生成失败")
         return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
 
 
-@app.get("/api/tts/audio/<filename>")
+@app.get("/api/tts/audio/<filename>")  # Temporary compatibility alias
+@app.get("/api/voice/tts/audio/<filename>")
 def get_tts_audio(filename: str):
     if not re.fullmatch(r"[a-f0-9]{32}\.mp3", filename):
         abort(404)
@@ -1652,7 +1658,8 @@ def _save_display_layout_store(store: dict[str, Any]) -> None:
     _write_display_layout_store(store)
 
 
-@app.get("/api/settings/music")
+@app.get("/api/settings/music")  # Temporary compatibility alias
+@app.get("/api/music/settings")
 def get_music_settings():
     config = ConfigManager().load("music", {})
     lx = config.get("lx_music", {})
@@ -1674,7 +1681,8 @@ def get_music_settings():
     })
 
 
-@app.post("/api/settings/music")
+@app.post("/api/settings/music")  # Temporary compatibility alias
+@app.post("/api/music/settings")
 def save_music_settings():
     if APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state") != "stopped":
         return jsonify({"ok": False, "error": "请先关闭歌曲模块，再修改配置。"}), 409
@@ -1723,7 +1731,8 @@ def save_music_settings():
         return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
 
 
-@app.get("/api/settings/video")
+@app.get("/api/settings/video")  # Temporary compatibility alias
+@app.get("/api/video/settings")
 def get_video_settings():
     config = ConfigManager().load("video", {})
     chrome = config.get("chrome", {})
@@ -1745,7 +1754,8 @@ def get_video_settings():
     })
 
 
-@app.post("/api/settings/video")
+@app.post("/api/settings/video")  # Temporary compatibility alias
+@app.post("/api/video/settings")
 def save_video_settings():
     if APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state") != "stopped":
         return jsonify({"ok": False, "error": "请先关闭视频模块，再修改配置。"}), 409
