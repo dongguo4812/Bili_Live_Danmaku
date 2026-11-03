@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -208,6 +210,36 @@ class CredentialStoreTests(unittest.TestCase):
                 store.status("obs"),
                 {"configured": True, "file": "obs.json"},
             )
+
+    def test_credential_name_rejects_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            for name in ("../outside", "a/b", "a\\\\b", ""):
+                with self.subTest(name=name):
+                    with self.assertRaises(Exception):
+                        store.save(name, {"secret": "must-not-escape"})
+
+    def test_corrupt_credential_payload_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            path = store.save("obs", {"password": "test-password"})
+            path.write_text('{"format":"unknown-v99","payload":"AAAA"}', encoding="utf-8")
+            with self.assertRaises(Exception):
+                store.load("obs")
+
+    @unittest.skipUnless(os.name == "nt", "真实 DPAPI 测试仅在 Windows CI 运行")
+    def test_windows_dpapi_file_is_encrypted_and_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CredentialStore(Path(directory))
+            secret = "windows-dpapi-regression-secret"
+            path = store.save("obs", {"password": secret})
+            raw = path.read_bytes()
+            stored = json.loads(raw.decode("utf-8"))
+            self.assertEqual(stored.get("format"), "dpapi-v1")
+            encrypted = base64.b64decode(stored["payload"], validate=True)
+            self.assertNotIn(secret.encode("utf-8"), raw)
+            self.assertNotIn(secret.encode("utf-8"), encrypted)
+            self.assertEqual(store.load("obs"), {"password": secret})
 
 
 class ModuleManagerTests(unittest.IsolatedAsyncioTestCase):
