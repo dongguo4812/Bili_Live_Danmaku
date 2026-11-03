@@ -86,7 +86,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
 
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
         self.assertIn('frame.src="/live2d/moc2/display?embedded=1"', combined)
-                self.assertIn('/api/voice/tts/settings', combined)
+        self.assertIn('/api/voice/tts/settings', combined)
         self.assertNotIn('/api/tts/settings', combined)
         for mode in ('data-display-mode="live2d"', 'data-display-mode="danmaku"', 'data-display-mode="tts"'):
             self.assertIn(mode, template)
@@ -171,7 +171,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('renderLive2DPreview(body)', template)
         self.assertIn('模型“"+modelId+"”暂无静态预览图。', template)
         self.assertIn('frame.src="/live2d/moc2/display?embedded=1"', template)
-                self.assertIn('.display-mode .widget.live2d .widget-header{display:none}', template)
+        self.assertIn('.display-mode .widget.live2d .widget-header{display:none}', template)
         self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}', template)
         self.assertIn('.display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden;background:transparent}', template)
         display_page = (root / "templates" / "display.html").read_text(encoding="utf-8")
