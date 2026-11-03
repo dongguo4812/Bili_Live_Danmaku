@@ -34,6 +34,7 @@ chrome_profile/
 config.json
 user_settings.json
 config/.legacy_config_migrated_v1.json
+config/.legacy_config_migration_v1.json
 
 # PyInstaller build output
 build/
