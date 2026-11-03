@@ -5,9 +5,10 @@
 ## 管理页面
 
 - `/`：接入中心，B 站二维码登录、房间号、WebSocket 连接状态和模块生命周期控制。
-- `/live2d`：Live2D 管理页面。
+- `/live2d`：跳转到首页的 Live2D 设置区域。
 - `/music`、`/video`：歌曲/视频独立队列管理。
 - `/music/settings`、`/video/settings`：独立模块配置；模块运行时禁止修改其配置。
+- `/voice`：语音模块设置。
 - `/settings`：系统设置和 OBS 普通配置。
 - `/credentials`：B 站登录凭据状态与 OBS 密码管理。
 - `/dashboard`：综合展示布局编辑器，支持添加/移除、拖动、调整大小和保存。
