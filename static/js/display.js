@@ -13,6 +13,8 @@
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
+  const previewExportButton = document.getElementById("live2d-preview-export");
+  const previewExportStatus = document.getElementById("live2d-preview-export-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
@@ -1170,6 +1172,116 @@
     pollDanmaku();
   }
 
+  function setPreviewExportStatus(message, isError = false) {
+    if (!previewExportStatus) return;
+    previewExportStatus.textContent = message;
+    previewExportStatus.classList.toggle("error", isError);
+  }
+
+  function captureLive2DCanvasPng() {
+    return new Promise((resolve, reject) => {
+      // The library renders continuously. Read the default framebuffer inside the
+      // next animation frame, before the browser discards a non-preserved WebGL buffer.
+      requestAnimationFrame(() => {
+        try {
+          if (!gl || gl.isContextLost() || !loadedModelId) {
+            throw new Error("Live2D 模型尚未完成加载。");
+          }
+          const width = canvas.width;
+          const height = canvas.height;
+          if (!width || !height) throw new Error("Live2D 画布尺寸无效。");
+
+          gl.finish();
+          const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          const pixels = new Uint8Array(width * height * 4);
+          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+
+          const imageData = new ImageData(width, height);
+          let minX = width, minY = height, maxX = -1, maxY = -1;
+          for (let y = 0; y < height; y++) {
+            const sourceY = height - 1 - y;
+            const rowStart = sourceY * width * 4;
+            const targetStart = y * width * 4;
+            imageData.data.set(pixels.subarray(rowStart, rowStart + width * 4), targetStart);
+            for (let x = 0; x < width; x++) {
+              if (pixels[rowStart + x * 4 + 3] > 8) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+          if (maxX < minX || maxY < minY) {
+            throw new Error("当前画面没有检测到带透明通道的模型像素，请确认模型正常显示后重试。");
+          }
+
+          // Keep a small transparent margin so hair/accessories are not clipped.
+          const padding = Math.max(4, Math.round(Math.max(maxX - minX + 1, maxY - minY + 1) * 0.015));
+          const left = Math.max(0, minX - padding);
+          const top = Math.max(0, minY - padding);
+          const right = Math.min(width, maxX + padding + 1);
+          const bottom = Math.min(height, maxY + padding + 1);
+          const croppedWidth = right - left;
+          const croppedHeight = bottom - top;
+
+          const sourceCanvas = document.createElement("canvas");
+          sourceCanvas.width = width;
+          sourceCanvas.height = height;
+          const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+          sourceContext.putImageData(imageData, 0, 0);
+
+          const outputCanvas = document.createElement("canvas");
+          outputCanvas.width = croppedWidth;
+          outputCanvas.height = croppedHeight;
+          const outputContext = outputCanvas.getContext("2d");
+          outputContext.putImageData(sourceContext.getImageData(left, top, croppedWidth, croppedHeight), 0, 0);
+          outputCanvas.toBlob(blob => {
+            if (!blob) {
+              reject(new Error("浏览器无法将模型画面编码为 PNG。"));
+              return;
+            }
+            resolve(blob);
+          }, "image/png");
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
+  async function exportLive2DPreview() {
+    if (!previewExportButton) return;
+    if (!loadedModelId || !gl) {
+      setPreviewExportStatus("模型尚未加载完成，暂时不能生成预览图。", true);
+      return;
+    }
+    const modelId = loadedModelId;
+    previewExportButton.disabled = true;
+    setPreviewExportStatus("正在从当前 Live2D 实例捕获画面…");
+    try {
+      const blob = await captureLive2DCanvasPng();
+      const form = new FormData();
+      form.append("model_id", modelId);
+      form.append("image", blob, modelId + ".png");
+      const response = await fetch("/api/live2d/preview", {
+        method: "POST",
+        body: form,
+        cache: "no-store"
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "保存预览图失败。");
+      setPreviewExportStatus("已生成并保存："+data.filename+"（"+data.width+"×"+data.height+"，透明背景）。");
+    } catch (error) {
+      console.error("Live2D preview export failed:", error);
+      setPreviewExportStatus("生成失败："+error.message, true);
+    } finally {
+      previewExportButton.disabled = false;
+    }
+  }
+
   function waitForRenderedPixels() {
     return new Promise((resolve, reject) => {
       const startedAt = performance.now();
@@ -1389,6 +1501,7 @@
 
   if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
   if (motionPlayButton) motionPlayButton.addEventListener("click", playSelectedModelMotion);
+  if (previewExportButton) previewExportButton.addEventListener("click", exportLive2DPreview);
   if (expressionApplyButton) expressionApplyButton.addEventListener("click", applySelectedModelExpression);
   if (expressionResetButton) expressionResetButton.addEventListener("click", resetSelectedModelExpression);
   if (motionSelect) motionSelect.addEventListener("change", updateModelActionAvailability);
