@@ -1422,7 +1422,6 @@ def get_live2d_status():
 
 
 @app.post("/api/live2d/status")
-@app.post("/api/display/live2d/status")
 def update_live2d_status():
     payload = request.get_json(silent=True) or {}
     state = payload.get("state")
