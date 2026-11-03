@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Now Playing</title>
+<script>
+(() => {
+  const raw = Number(new URLSearchParams(location.search).get("scale"));
+  const scale = Number.isFinite(raw) ? Math.max(0.5, Math.min(2, raw)) : 1;
+  document.documentElement.style.setProperty("--widget-scale", String(scale));
+})();
+</script>
 
 <style>
 :root {
@@ -40,7 +47,9 @@ body {
 
 /* 默认隐藏，只有明确播放时才显示 */
 #widget {
-    width: min(405px, 100vw);
+    width: min(calc(405px / var(--widget-scale, 1)), calc(100vw / var(--widget-scale, 1))); 
+    transform: scale(var(--widget-scale, 1));
+    transform-origin: top left;
     display: none;
     flex-direction: column;
     gap: 8px;
