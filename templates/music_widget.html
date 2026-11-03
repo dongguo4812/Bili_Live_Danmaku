@@ -32,16 +32,10 @@ html {
 
 body {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: Arial, "Microsoft YaHei", sans-serif;
-    color: var(--text);
-}
-
-/* 综合展示嵌入时，歌曲卡片从 iframe 左上角开始布局，不沿用独立页面的居中定位。 */
-body.embedded {
     align-items: flex-start;
     justify-content: flex-start;
+    font-family: Arial, "Microsoft YaHei", sans-serif;
+    color: var(--text);
 }
 
 /* 默认隐藏，只有明确播放时才显示 */
