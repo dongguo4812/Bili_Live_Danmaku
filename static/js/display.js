@@ -2,6 +2,7 @@
   "use strict";
 
   const canvas = document.getElementById("live2d-canvas");
+  const live2dViewport = document.getElementById("live2d-viewport");
   const placeholder = document.getElementById("display-placeholder");
   const panel = document.getElementById("display-settings-panel");
   const toggle = document.getElementById("display-settings-toggle");
@@ -976,8 +977,9 @@
       .map(value => Math.max(0, Math.min(45, Number(value) || 0)) + "%")
       .join(" ");
     const clip = "inset(" + inset + ")";
-    canvas.style.clipPath = clip;
-    canvas.style.webkitClipPath = clip;
+    const target = live2dViewport || canvas;
+    target.style.clipPath = clip;
+    target.style.webkitClipPath = clip;
   }
 
   function applyBubblePreferences() {
