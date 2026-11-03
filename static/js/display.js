@@ -51,10 +51,9 @@
   if (!canvas) return;
 
   const displayMode = document.documentElement.dataset.displayMode || "all";
-  const silentPreview = new URLSearchParams(window.location.search).get("silent") === "1";
   const showLive2D = displayMode === "all" || displayMode === "live2d";
   const showDanmaku = displayMode === "all" || displayMode === "danmaku";
-  const showTts = !silentPreview && (displayMode === "all" || displayMode === "tts");
+  const showTts = displayMode === "all" || displayMode === "tts";
 
   const ids = [
     "scale", "x", "y", "crop-top", "crop-right", "crop-bottom", "crop-left",
@@ -541,7 +540,7 @@
       }
       syncIdleTipTimer(true);
     }
-    if (canvas) canvas.style.visibility = showLive2D && (silentPreview || live2dModuleState !== "stopped") ? "visible" : "hidden";
+    if (canvas) canvas.style.visibility = showLive2D && live2dModuleState !== "stopped" ? "visible" : "hidden";
 
     if (voiceModuleActive && !nextVoice) {
       speechQueue.length = 0;
@@ -732,7 +731,6 @@
   }
 
   async function reportState(state, message) {
-    if (silentPreview) return;
     try {
       await fetch("/api/live2d/status", {
         method: "POST",
@@ -1510,6 +1508,6 @@
     if (resizeObserver) resizeObserver.disconnect();
     if (pollTimer) clearInterval(pollTimer);
     if (connectionTimer) clearInterval(connectionTimer);
-    if (showLive2D && !silentPreview) reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
+    if (showLive2D) reportState("not_started", "OBS 展示页面已关闭，Live2D 运行时当前未运行。");
   });
 })();
