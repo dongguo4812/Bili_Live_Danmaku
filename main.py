@@ -1088,27 +1088,23 @@ def index():
 
 
 @app.get("/live2d/display")
-@app.get("/display")
 def display():
-    # Live2D 完整展示：包含模型、弹幕和 TTS；旧 /display 地址暂时兼容。
+    # Live2D 完整展示：包含模型、弹幕和 TTS。
     return render_template("display.html", display_mode="all")
 
 
 @app.get("/live2d/moc2/display")
-@app.get("/display/live2d")
 def live2d_display_page():
-    # MOC2 独立展示；旧地址暂时兼容。
+    # MOC2 独立展示。
     return render_template("display.html", display_mode="live2d")
 
 
 @app.get("/danmaku/display")
-@app.get("/display/danmaku")
 def danmaku_display_page():
     return render_template("display.html", display_mode="danmaku")
 
 
 @app.get("/voice/display")
-@app.get("/display/tts")
 def tts_display_page():
     return render_template("display.html", display_mode="tts")
 
@@ -1165,13 +1161,11 @@ def music_settings_page():
 
 
 @app.get("/music/display")
-@app.get("/display/music")
 def music_display_page():
     return render_template("music_display.html")
 
 
 @app.get("/music/widget")
-@app.get("/display/music-widget")
 def music_widget_page():
     """独立歌曲信息展示页。"""
     return render_template("music_widget.html")
@@ -1188,7 +1182,6 @@ def video_settings_page():
 
 
 @app.get("/video/display")
-@app.get("/display/video")
 def video_display_page():
     return render_template("video_display.html")
 
