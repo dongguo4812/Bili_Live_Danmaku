@@ -1,0 +1,13 @@
+{
+  "chrome": {
+    "binary_path": "",
+    "profile_dir": "data/video/chrome_profile",
+    "page_load_timeout_seconds": 45
+  },
+  "requests": {
+    "cooldown_seconds": 60,
+    "queue_limit": 30,
+    "max_video_duration_seconds": 300,
+    "require_fans_medal": false
+  }
+}
