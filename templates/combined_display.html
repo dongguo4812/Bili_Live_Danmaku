@@ -198,12 +198,38 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     renderLayout();
   }
 
+  function syncLive2DFrame(widget){
+    if(!widget || widget.dataset.widget!=="live2d") return;
+    const body=widget.querySelector(".widget-body");
+    const frame=body?.querySelector("iframe");
+    if(!body || !frame) return;
+
+    // Live2D 必须按整个展示舞台的尺寸渲染，模块窗口只负责裁剪可见区域。
+    // iframe 仍放在模块内部，但将其扩展到舞台大小并反向偏移到舞台原点，
+    // 这样模型的视口坐标与独立 /live2d/display 页面保持一致。
+    const stageRect=stage.getBoundingClientRect();
+    const bodyRect=body.getBoundingClientRect();
+    frame.style.position="absolute";
+    frame.style.width=stage.clientWidth+"px";
+    frame.style.height=stage.clientHeight+"px";
+    frame.style.maxWidth="none";
+    frame.style.maxHeight="none";
+    frame.style.left=-(bodyRect.left-stageRect.left)+"px";
+    frame.style.top=-(bodyRect.top-stageRect.top)+"px";
+    frame.style.border="0";
+  }
+
+  function syncAllLive2DFrames(){
+    stage.querySelectorAll('[data-widget="live2d"]').forEach(syncLive2DFrame);
+  }
+
   function positionWidget(node,item){
     node.style.left=item.x+"%";
     node.style.top=item.y+"%";
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
     node.style.setProperty("--content-scale",String((Number(item.font_scale)||100)/100));
+    syncLive2DFrame(node);
   }
 
   function selectWidget(type){
@@ -400,6 +426,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         });
       }
       stage.appendChild(widget);
+      syncLive2DFrame(widget);
     });
     // 若只选择语音而未添加 Live2D 画面，仍加载隐藏的音频引擎 iframe。
     if(displayMode && layout.widgets.some(w=>w.type==="voice") && !layout.widgets.some(w=>w.type==="live2d")){
@@ -645,6 +672,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     }catch(error){setMessage("读取布局失败："+error.message,true);}
   })();
   setInterval(refreshData,2000);
+
+  // 舞台尺寸变化时同步调整 iframe 的完整视口，避免综合展示窗口尺寸
+  // 改变后 Live2D 仍使用旧画布尺寸。
+  if(typeof ResizeObserver!=="undefined"){
+    const live2dStageObserver=new ResizeObserver(syncAllLive2DFrames);
+    live2dStageObserver.observe(stage);
+  }
+  window.addEventListener("resize",syncAllLive2DFrames);
 })();
 </script>
 </body>
