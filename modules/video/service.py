@@ -31,130 +31,6 @@ BASE_DIR = get_base_dir()
 CONFIG_MANAGER = ConfigManager()
 
 
-def migrate_legacy_video_room_config(
-    base_dir: Path | None = None,
-    config_manager: ConfigManager | None = None,
-) -> dict[str, Any]:
-    """首次升级时导入旧 room_config.txt 的点播限制，不覆盖统一直播间房间号。"""
-    root = (base_dir or BASE_DIR).resolve()
-    manager = config_manager or CONFIG_MANAGER
-    source = root / "room_config.txt"
-    marker = root / "data" / "video" / "legacy_room_config_migrated_v1.json"
-    if marker.is_file() or not source.is_file():
-        return {}
-
-    parsed: dict[str, str] = {}
-    try:
-        source_lines = source.read_text(encoding="utf-8-sig").splitlines()
-    except OSError as exc:
-        logger.warning("读取旧视频配置失败：%s", type(exc).__name__)
-        return {}
-    for raw_line in source_lines:
-        line = raw_line.split("#", 1)[0].strip()
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        parsed[key.strip().upper()] = value.strip()
-
-    config = manager.load("video", {})
-    requests_config = config.get("requests")
-    if not isinstance(requests_config, dict):
-        requests_config = {}
-    requests_config = dict(requests_config)
-
-    migrated: dict[str, Any] = {}
-    if "REQUIRE_FAN_MEDAL" in parsed:
-        try:
-            migrated["require_fans_medal"] = int(parsed["REQUIRE_FAN_MEDAL"]) != 0
-        except (TypeError, ValueError):
-            migrated["require_fans_medal"] = True
-    elif "require_fans_medal" not in requests_config:
-        # 旧版未填写或无效时默认要求粉丝牌，避免意外开放点播。
-        migrated["require_fans_medal"] = True
-
-    integer_fields = {
-        "MAX_VIDEO_DURATION_SEC": ("max_video_duration_seconds", 300, 1, 86400),
-        "COOLDOWN_SEC": ("cooldown_seconds", 60, 0, 86400),
-        "MAX_QUEUE_SIZE": ("queue_limit", 30, 1, 1000),
-    }
-    for old_key, (new_key, default, minimum, maximum) in integer_fields.items():
-        if old_key not in parsed:
-            continue
-        try:
-            value = int(parsed[old_key])
-        except (TypeError, ValueError):
-            continue
-        migrated[new_key] = max(minimum, min(maximum, value))
-
-    requests_config.update(migrated)
-    config["requests"] = requests_config
-    manager.save("video", config)
-
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
-        json.dumps({"source": source.name, "migrated": migrated}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return migrated
-
-
-def migrate_legacy_video_obs_config(
-    base_dir: Path | None = None,
-    config_manager: ConfigManager | None = None,
-) -> dict[str, Any]:
-    """导入旧 obs_config.txt 的非敏感设置；绝不读取/保存 password 字段值。"""
-    root = (base_dir or BASE_DIR).resolve()
-    manager = config_manager or CONFIG_MANAGER
-    source = root / "obs_config.txt"
-    marker = root / "data" / "video" / "legacy_obs_config_migrated_v1.json"
-    if marker.is_file() or not source.is_file():
-        return {}
-
-    parsed: dict[str, str] = {}
-    try:
-        lines = source.read_text(encoding="utf-8-sig").splitlines()
-    except OSError as exc:
-        logger.warning("读取旧 OBS 配置失败：%s", type(exc).__name__)
-        return {}
-    for raw_line in lines:
-        line = raw_line.split("#", 1)[0].strip()
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip().casefold()
-        if key in {"host", "port", "source_name"}:
-            parsed[key] = value.strip()
-
-    current = manager.load("obs", {})
-    migrated: dict[str, Any] = {}
-    host = parsed.get("host", "").strip()
-    if host:
-        migrated["host"] = host
-    if "port" in parsed:
-        try:
-            port = int(parsed["port"])
-            if 1 <= port <= 65535:
-                migrated["port"] = port
-        except (TypeError, ValueError):
-            pass
-    source_name = parsed.get("source_name", "").strip()
-    if source_name:
-        migrated["source_name"] = source_name[:200]
-
-    current.update(migrated)
-    if migrated:
-        manager.save("obs", current)
-
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
-        json.dumps({"source": source.name, "migrated_keys": sorted(migrated)}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    return migrated
-
-
-migrate_legacy_video_room_config()
-migrate_legacy_video_obs_config()
 VIDEO_CONFIG = CONFIG_MANAGER.load("video", {})
 LIVE_CONFIG = CONFIG_MANAGER.load("live", {})
 roomid = int(LIVE_CONFIG.get("room_id", 0) or 0)
@@ -193,34 +69,6 @@ def load_cookie_values_for_api():
     if not COOKIE_VALUES.get("SESSDATA"):
         return None
     return dict(COOKIE_VALUES)
-
-
-def load_admin_uids(config: dict[str, Any]) -> set[int]:
-    values: set[int] = set()
-    raw_values = config.get("admin_uids", [])
-    if isinstance(raw_values, list):
-        for raw in raw_values:
-            try:
-                uid = int(raw)
-                if uid > 0:
-                    values.add(uid)
-            except (TypeError, ValueError):
-                continue
-    file_name = config.get("admins_file", "data/video/uid.txt")
-    if file_name:
-        path = (BASE_DIR / str(file_name)).resolve()
-        try:
-            path.relative_to(BASE_DIR.resolve())
-            for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
-                line = raw_line.split("#", 1)[0].strip()
-                for value in re.split(r"[,，;；\s]+", line):
-                    if value.isdigit():
-                        values.add(int(value))
-        except FileNotFoundError:
-            pass
-        except Exception as exc:
-            logger.warning("读取视频模块管理员列表失败：%s", type(exc).__name__)
-    return values
 
 
 def load_obs_config() -> dict[str, Any]:
@@ -263,7 +111,11 @@ def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id
     PAGE_LOAD_TIMEOUT = max(5, int(chrome_config.get("page_load_timeout_seconds", 45)))
     if room_id is not None:
         roomid = max(0, int(room_id))
-    ADMIN_UIDS = load_admin_uids(VIDEO_CONFIG)
+    configured_admins = VIDEO_CONFIG.get("admin_uids", [])
+    ADMIN_UIDS = {
+        int(value) for value in configured_admins
+        if str(value).strip().isdigit() and int(value) > 0
+    } if isinstance(configured_admins, list) else set()
     values = cookie_provider() if callable(cookie_provider) else {}
     COOKIE_VALUES = {
         "SESSDATA": str(values.get("sessdata", "")),
