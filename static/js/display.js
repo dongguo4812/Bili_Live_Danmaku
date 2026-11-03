@@ -705,6 +705,7 @@
       type: "test"
     });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    publishSpeechState();
     processSpeechQueue();
     return true;
   }
