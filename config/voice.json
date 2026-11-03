@@ -1,6 +1,3 @@
 {
-  "enabled": true,
-  "voice": "zh-CN-XiaoxiaoNeural",
-  "rate": "+0%",
-  "volume": "+0%"
+  "voice": "zh-CN-XiaoxiaoNeural"
 }
