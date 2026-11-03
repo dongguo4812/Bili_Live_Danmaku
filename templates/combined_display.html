@@ -348,6 +348,12 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       const settings=await api("/api/live2d/settings");
       const modelId=String(settings.model||"").trim();
       if(!modelId) throw new Error("当前没有可用的 Live2D 模型。");
+      const preferences=settings.preferences||{scale:1,x:0,y:0};
+      let metadata=null;
+      try{
+        const response=await fetch("/static/live2d_preview/"+encodeURIComponent(modelId)+".json",{cache:"no-store"});
+        if(response.ok) metadata=await response.json();
+      }catch(_){ metadata=null; }
       const image=document.createElement("img");
       image.className="live2d-static-preview";
       image.alt="Live2D 模型静态预览："+modelId;
@@ -355,7 +361,33 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       image.addEventListener("error",()=>{
         body.replaceChildren(make("div","live2d-preview-placeholder","模型“"+modelId+"”暂无静态预览图。请将透明 PNG 放入 static/live2d_preview/"+modelId+".png"));
       },{once:true});
-      image.addEventListener("load",()=>placeholder.remove(),{once:true});
+      image.addEventListener("load",()=>{
+        placeholder.remove();
+        const frame=metadata&&metadata.frame;
+        const baseline=metadata&&metadata.preferences;
+        if(frame&&baseline&&frame.canvas_width>0&&frame.canvas_height>0){
+          image.style.position="absolute";
+          image.style.objectFit="fill";
+          image.style.left=(frame.left/frame.canvas_width*100)+"%";
+          image.style.top=(frame.top/frame.canvas_height*100)+"%";
+          image.style.width=(frame.width/frame.canvas_width*100)+"%";
+          image.style.height=(frame.height/frame.canvas_height*100)+"%";
+          image.style.transformOrigin=((frame.canvas_width/2-frame.left)/frame.width*100)+"% "+((frame.canvas_height/2-frame.top)/frame.height*100)+"%";
+          const applyTransform=()=>{
+            const scale=(Number(preferences.scale)||1)/(Number(baseline.scale)||1);
+            const dx=(Number(preferences.x||0)-Number(baseline.x||0))*body.clientWidth/2;
+            const dy=(Number(preferences.y||0)-Number(baseline.y||0))*body.clientHeight/2;
+            image.style.transform="translate("+dx+"px,"+dy+"px) scale("+scale+")";
+          };
+          applyTransform();
+          if(typeof ResizeObserver!=="undefined"){
+            const observer=new ResizeObserver(applyTransform);
+            observer.observe(body);
+          }else{
+            window.addEventListener("resize",applyTransform,{passive:true});
+          }
+        }
+      },{once:true});
       image.src="/static/live2d_preview/"+encodeURIComponent(modelId)+".png";
       body.appendChild(image);
     }catch(error){
