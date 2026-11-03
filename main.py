@@ -1718,7 +1718,9 @@ def save_music_settings():
             "require_fans_medal": require_medal,
         })
         ConfigManager().save("music", config)
-        MUSIC_MODULE.reload_config(config)
+        runtime_config = dict(config)
+        runtime_config["admin_uids"] = _load_system_admin_uids()
+        MUSIC_MODULE.reload_config(runtime_config)
         return jsonify({"ok": True, "message": "歌曲模块配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "歌曲配置保存失败。"}), 400
@@ -1782,7 +1784,9 @@ def save_video_settings():
             "require_fan_medal": require_medal,
         })
         ConfigManager().save("video", config)
-        VIDEO_MODULE.reload_config(config)
+        runtime_config = dict(config)
+        runtime_config["admin_uids"] = _load_system_admin_uids()
+        VIDEO_MODULE.reload_config(runtime_config)
         return jsonify({"ok": True, "message": "视频模块配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "视频配置保存失败。"}), 400
