@@ -40,6 +40,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .display-mode .widget-body{padding:5px 8px}
 .widget.live2d .widget-body,.widget.music_widget .widget-body{padding:0;overflow:hidden}
 .widget.live2d .widget-body{position:relative;display:flex;align-items:center;justify-content:center;background:rgba(15,20,30,.35)}
+.editor-mode .widget.live2d .widget-header,.editor-mode .widget.music_widget .widget-header{position:absolute;z-index:10;top:0;left:0;right:0}
+.editor-mode .widget.live2d .widget-body,.editor-mode .widget.music_widget .widget-body{position:absolute;inset:0;width:auto;height:auto;padding:0;overflow:hidden}
 .live2d-static-preview{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
 .live2d-preview-placeholder{padding:12px;color:#aeb9ca;font-size:13px;text-align:center;line-height:1.6}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
@@ -376,7 +378,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
           const applyTransform=()=>{
             const scale=(Number(preferences.scale)||1)/(Number(baseline.scale)||1);
             const dx=(Number(preferences.x||0)-Number(baseline.x||0))*body.clientWidth/2;
-            const dy=(Number(preferences.y||0)-Number(baseline.y||0))*body.clientHeight/2;
+            const dy=-(Number(preferences.y||0)-Number(baseline.y||0))*body.clientHeight/2;
             image.style.transform="translate("+dx+"px,"+dy+"px) scale("+scale+")";
           };
           applyTransform();
