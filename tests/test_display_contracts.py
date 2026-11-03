@@ -219,6 +219,19 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('等待播报（', combined)
         self.assertIn('combined-tts-state', combined)
 
+    def test_live2d_preview_metadata_tracks_crop_and_model_transform(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('metadata_target = preview_dir / (model_id + ".json")', main)
+        self.assertIn('"canvas_width": canvas_width', main)
+        self.assertIn('form.append("frame", JSON.stringify(capture.frame))', script)
+        self.assertIn('form.append("preferences"', script)
+        self.assertIn('/static/live2d_preview/"+encodeURIComponent(modelId)+".json', combined)
+        self.assertIn('image.style.transformOrigin=', combined)
+        self.assertIn('const scale=(Number(preferences.scale)||1)/(Number(baseline.scale)||1)', combined)
+
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
         start = source.index("function renderVideo(")
