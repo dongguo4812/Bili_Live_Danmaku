@@ -71,6 +71,12 @@
     <p id="model-action-status" class="settings-save-status" role="status">动作和表情选项由当前模型配置自动读取。</p>
 
     <div class="settings-divider"></div>
+    <strong class="settings-subtitle">静态预览图</strong>
+    <p class="settings-save-status">从当前正在运行的模型画面生成透明 PNG，并自动保存到综合展示预览目录。</p>
+    <button id="live2d-preview-export" class="secondary-button" type="button">生成并保存静态预览图</button>
+    <p id="live2d-preview-export-status" class="settings-save-status" role="status">请先等待模型正常显示；可先选择动作或表情，再生成预览图。</p>
+
+    <div class="settings-divider"></div>
     <label class="setting-field">
       <span>模型大小 <output id="scale-value">100%</output></span>
       <input id="scale-slider" type="range" min="25" max="150" step="1" value="100">
