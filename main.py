@@ -1554,7 +1554,7 @@ def save_display_settings():
             shortcut_profiles = {}
         shortcut_profiles[profile] = preferences.pop("motion_shortcuts", {})
         preferences["motion_shortcuts_by_profile"] = shortcut_profiles
-        settings["models"][f"{version}:{model_id}"] = {**model_settings, **preferences}
+        settings.setdefault("models", {})[f"{version}:{model_id}"] = {**model_settings, **preferences}
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
