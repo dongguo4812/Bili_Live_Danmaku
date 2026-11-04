@@ -152,6 +152,9 @@
           <strong id="live2d-module-state">已启用</strong>
           <p class="muted">统一控制 Live2D 运行环境；内部根据模型版本选择对应运行时。</p>
           <a href="/live2d/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
+          <div class="module-links">
+            <a href="http://127.0.0.1:8768/live2d/display" target="_blank" rel="noopener">综合 OBS 展示页</a>
+          </div>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
@@ -420,6 +423,17 @@
         $("connection-toggle").textContent = connectionStopping
           ? "断开连接中…" : connectionActive ? "断开连接" : "连接直播间";
         $("connection-toggle").dataset.active = String(connectionActive);
+        $("connection-toggle").disabled = ["connecting", "reconnecting", "stopping"].includes(data.bilibili.connection_state);
+        $("bili-action-message").textContent = !data.bilibili.logged_in
+          ? "请先扫码登录 B 站，再连接直播间。"
+          : data.bilibili.connected
+            ? "直播间已连接，可以启动下方需要弹幕连接的互动模块。"
+            : data.bilibili.connection_state === "stopping"
+              ? "直播连接正在断开，请等待断开完成。"
+              : ["connecting", "reconnecting"].includes(data.bilibili.connection_state)
+                ? "正在建立直播连接，请稍候。"
+                : "B 站已登录，输入并保存房间号后即可连接直播间。";
+        $("qr-start").textContent = data.bilibili.logged_in ? "重新扫码登录" : "扫码登录";
         $("runtime-state").textContent = data.live2d.enabled === false ? "已停用" : ({
           not_started: "等待 OBS 展示页",
           loading: "正在加载",
@@ -448,9 +462,13 @@
         moduleStates.video = video.state || "stopped";
         moduleStates.voice = voice.state || "stopped";
         $("music-state").textContent = moduleStateLabels[music.state] || "状态未知";
+        $("music-state").dataset.state = music.state || "unknown";
         $("video-state").textContent = moduleStateLabels[video.state] || "状态未知";
+        $("video-state").dataset.state = video.state || "unknown";
         $("live2d-module-state").textContent = moduleStateLabels[live2d.state] || "状态未知";
+        $("live2d-module-state").dataset.state = live2d.state || "unknown";
         $("voice-module-state").textContent = moduleStateLabels[voice.state] || "状态未知";
+        $("voice-module-state").dataset.state = voice.state || "unknown";
         const live2dControlState = $("live2d-control-state");
         live2dControlState.textContent = live2dEnabled ? "已启用" : "已停用";
         live2dControlState.dataset.state = live2dEnabled ? "enabled" : "disabled";
