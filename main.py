@@ -1321,6 +1321,13 @@ def live2d_display_page():
     # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
     return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled(), live2d_version="moc2")
 
+@app.get("/live2d/moc3/display")
+def live2d_moc3_display_page():
+    # MOC3 综合展示页：沿用完整展示模板，固定选择 MOC3 运行时。
+    if not _moc3_runtime_available():
+        abort(404)
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version="moc3")
+
 
 @app.get("/danmaku/display")
 def danmaku_display_page():
@@ -1334,7 +1341,8 @@ def tts_display_page():
 
 @app.get("/live2d")
 def live2d_settings_page():
-    return redirect("/#live2d-settings")
+    # 独立 Live2D 配置入口；展示模板内提供模型、动作、表情和画面参数设置。
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())
 
 
 @app.get("/dashboard")
