@@ -426,8 +426,7 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         self.assertIn("Cubism 5 R5 运行时文件缺失或不完整", index)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
@@ -769,3 +768,6 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
         self.assertIn("if room_id <= 0:", connect_flow)
         self.assertIn('current_state in {"connected", "connecting", "reconnecting"}', connect_flow)
 
+
+if __name__ == "__main__":
+    unittest.main()
