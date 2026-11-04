@@ -28,14 +28,13 @@ py -3 -m venv .venv
 
 1. Enter your live-room ID in the management page and save it. The value is stored in `config/local/live.json`.
 2. Click **扫码登录** and scan the QR code with the Bilibili mobile app.
-3. After the login is confirmed, the server captures the login cookies from Bilibili's QR-login response and stores them atomically in \`credentials/bilibili.json\`.
-4. The server validates the saved login on startup and again before starting a live-room connection. Anonymous connections are rejected.
-5. Click **连接直播间**. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event.
-6. Unexpected disconnects are retried using the reconnect settings in `config/local/live.json`. Use **断开连接** to stop the connection.
+3. After login is confirmed, the server captures the cookies from Bilibili's WEB QR-login flow and stores them in `credentials/bilibili.json`.
+4. If a valid saved credential and room ID are present, the application automatically attempts to connect to that room on startup.
+5. Completing QR login also triggers an automatic connection when a room ID has already been saved.
+6. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event. Unexpected disconnects are retried using the reconnect settings.
+7. Use **断开连接** to stop the live-room connection manually.
 
-The credential directory and local settings file are excluded by \`.gitignore\`. Do not share \`credentials/bilibili.json\`; it contains account login credentials. If the Bilibili QR-login flow changes, a successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check.
-
-The WEB QR login implementation explicitly follows Bilibili's cross-domain ticket URL after a successful poll. This is necessary for the newer QR-login response format, where login cookies are delivered through response headers rather than the old URL query parameters.
+Anonymous connections are rejected. A successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check. The QR-login implementation follows Bilibili's cross-domain ticket URL so it can capture cookies delivered through response headers.
 
 ## Danmaku settings
 
