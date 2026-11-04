@@ -8,6 +8,19 @@ from pathlib import Path
 
 
 class CombinedDisplayContractTests(unittest.TestCase):
+    def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
+        main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def _is_combined_display_browser_url(value: Any) -> bool:", main)
+        self.assertIn('path == "/display/combined"', main)
+        self.assertIn('path.startswith("/display/combined/")', main)
+        self.assertIn('"propertyName": "refreshnocache"', main)
+        self.assertIn("def _obs_combined_display_refresh_watchdog() -> None:", main)
+        self.assertIn("target=_obs_combined_display_refresh_watchdog", main)
+        self.assertNotIn("_obs_live2d_watchdog", main)
+        self.assertNotIn("_shutdown_obs_live2d_sources", main)
+        self.assertNotIn("SetSceneItemEnabled", main)
+        self.assertNotIn("OBS_DISPLAY_SHOWN", main)
+
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
