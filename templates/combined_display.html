@@ -75,6 +75,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .empty{color:#aeb9ca;font-size:13px}
 @media(max-width:800px){.editor-sidebar{position:relative;width:100%;height:auto;bottom:auto;padding:10px 12px}.editor-sidebar .brand{margin:0 0 8px}.editor-sidebar nav{flex-direction:row;overflow-x:auto}.editor-sidebar a{white-space:nowrap;padding:8px 10px}.editor-mode .toolbar{left:0;top:96px}.editor-mode #stage{left:0;top:160px}}
 @media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
+/* 工具栏内容较多时保持单行并横向滚动，避免工具栏覆盖布局编辑画布。 */
+.toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:thin}
+.toolbar>*{flex:0 0 auto}
+.toolbar strong{width:auto}
+#layout-message{white-space:nowrap;flex:0 0 auto}
 /* Force alpha transparency through the combined-output Live2D widget and iframe. */
 .display-mode #stage,
 .display-mode .widget,
