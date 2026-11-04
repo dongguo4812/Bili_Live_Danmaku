@@ -6,6 +6,11 @@
   <title>Live2D OBS Display</title>
   <link rel="stylesheet" href="/static/css/style.css?v=20261103-module-settings">
   <style>
+    /* Force alpha transparency through every standalone Live2D display layer. */
+    html, body, body.display-page, #live2d-viewport, #live2d-canvas, #moc3-runtime-frame {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     .embedded-live2d #display-settings-toggle,
     .embedded-live2d #display-settings-panel,
     .embedded-live2d #display-placeholder { display: none !important; }
