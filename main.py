@@ -78,7 +78,7 @@ def load_config() -> dict[str, Any]:
     live_config = manager.load("live", {
         "room_id": 0, "reconnect": True, "reconnect_interval_seconds": 5,
     })
-    live2d_config = manager.load("live2d", {"default_model": DEFAULT_MODEL})
+    live2d_config = manager.load("live2d", {"format": "MOC2", "default_model": DEFAULT_MODEL, "enabled": True})
     voice_config = manager.load("voice", {})
     obs_config = manager.load("obs", {
         "host": "127.0.0.1", "port": 4455, "timeout": 2.5,
@@ -991,16 +991,25 @@ def _model_assets(model_id: str) -> tuple[bool, list[str], dict[str, Any]]:
     return not missing, missing, data
 
 
+def _live2d_enabled() -> bool:
+    """读取 Live2D 运行时总开关；旧配置缺少该字段时默认保持启用。"""
+    return bool(CONFIG.get("live2d", {}).get("enabled", True))
+
+
 def model_status() -> dict[str, Any]:
+    enabled = _live2d_enabled()
     settings = _load_user_settings()
     model_id = settings["model"]
     directory = _safe_model_dir(model_id)
     model_config = _model_config_path(directory, model_id) if directory else None
     runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"
-    assets_ok, missing, _ = _model_assets(model_id)
+    assets_ok, missing, _ = _model_assets(model_id) if enabled else (False, [], {})
     with RUNTIME_STATE_LOCK:
         runtime_state = dict(RUNTIME_STATE)
+    if not enabled:
+        runtime_state = {"state": "not_started", "message": "Live2D 运行时已停用。"}
     return {
+        "enabled": enabled,
         "format": CONFIG.get("live2d", {}).get("format", "MOC2"),
         "name": model_id,
         "directory_exists": bool(directory),
@@ -1009,7 +1018,7 @@ def model_status() -> dict[str, Any]:
         "assets_ready": assets_ok,
         "missing_assets": missing,
         "runtime_state": runtime_state["state"],
-        "runtime_ready": runtime_state["state"] == "loaded",
+        "runtime_ready": enabled and runtime_state["state"] == "loaded",
         "message": runtime_state["message"],
     }
 
@@ -1078,7 +1087,11 @@ def _music_cookie_provider() -> dict[str, str]:
 
 LIVE2D_MODULE = Live2DModule()
 VOICE_MODULE = VoiceModule()
-APPLICATION_RUNTIME.register_module("live2d", LIVE2D_MODULE, initial_state="running")
+APPLICATION_RUNTIME.register_module(
+    "live2d", LIVE2D_MODULE,
+    initial_state="running" if _live2d_enabled() else "stopped",
+    requires_connection=False,
+)
 APPLICATION_RUNTIME.register_module("voice", VOICE_MODULE, initial_state="stopped", auto_start_on_connect=True)
 
 
@@ -1171,23 +1184,23 @@ def index():
 @app.get("/live2d/display")
 def display():
     # Live2D 完整展示：包含模型、弹幕和 TTS。
-    return render_template("display.html", display_mode="all")
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())
 
 
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
     # MOC2 独立展示。
-    return render_template("display.html", display_mode="live2d")
+    return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())
 
 
 @app.get("/danmaku/display")
 def danmaku_display_page():
-    return render_template("display.html", display_mode="danmaku")
+    return render_template("display.html", display_mode="danmaku", live2d_enabled=_live2d_enabled())
 
 
 @app.get("/voice/display")
 def tts_display_page():
-    return render_template("display.html", display_mode="tts")
+    return render_template("display.html", display_mode="tts", live2d_enabled=_live2d_enabled())
 
 
 @app.get("/live2d")
@@ -1288,6 +1301,7 @@ def get_display_settings():
         "model": model_id,
         "models": available,
         "preferences": _model_preferences(settings, model_id),
+        "enabled": _live2d_enabled(),
     })
 
 
@@ -1357,6 +1371,8 @@ def save_display_settings():
 
 @app.get("/models/<model_id>/model.json")
 def model_config_file(model_id: str):
+    if not _live2d_enabled():
+        abort(404)
     try:
         directory, data = _read_model_config(model_id)
     except (FileNotFoundError, ValueError, json.JSONDecodeError):
@@ -1388,6 +1404,8 @@ def model_config_file(model_id: str):
 
 @app.get("/models/<path:filename>")
 def model_asset(filename: str):
+    if not _live2d_enabled():
+        abort(404)
     if not MODEL_ROOT.is_dir():
         abort(404)
     return send_from_directory(MODEL_ROOT, filename, conditional=True)
@@ -1395,6 +1413,12 @@ def model_asset(filename: str):
 
 @app.get("/api/live2d/status")
 def get_live2d_status():
+    if not _live2d_enabled():
+        return jsonify({
+            "ok": True,
+            "state": "not_started",
+            "message": "Live2D 运行时已停用。",
+        })
     with RUNTIME_STATE_LOCK:
         state = dict(RUNTIME_STATE)
     return jsonify({"ok": True, **state})
@@ -1402,6 +1426,8 @@ def get_live2d_status():
 
 @app.post("/api/live2d/status")
 def update_live2d_status():
+    if not _live2d_enabled():
+        return jsonify({"ok": False, "error": "Live2D 运行时已停用。"}), 409
     payload = request.get_json(silent=True) or {}
     state = payload.get("state")
     message = payload.get("message", "")
@@ -1506,16 +1532,73 @@ def api_modules():
     return jsonify({"ok": True, "modules": APPLICATION_RUNTIME.modules.list_status()})
 
 
+@app.post("/api/modules/live2d/enabled")
+def set_live2d_enabled():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return jsonify({"ok": False, "error": "enabled 必须是布尔值。"}), 400
+
+    enabled = payload["enabled"]
+    current = _live2d_enabled()
+    if enabled == current:
+        return jsonify({
+            "ok": True, "enabled": enabled,
+            "modules": APPLICATION_RUNTIME.modules.list_status(),
+            "message": "Live2D 运行时状态未变化。",
+        })
+
+    manager = ConfigManager()
+    with SETTINGS_LOCK:
+        config = manager.load("live2d", {
+            "format": "MOC2", "default_model": DEFAULT_MODEL, "enabled": True,
+        })
+        config["enabled"] = enabled
+        try:
+            manager.save("live2d", config)
+            CONFIG["live2d"] = config
+        except Exception as exc:
+            logger.exception("保存 Live2D 运行时开关失败。")
+            return jsonify({"ok": False, "error": f"保存 Live2D 设置失败：{type(exc).__name__}"}), 500
+
+    try:
+        action = "start" if enabled else "close"
+        APPLICATION_RUNTIME.module_action("live2d", action).result(timeout=30)
+        with RUNTIME_STATE_LOCK:
+            RUNTIME_STATE["state"] = "not_started"
+            RUNTIME_STATE["message"] = (
+                "Live2D 运行时已启用，等待展示页加载模型。"
+                if enabled else "Live2D 运行时已停用。"
+            )
+        return jsonify({
+            "ok": True,
+            "enabled": enabled,
+            "modules": APPLICATION_RUNTIME.modules.list_status(),
+            "message": "Live2D 运行时已启用。" if enabled else "Live2D 运行时已停用。",
+        })
+    except Exception as exc:
+        logger.exception("切换 Live2D 运行时状态失败。")
+        with SETTINGS_LOCK:
+            rollback = manager.load("live2d", {
+                "format": "MOC2", "default_model": DEFAULT_MODEL, "enabled": True,
+            })
+            rollback["enabled"] = current
+            manager.save("live2d", rollback)
+            CONFIG["live2d"] = rollback
+        return jsonify({"ok": False, "error": f"切换 Live2D 运行时失败：{type(exc).__name__}"}), 500
+
+
 @app.post("/api/modules/<module_name>/<action>")
 def api_module_action(module_name: str, action: str):
     if action not in {"start", "pause", "resume", "close"}:
         return jsonify({"ok": False, "error": "不支持的模块操作。"}), 400
     if module_name not in APPLICATION_RUNTIME.modules.list_status():
         return jsonify({"ok": False, "error": "模块不存在或尚未迁移。"}), 404
+    if module_name == "live2d":
+        return jsonify({"ok": False, "error": "Live2D 运行时请通过接入中心的统一开关控制。"}), 409
     if action in {"start", "resume"}:
         with BILIBILI_STATE_LOCK:
             connected = BILIBILI_STATE["connected"]
-        if not connected:
+        if not connected and module_name != "live2d":
             return jsonify({"ok": False, "error": "请先完成 B 站 WebSocket 认证连接，再启动互动模块。"}), 409
     try:
         future = APPLICATION_RUNTIME.module_action(module_name, action)
@@ -2184,7 +2267,8 @@ def api_status():
             "gift_events": True,
             "tts": True,
             "mouth_sync": True,
-            "moc2_runtime": live2d["runtime_ready"],
+            "live2d_runtime": live2d["enabled"],
+            "moc2_runtime": live2d["enabled"] and live2d["runtime_ready"],
             "music": True,
             "video": True,
         },

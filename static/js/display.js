@@ -51,7 +51,8 @@
   if (!canvas) return;
 
   const displayMode = document.documentElement.dataset.displayMode || "all";
-  const showLive2D = displayMode === "all" || displayMode === "live2d";
+  const live2dEnabledAtLoad = document.documentElement.dataset.live2dEnabled !== "0";
+  const showLive2D = live2dEnabledAtLoad && (displayMode === "all" || displayMode === "live2d");
   const showDanmaku = displayMode === "all" || displayMode === "live2d" || displayMode === "danmaku";
   const showTts = displayMode === "all" || displayMode === "tts";
 
@@ -528,7 +529,8 @@
     const liveState = modules && modules.live2d ? modules.live2d.state : "stopped";
     const voiceState = modules && modules.voice ? modules.voice.state : "stopped";
     live2dModuleState = liveState || "stopped";
-    const nextLive2D = (showLive2D || showDanmaku) && live2dModuleState === "running";
+    // 弹幕展示不依赖 Live2D 总开关；关闭模型后，弹幕框和空闲提示仍可工作。
+    const nextLive2D = showDanmaku || (showLive2D && live2dModuleState === "running");
     const nextVoice = showTts && voiceState === "running";
 
     if (live2dModuleActive !== nextLive2D) {
@@ -562,6 +564,10 @@
       if (!response.ok) return;
       const data = await response.json();
       const connected = Boolean(data.bilibili && data.bilibili.connected);
+      if (data.live2d && Boolean(data.live2d.enabled) !== live2dEnabledAtLoad) {
+        window.location.reload();
+        return;
+      }
       applyModuleStates(data.modules || {});
       if (showDanmaku) setIdleConnectionState(connected);
       if (showTts && connected !== lastConnectionState) {
@@ -1521,10 +1527,16 @@
 
   if (showLive2D) {
     start();
-  } else if (showDanmaku) {
-    loadDisplaySettings().catch(displayError => {
-      console.warn("Unable to load danmaku display preferences:", displayError);
-    });
+  } else {
+    if (!live2dEnabledAtLoad && placeholder && (displayMode === "all" || displayMode === "live2d")) {
+      placeholder.textContent = "Live2D 运行时已在接入中心停用。";
+      placeholder.style.display = "block";
+    }
+    if (showDanmaku) {
+      loadDisplaySettings().catch(displayError => {
+        console.warn("Unable to load danmaku display preferences:", displayError);
+      });
+    }
   }
 
   // TTS 设置独立加载；无论接口慢、失败还是语音不可用，都不阻塞弹幕显示。

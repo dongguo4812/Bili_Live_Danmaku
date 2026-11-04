@@ -16,7 +16,7 @@
 |---|---|
 | `app.json` | 服务设置及唯一的系统管理员 UID 列表 |
 | `live.json` | 直播间号与连接设置 |
-| `live2d.json` | Live2D 模型与按模型保存的弹幕框布局偏好 |
+| `live2d.json` | Live2D 运行时启用状态、模型与按模型保存的弹幕框布局偏好 |
 | `danmaku.json` | 弹幕模块设置与空闲随机提示 |
 | `voice.json` | 语音播报设置 |
 | `music.json` | 歌曲模块普通设置 |

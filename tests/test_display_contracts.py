@@ -96,8 +96,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("#danmaku-bubble", live2d_mode_css)
         self.assertNotIn("#danmaku-preview", live2d_mode_css)
         self.assertIn('displayMode === "live2d" || displayMode === "danmaku"', script)
-        self.assertIn('return render_template("display.html", display_mode="all")', main)
-        self.assertIn('return render_template("display.html", display_mode="live2d")', main)
+        self.assertIn('return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())', main)
+        self.assertIn('return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())', main)
         self.assertIn('const showLive2D =', script)
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
@@ -285,6 +285,29 @@ class CombinedDisplayContractTests(unittest.TestCase):
 
 
 class Live2DModelDirectoryContractTests(unittest.TestCase):
+    def test_live2d_runtime_is_an_optional_single_integration(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        center = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        display = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        defaults = json.loads((root / "config" / "default" / "live2d.json").read_text(encoding="utf-8"))
+
+        self.assertIs(defaults["enabled"], True)
+        self.assertIn('@app.post("/api/modules/live2d/enabled")', main)
+        self.assertIn('requires_connection=False', main)
+        self.assertIn('data-live2d-enabled=', display)
+        self.assertIn('{% if live2d_enabled|default(true) %}', display)
+        self.assertIn('<script src="/static/js/live2d.min.js?', display)
+        self.assertIn('{% endif %}', display)
+        self.assertIn('dataset.live2dEnabled !== "0"', script)
+        self.assertIn('Boolean(data.live2d.enabled) !== live2dEnabledAtLoad', script)
+        self.assertIn('id="live2d-toggle"', center)
+        self.assertIn('/api/modules/live2d/enabled', center)
+        self.assertNotIn("moduleAction('live2d'", center)
+        self.assertIn('if not _live2d_enabled():', main)
+        self.assertIn('"enabled": enabled', main)
+
     def test_model_scan_uses_only_versioned_moc2_directory(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
