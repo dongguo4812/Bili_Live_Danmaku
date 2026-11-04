@@ -457,7 +457,12 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', display_script)
         self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
         self.assertIn('getParameterId(t).getString()', moc3_runtime)
-        self.assertIn('this._mouthOpenParameterIndex>=0&&(e.setParameterValueByIndex(this._mouthOpenParameterIndex,this._mouthOpen),e.update())', moc3_runtime)
+        self.assertIn("i._lipSyncIds", moc3_runtime)
+        self.assertIn("getParameterMinimumValue(n)", moc3_runtime)
+        self.assertIn("getParameterMaximumValue(n)", moc3_runtime)
+        self.assertIn("this._mouthOpenParameterIndices", moc3_runtime)
+        self.assertIn('type:"moc3-mouth-sync-status"', moc3_runtime)
+        self.assertIn("setParameterValueByIndex(t.index,t.min+(t.max-t.min)*this._mouthOpen)", moc3_runtime)
         self.assertIn('当前模型没有可识别的嘴型参数，TTS 嘴型同步不可用。', moc3_runtime)
         self.assertIn('parameterCount:e.getParameterCount()', moc3_runtime)
         self.assertIn('parameterIds:Array.from', moc3_runtime)
@@ -567,3 +572,26 @@ class Live2DMoc3MotionPlaybackRegressionTests(unittest.TestCase):
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn("async function playSelectedModelMotion()", script)
         self.assertIn("await runtimeWindow.live2dPlayMotion(group, index)", script)
+
+
+class Live2DMoc3MouthSyncSettingsTests(unittest.TestCase):
+    def test_display_settings_show_live_moc3_mouth_sync_validation(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('id="moc3-mouth-sync-status"', page)
+        self.assertIn('type !== "moc3-mouth-sync-status"', script)
+        self.assertIn("当前模型无法进行 TTS 嘴型同步。", script)
+        self.assertIn("支持 TTS 嘴型同步", script)
+        self.assertIn('setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking")', script)
+
+    def test_moc3_parameter_validation_prefers_model3_lipsync_group(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("i._lipSyncIds", runtime)
+        self.assertIn('"model3-lipsync"', runtime)
+        self.assertIn('"compatibility-after-invalid-lipsync"', runtime)
+        self.assertIn('"ParamMouthOpenY"', runtime)
+        self.assertIn("getParameterMinimumValue(n)", runtime)
+        self.assertIn("getParameterMaximumValue(n)", runtime)
+        self.assertIn("invalidDeclaredIds", runtime)
