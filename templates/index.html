@@ -574,8 +574,8 @@
           startQr();
         }
       } finally {
+        // refreshStatus owns the disabled state so connecting/stopping cannot be clicked again.
         await refreshStatus();
-        button.disabled = false;
       }
     }
 
