@@ -9,7 +9,9 @@
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
 body.editor-mode{background:#10131a;color:#f4f6fb}
-.toolbar{position:fixed;z-index:1000;left:0;right:0;top:0;min-height:54px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#171d29;border-bottom:1px solid #354056}
+.toolbar{position:fixed;z-index:1000;left:0;right:0;top:0;height:96px;display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:6px;padding:7px 12px;background:#171d29;border-bottom:1px solid #354056;overflow:hidden}
+.toolbar-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:34px;flex:0 0 34px;overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:thin}
+.toolbar-row>*{flex:0 0 auto}
 .editor-mode .toolbar{left:0}
 .toolbar[hidden]{display:none}
 .toolbar strong{margin-right:12px}
@@ -23,7 +25,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .editor-control input[type=range]{width:110px}
 .editor-control output{min-width:42px;color:#ffd66b;font-variant-numeric:tabular-nums}
 #stage{position:absolute;inset:0;overflow:hidden;background:transparent}
-.editor-mode #stage{top:58px;left:0;right:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
+.editor-mode #stage{top:96px;left:0;right:0;bottom:0;background-color:#111722;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:24px 24px}
 .widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(15,20,30,.82);box-shadow:0 8px 24px rgba(0,0,0,.2);backdrop-filter:blur(7px);display:flex;flex-direction:column}
 .display-mode .widget{border-color:transparent;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .widget-header{flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:rgba(255,255,255,.07);font-size:12px;font-weight:800;cursor:move;user-select:none;touch-action:none}
@@ -68,10 +70,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .editor-mode .widget .resize-sw{left:0;bottom:0;cursor:nesw-resize}
 .empty{color:#aeb9ca;font-size:13px}
 @media(max-width:650px){.toolbar strong{width:100%}.widget-header{flex-basis:26px}.widget-body{padding:6px;font-size:12px}.widget .primary-line{font-size:14px}}
-/* 工具栏内容较多时保持单行并横向滚动，避免工具栏覆盖布局编辑画布。 */
-.toolbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap;scrollbar-width:thin}
-.toolbar>*{flex:0 0 auto}
-.toolbar strong{width:auto}
+/* 两行工具栏分别横向滚动，避免控件挤压或遮挡编辑画布。 */
+.toolbar strong{width:auto;margin-right:4px}
+.toolbar-row .editor-control{white-space:nowrap}
 #layout-message{white-space:nowrap;flex:0 0 auto}
 /* Force alpha transparency through the combined-output Live2D widget and iframe. */
 .display-mode #stage,
@@ -87,34 +88,38 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 </head>
 <body class="{% if display_mode %}display-mode{% else %}editor-mode{% endif %}" data-display-mode="{{ '1' if display_mode else '0' }}" data-layout-id="{{ layout_id }}">
 <div class="toolbar" id="toolbar" {% if display_mode %}hidden{% endif %}>
-  <strong>综合展示布局</strong>
-  <select id="layout-select" aria-label="选择布局" style="max-width:170px;padding:7px 9px;border:1px solid #53627c;border-radius:7px;background:#202b3b;color:#f4f6fb"></select>
-  <button type="button" id="new-layout">新建布局</button>
-  <button type="button" id="duplicate-layout">复制布局</button>
-  <button type="button" id="rename-layout">重命名</button>
-  <button type="button" id="delete-layout">删除布局</button>
-  <button type="button" id="activate-layout">设为默认</button>
-  <button type="button" data-add="live2d">添加 Live2D</button>
-  <button type="button" data-add="voice">添加语音</button>
-  <button type="button" data-add="music">添加歌曲</button>
-  <button type="button" data-add="music_widget">添加歌曲信息</button>
-  <button type="button" data-add="video">添加视频</button>
-  <button type="button" data-add="danmaku">添加弹幕</button>
-  <button type="button" class="primary" id="save-layout">保存当前布局</button>
-  <button type="button" id="reset-layout">恢复默认布局</button>
-  <button type="button" id="open-output">打开 OBS 展示页</button>
-  <label class="editor-control">当前模块
-    <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
-  </label>
-  <label class="editor-control" id="font-scale-control">字体大小
-    <input id="font-scale" type="range" min="50" max="200" step="5" value="100">
-    <output id="font-scale-value">100%</output>
-  </label>
-  <label class="editor-control" id="content-scale-control" hidden>整体缩放
-    <input id="content-scale" type="range" min="50" max="200" step="5" value="100">
-    <output id="content-scale-value">100%</output>
-  </label>
-  <span id="layout-message">拖动模块内部移动；拖动边缘调整单一方向，拖动角点同时调整宽高。</span>
+  <div class="toolbar-row toolbar-row-layout">
+    <strong>综合展示布局</strong>
+    <select id="layout-select" aria-label="选择布局" style="max-width:170px;padding:7px 9px;border:1px solid #53627c;border-radius:7px;background:#202b3b;color:#f4f6fb"></select>
+    <button type="button" id="new-layout">新建布局</button>
+    <button type="button" id="duplicate-layout">复制布局</button>
+    <button type="button" id="rename-layout">重命名</button>
+    <button type="button" id="delete-layout">删除布局</button>
+    <button type="button" id="activate-layout">设为默认</button>
+    <button type="button" data-add="live2d">添加 Live2D</button>
+    <button type="button" data-add="voice">添加语音</button>
+    <button type="button" data-add="music">添加歌曲</button>
+    <button type="button" data-add="music_widget">添加歌曲信息</button>
+    <button type="button" data-add="video">添加视频</button>
+    <button type="button" data-add="danmaku">添加弹幕</button>
+    <button type="button" class="primary" id="save-layout">保存当前布局</button>
+    <button type="button" id="reset-layout">恢复默认布局</button>
+    <button type="button" id="open-output">打开 OBS 展示页</button>
+  </div>
+  <div class="toolbar-row toolbar-row-adjust">
+    <label class="editor-control">当前模块
+      <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
+    </label>
+    <label class="editor-control" id="font-scale-control">字体大小
+      <input id="font-scale" type="range" min="50" max="200" step="5" value="100">
+      <output id="font-scale-value">100%</output>
+    </label>
+    <label class="editor-control" id="content-scale-control" hidden>整体缩放
+      <input id="content-scale" type="range" min="50" max="200" step="5" value="100">
+      <output id="content-scale-value">100%</output>
+    </label>
+    <span id="layout-message">拖动模块内部移动；拖动边缘调整单一方向，拖动角点同时调整宽高。</span>
+  </div>
 </div>
 <div id="stage"></div>
 <script src="{{ url_for('static', filename='display_media.js') }}"></script>
