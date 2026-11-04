@@ -793,8 +793,14 @@
         }
         if (event.origin !== window.location.origin ||
             event.source !== moc3Frame.contentWindow ||
-            !event.data || event.data.type !== "moc3-model-loaded" ||
-            event.data.modelUrl !== expectedUrl) return;
+            !event.data || event.data.modelUrl !== expectedUrl) return;
+        if (event.data.type === "moc3-model-error") {
+          cleanup();
+          const resource = event.data.resource ? "（资源：" + event.data.resource + "）" : "";
+          reject(new Error((event.data.message || "MOC3 模型资源加载失败") + resource));
+          return;
+        }
+        if (event.data.type !== "moc3-model-loaded") return;
         modelLoaded = true;
         finish();
       };
