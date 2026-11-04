@@ -1515,7 +1515,8 @@
       try {
         const modelId = await loadDisplaySettings();
         const token = ++modelSwitchToken;
-        await loadMoc3Model(modelId, token);
+        modelSwitchPromise = loadMoc3Model(modelId, token);
+        await modelSwitchPromise;
       } catch (error) {
         console.error("MOC3 initialization failed:", error);
         showMessage("MOC3 加载失败：" + error.message);
