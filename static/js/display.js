@@ -1199,6 +1199,7 @@
     updateSliderLabels();
     applyBubblePreferences();
     applyLive2DCrop();
+    applyLive2DTransform();
     return currentModel;
   }
 
@@ -1384,9 +1385,17 @@
   }
 
   function applyLive2DTransform(preferences = currentPreferences()) {
+    const current = transformSnapshot(preferences);
+    if (live2dRuntimeVersion === "moc3" && moc3Frame) {
+      if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
+      const translateX = current.x * window.innerWidth * 0.5;
+      const translateY = -current.y * window.innerHeight * 0.5;
+      moc3Frame.style.transformOrigin = "50% 50%";
+      moc3Frame.style.transform = "translate3d(" + translateX + "px, " + translateY + "px, 0) scale(" + current.scale + ")";
+      return true;
+    }
     const base = live2dTransformBase;
     if (!base || !base.matrix) return false;
-    const current = transformSnapshot(preferences);
     if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
 
     // 模型矩阵已经包含后端应用的已保存设置，因此只叠加相对差量。
@@ -1596,6 +1605,9 @@
   if (motionSelect) motionSelect.addEventListener("change", updateModelActionAvailability);
   if (expressionSelect) expressionSelect.addEventListener("change", updateModelActionAvailability);
   if (saveButton) saveButton.addEventListener("click", saveSettings);
+  window.addEventListener("resize", () => {
+    if (live2dRuntimeVersion === "moc3") applyLive2DTransform();
+  }, { passive: true });
   for (const [key, slider] of Object.entries(controls)) {
     if (!slider) continue;
     slider.addEventListener("input", () => {

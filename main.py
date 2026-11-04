@@ -1513,27 +1513,27 @@ def _serve_model_config(model_id: str, version: str):
     preferences = _model_preferences(settings, model_id, version)
     if version == "moc2":
         data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))
-    # MOC2 使用 model.json 的小写 layout；Cubism 5 model3.json 使用顶层大写 Layout，
-    # 但其内部布局键仍为 width / height / center_x / center_y。
-    layout_key = "layout" if version == "moc2" else "Layout"
-    layout = data.get(layout_key)
-    if not isinstance(layout, dict):
-        layout = {}
-        data[layout_key] = layout
-    original_width = layout.get("width", 2.0)
-    original_height = layout.get("height")
-    try:
-        if isinstance(original_width, (int, float)) and math.isfinite(float(original_width)):
-            layout["width"] = float(original_width) * preferences["scale"]
-    except (TypeError, ValueError):
-        pass
-    if isinstance(original_height, (int, float)) and math.isfinite(float(original_height)):
-        layout["height"] = float(original_height) * preferences["scale"]
-    try:
-        layout["center_x"] = float(layout.get("center_x", 0.0)) + preferences["x"]
-        layout["center_y"] = float(layout.get("center_y", 0.0)) + preferences["y"]
-    except (TypeError, ValueError):
-        abort(500)
+    if version == "moc2":
+        layout = data.get("layout")
+        if not isinstance(layout, dict):
+            layout = {}
+            data["layout"] = layout
+        original_width = layout.get("width", 2.0)
+        original_height = layout.get("height")
+        try:
+            if isinstance(original_width, (int, float)) and math.isfinite(float(original_width)):
+                layout["width"] = float(original_width) * preferences["scale"]
+        except (TypeError, ValueError):
+            pass
+        if isinstance(original_height, (int, float)) and math.isfinite(float(original_height)):
+            layout["height"] = float(original_height) * preferences["scale"]
+        try:
+            layout["center_x"] = float(layout.get("center_x", 0.0)) + preferences["x"]
+            layout["center_y"] = float(layout.get("center_y", 0.0)) + preferences["y"]
+        except (TypeError, ValueError):
+            abort(500)
+    # MOC3 的缩放和位置由统一展示页实时变换 iframe；这里原样保留 model3.json 的 Layout，
+    # 避免将 Cubism 2 的布局处理重复应用到 MOC3 模型。
     return jsonify(data)
 
 
