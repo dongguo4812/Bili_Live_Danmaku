@@ -395,3 +395,26 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #65a9ed;
   background: rgba(101, 169, 237, .12);
 }
+
+
+/* Access-center connection and runtime status colors */
+.status-grid strong[data-state="logged_in"],
+.status-grid strong[data-state="connected"],
+.status-grid strong[data-state="loaded"] {
+  color: #36b978;
+}
+.status-grid strong[data-state="logged_out"],
+.status-grid strong[data-state="disconnected"],
+.status-grid strong[data-state="disabled"] {
+  color: #9aa3af;
+}
+.status-grid strong[data-state="connecting"],
+.status-grid strong[data-state="reconnecting"],
+.status-grid strong[data-state="waiting"],
+.status-grid strong[data-state="loading"],
+.status-grid strong[data-state="unknown"] {
+  color: #65a9ed;
+}
+.status-grid strong[data-state="error"] {
+  color: #ef6262;
+}
