@@ -356,6 +356,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
         "bubble_duration": integer("bubble_duration", 10, 2, 60),
         "bubble_font_size": integer("bubble_font_size", 20, 12, 40),
         "profile": raw.get("profile") if isinstance(raw.get("profile"), str) else "",
+        "motion_shortcuts_by_profile": raw.get("motion_shortcuts_by_profile") if isinstance(raw.get("motion_shortcuts_by_profile"), dict) else {},
     }
 
 
@@ -1454,6 +1455,8 @@ def get_display_settings():
         preferences["profile"] = requested_profile
     elif preferences.get("profile") not in valid_profile_ids:
         preferences["profile"] = profiles[0]["id"] if profiles else ""
+    shortcut_profiles = preferences.get("motion_shortcuts_by_profile", {})
+    preferences["motion_shortcuts"] = shortcut_profiles.get(preferences["profile"], {}) if isinstance(shortcut_profiles, dict) else {}
     return jsonify({
         "ok": True,
         "version": version,
@@ -1516,6 +1519,24 @@ def save_display_settings():
             "bubble_duration": bounded_integer("bubble_duration", 10, 2, 60),
             "bubble_font_size": bounded_integer("bubble_font_size", 20, 12, 40),
         }
+        raw_shortcuts = payload.get("motion_shortcuts", {})
+        if not isinstance(raw_shortcuts, dict) or len(raw_shortcuts) > 300:
+            raise ValueError("动作快捷键配置无效。")
+        shortcuts = {}
+        used_keys = set()
+        for action, key in raw_shortcuts.items():
+            if not isinstance(action, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}::[0-9]{1,4}", action):
+                raise ValueError("动作快捷键对应的动作标识无效。")
+            if key in (None, ""):
+                continue
+            if not isinstance(key, str) or not re.fullmatch(r"(?:[A-Z0-9]|F(?:[1-9]|1[0-2]))", key.upper()):
+                raise ValueError("快捷键仅支持 0-9、A-Z 或 F1-F12。")
+            normalized_key = key.upper()
+            if normalized_key in used_keys:
+                raise ValueError("快捷键不能重复绑定：" + normalized_key)
+            used_keys.add(normalized_key)
+            shortcuts[action] = normalized_key
+        preferences["motion_shortcuts"] = shortcuts
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -1525,7 +1546,15 @@ def save_display_settings():
         if version == "moc2":
             settings["model"] = model_id
         preferences["profile"] = profile
-        settings.setdefault("models", {})[f"{version}:{model_id}"] = preferences
+        model_settings = settings.setdefault("models", {}).get(f"{version}:{model_id}", {})
+        if not isinstance(model_settings, dict):
+            model_settings = {}
+        shortcut_profiles = model_settings.get("motion_shortcuts_by_profile", {})
+        if not isinstance(shortcut_profiles, dict):
+            shortcut_profiles = {}
+        shortcut_profiles[profile] = preferences.pop("motion_shortcuts", {})
+        preferences["motion_shortcuts_by_profile"] = shortcut_profiles
+        settings["models"][f"{version}:{model_id}"] = {**model_settings, **preferences}
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
