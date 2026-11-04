@@ -871,7 +871,10 @@
     if (motionPlayButton) motionPlayButton.disabled = !ready || !motionSelect || !motionSelect.value;
     if (expressionSelect) expressionSelect.disabled = !ready || expressionSelect.options.length <= 1;
     if (expressionApplyButton) expressionApplyButton.disabled = !ready || !expressionSelect || !expressionSelect.value;
-    if (expressionResetButton) expressionResetButton.disabled = !ready || !selectedModelConfig || !Array.isArray(selectedModelConfig.expressions) || !selectedModelConfig.expressions.length;
+    const expressionEntries = live2dRuntimeVersion === "moc3"
+      ? selectedModelConfig && selectedModelConfig.FileReferences && selectedModelConfig.FileReferences.Expressions
+      : selectedModelConfig && selectedModelConfig.expressions;
+    if (expressionResetButton) expressionResetButton.disabled = !ready || !Array.isArray(expressionEntries) || !expressionEntries.length;
   }
 
   function populateModelActions(config, modelId) {
@@ -932,12 +935,14 @@
     updateModelActionAvailability();
   }
 
-  async function loadModelActionConfig(modelId) {
+  async function loadModelActionConfig(modelId, token = null) {
     const url = modelConfigUrl(modelId);
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取模型动作配置（HTTP " + response.status + "）。");
     const config = await response.json();
+    if (token !== null && token !== modelSwitchToken) return false;
     populateModelActions(config, modelId);
+    return true;
   }
 
   function playSelectedModelMotion() {
@@ -1561,9 +1566,11 @@
         modelSwitchPromise = loadMoc3Model(modelId, token);
         const loaded = await modelSwitchPromise;
         if (loaded) {
-          await loadModelActionConfig(modelId);
-          statusSent = true;
-          updateModelActionAvailability();
+          const actionsLoaded = await loadModelActionConfig(modelId, token);
+          if (actionsLoaded && token === modelSwitchToken) {
+            statusSent = true;
+            updateModelActionAvailability();
+          }
         }
       } catch (error) {
         console.error("MOC3 initialization failed:", error);
@@ -1660,14 +1667,18 @@
         modelSwitchPromise = loadMoc3Model(selectedModelId, token);
         const loaded = await modelSwitchPromise;
         if (loaded && token === modelSwitchToken) {
-          await loadModelActionConfig(selectedModelId);
-          statusSent = true;
-          updateModelActionAvailability();
+          const actionsLoaded = await loadModelActionConfig(selectedModelId, token);
+          if (actionsLoaded && token === modelSwitchToken) {
+            statusSent = true;
+            updateModelActionAvailability();
+          }
         }
       } else {
         await queueModelSwitch(selectedModelId, token, p);
       }
     } catch (error) {
+      if (token !== modelSwitchToken) return;
+      setModelActionStatus("模型动作/表情配置读取失败：" + error.message, true);
       setSaveStatus(error.message, true);
     }
   }
