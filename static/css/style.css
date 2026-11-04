@@ -273,3 +273,41 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .sidebar-nav a{white-space:nowrap;padding:8px 10px}
   .app-shell>.manager{width:100%;padding:20px 14px}
 }
+
+
+/* Live2D motion shortcut editor */
+.model-motion-shortcuts {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.model-motion-shortcuts .settings-subtitle {
+  margin: 0;
+}
+.model-motion-shortcuts .settings-help {
+  margin: 0;
+  color: var(--muted-text, #a0a0a0);
+  font-size: 12px;
+}
+.model-motion-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(76px, 112px) auto;
+  align-items: center;
+  gap: 8px;
+}
+.model-motion-shortcut-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.model-motion-shortcut-row input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  text-align: center;
+  cursor: pointer;
+}
+.model-motion-shortcut-row input:focus {
+  outline: 2px solid var(--accent, #6b9cff);
+  outline-offset: 1px;
+}
