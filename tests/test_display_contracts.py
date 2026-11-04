@@ -17,6 +17,9 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         self.assertNotIn('MediaDisplay.render(body,"music"', combined)
         self.assertNotIn('MediaDisplay.render(body,"video"', combined)
         self.assertIn('!["live2d","music_widget","music","video"].includes(item.type)', combined)
+        self.assertNotIn("widget.hidden=", combined)
+        self.assertNotIn('api("/api/music/queue")', combined)
+        self.assertNotIn('api("/api/video/queue")', combined)
 
     def test_music_and_video_pages_hide_content_when_modules_are_stopped(self):
         root = Path(__file__).resolve().parents[1]
