@@ -837,7 +837,7 @@ def _obs_combined_display_refresh_watchdog() -> None:
     global OBS_COMBINED_DISPLAY_REFRESHED
     while not OBS_COMBINED_REFRESH_STOP.wait(3.0):
         if OBS_COMBINED_DISPLAY_REFRESHED:
-            continue
+            break
         result = _refresh_obs_combined_display_sources()
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
