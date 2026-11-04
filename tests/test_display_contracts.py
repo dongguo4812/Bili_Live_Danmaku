@@ -477,3 +477,36 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn('replaceLive2DModel(modelUrl)', script)
         self.assertIn('captureLive2DTransformBase()', script)
         self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', script)
+
+
+class Live2DReportedIssueRegressionTests(unittest.TestCase):
+    def test_moc3_actions_and_expressions_are_loaded_from_cubism_model3_schema(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('selectedModelConfig.FileReferences', script)
+        self.assertIn('moc3References.Motions', script)
+        self.assertIn('motion.File', script)
+        self.assertIn('moc3References ? moc3References.Expressions', script)
+        self.assertIn('await loadModelActionConfig(modelId)', script)
+
+    def test_moc3_action_controls_call_the_cubism5_runtime_bridge(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn('runtimeWindow.live2dPlayMotion(group, index)', script)
+        self.assertIn('runtimeWindow.live2dSetExpression(name)', script)
+        self.assertIn('runtimeWindow.live2dResetExpression()', script)
+        self.assertIn('window.live2dPlayMotion=', runtime)
+        self.assertIn('window.live2dSetExpression=', runtime)
+        self.assertIn('window.live2dResetExpression=', runtime)
+
+    def test_moc3_webgl_canvas_and_iframe_request_alpha_transparency(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        display_html = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        self.assertIn('getContext(`webgl2`,{alpha:!0,premultipliedAlpha:!0,preserveDrawingBuffer:!1})', runtime)
+        self.assertIn('e.clearColor(0,0,0,0)', runtime)
+        self.assertIn('canvas { background-color: transparent !important; }', runtime_html)
+        self.assertIn('background-color: transparent !important;', display_html)
+        self.assertIn('allowtransparency="true"', display_html)
