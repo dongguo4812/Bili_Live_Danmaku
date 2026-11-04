@@ -437,3 +437,43 @@ class Live2DModelLoadFailureContractTests(unittest.TestCase):
         self.assertIn('reject(new Error((event.data.message || "MOC3 模型资源加载失败") + resource))', script)
         self.assertIn('event.data.modelUrl !== expectedUrl', script)
         self.assertIn('event.source !== moc3Frame.contentWindow', script)
+
+
+class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
+    def test_combined_display_reuses_the_full_live2d_display_page(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        display = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        self.assertGreaterEqual(combined.count('frame.src="/live2d/display?embedded=1"'), 2)
+        self.assertIn('id="moc3-runtime-frame"', display)
+        self.assertIn('id="live2d-viewport"', display)
+
+    def test_tts_mouth_sync_bridges_both_runtimes(self):
+        root = Path(__file__).resolve().parents[1]
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        moc3_runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn('runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)))', display_script)
+        self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', display_script)
+        self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
+        self.assertIn('i.getModel().setParameterValueById(e,this._mouthOpen)', moc3_runtime)
+        self.assertIn('ParamMouthOpenY', moc3_runtime)
+        self.assertIn('function startMouthSync(analyser)', display_script)
+
+    def test_moc3_model_switch_waits_for_load_and_cancels_stale_requests(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('if (live2dRuntimeVersion === "moc3") {\n        modelSwitchPromise = loadMoc3Model(selectedModelId, token)', script)
+        self.assertIn('const isStale = () => token !== null && token !== modelSwitchToken', script)
+        self.assertIn('if (!loaded || isStale()) return false', script)
+        self.assertIn('await modelSwitchPromise.catch(() => {})', script)
+        self.assertIn('loadedModelId = modelId', script)
+
+    def test_moc2_runtime_regression_path_remains_separate(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('if (live2dRuntimeVersion === "moc3") {\n      try {\n        const modelId = await loadDisplaySettings()', script)
+        self.assertIn('window.loadlive2d(canvas.id, modelUrl)', script)
+        self.assertIn('window.__live2dManager', script)
+        self.assertIn('replaceLive2DModel(modelUrl)', script)
+        self.assertIn('captureLive2DTransformBase()', script)
+        self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', script)
