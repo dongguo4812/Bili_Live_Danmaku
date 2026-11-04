@@ -637,6 +637,12 @@ class Live2DMotionShortcutFeatureTests(unittest.TestCase):
         self.assertIn('快捷键不能重复绑定：', main)
         self.assertIn('F(?:[1-9]|1[0-2])', main)
 
+    def test_moc3_shortcuts_accept_default_empty_motion_group(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('if (not action_group and version != "moc3")', main)
+        self.assertIn('action_group, action_index = action.rsplit("::", 1)', main)
+
     def test_display_adds_hotkeys_without_replacing_existing_motion_controls(self):
         root = Path(__file__).resolve().parents[1]
         page = (root / "templates" / "display.html").read_text(encoding="utf-8")
