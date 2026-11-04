@@ -60,7 +60,7 @@ SC 播报示例：
 - Windows 10/11
 - Python 3.10 或更高版本
 - 可正常访问 B 站登录与直播 API 的网络环境
-- OBS Studio（需要 OBS 浏览器源自动控制时）
+- OBS Studio（需要 OBS 综合展示源自动刷新时）
 - OBS WebSocket 服务器（OBS Studio 内置，默认端口为 `4455`）
 
 项目依赖见 [requirements.txt](requirements.txt)，其中包含 Flask、requests、bilibili-api-python、websocket-client、qrcode 和 edge-tts 等。
@@ -161,7 +161,7 @@ http://127.0.0.1:8768/live2d/display
 
 展示页会自动尝试初始化和恢复 Web Audio，并在直播连接后处理语音队列。浏览器或 OBS 的自动播放策略可能影响音频启动；如果音频没有播放，请检查 OBS 浏览器源和浏览器的音频/自动播放设置。语音播报管理页保留“生成并试听”功能，便于诊断音频输出与嘴型同步。
 
-## OBS 配置与自动控制
+## OBS 配置与综合展示刷新
 
 程序通过 OBS WebSocket v5 刷新综合展示浏览器源：
 
