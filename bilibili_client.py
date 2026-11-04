@@ -379,11 +379,14 @@ class LiveRoomClient:
                 self.disconnect_grace_period,
             )
             disconnect_task.cancel()
-        elif disconnect_task in done:
+        elif disconnect_task in done and not disconnect_task.cancelled():
             exception = disconnect_task.exception()
             if exception is not None:
                 logger.warning("B 站 room.disconnect() 执行异常：%s", exception)
 
+        # stop() 与 _run() 可能恰好交错在 connect_task 创建前后；
+        # 在事件循环内重新读取一次，避免漏掉刚创建的连接协程。
+        connect_task = connect_task or self.connect_task
         if connect_task is not None and not connect_task.done():
             logger.info("B 站连接协程尚未退出，主动取消以加快关闭")
             connect_task.cancel()
