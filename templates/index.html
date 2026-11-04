@@ -72,6 +72,31 @@
       </div>
     </section>
 
+    <section class="panel module-control-panel" id="module-controls">
+      <h2>功能启停控制</h2>
+      <p class="muted">统一控制各功能运行状态。启动/关闭、暂停/恢复分别使用同一个切换按钮。</p>
+      <div class="module-control-row">
+        <div class="module-control-info"><strong>歌曲点播</strong><span id="music-control-state" class="status-pill">状态读取中</span></div>
+        <div class="inline-controls action-controls"><button id="music-toggle-lifecycle" type="button">启动</button><button id="music-toggle-pause" type="button" class="secondary-button">暂停</button></div>
+        <p id="music-control-message" class="muted module-control-message" role="status"></p>
+      </div>
+      <div class="module-control-row">
+        <div class="module-control-info"><strong>视频点播</strong><span id="video-control-state" class="status-pill">状态读取中</span></div>
+        <div class="inline-controls action-controls"><button id="video-toggle-lifecycle" type="button">启动</button><button id="video-toggle-pause" type="button" class="secondary-button">暂停</button></div>
+        <p id="video-control-message" class="muted module-control-message" role="status"></p>
+      </div>
+      <div class="module-control-row">
+        <div class="module-control-info"><strong>Live2D</strong><span id="live2d-control-state" class="status-pill">状态读取中</span></div>
+        <div class="inline-controls action-controls"><button type="button" id="live2d-toggle" class="secondary-button">停用 Live2D</button></div>
+        <p id="live2d-toggle-message" class="muted module-control-message" role="status">MOC2 / MOC3 使用独立模型目录和设置；切换版本不会覆盖另一版本的配置。</p>
+      </div>
+      <div class="module-control-row">
+        <div class="module-control-info"><strong>语音播报</strong><span id="voice-control-state" class="status-pill">状态读取中</span></div>
+        <div class="inline-controls action-controls"><button id="voice-toggle-lifecycle" type="button">启动</button><button id="voice-toggle-pause" type="button" class="secondary-button">暂停</button></div>
+        <p id="voice-control-message" class="muted module-control-message" role="status"></p>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>歌曲点播模块</h2>
       <div class="model-row">
@@ -80,12 +105,6 @@
           <p class="muted">独立控制洛雪播放、点歌队列和弹幕点歌请求</p>
         </div>
         <span id="music-request-state" class="status-pill">点歌开关：开启</span>
-      </div>
-      <div class="inline-controls action-controls">
-        <button id="music-start" type="button">启动</button>
-        <button id="music-pause" type="button" class="secondary-button">暂停</button>
-        <button id="music-resume" type="button" class="secondary-button">恢复</button>
-        <button id="music-close" type="button" class="secondary-button">关闭</button>
       </div>
       <div class="inline-controls action-controls">
         <button id="music-skip" type="button" class="secondary-button">切歌</button>
@@ -112,12 +131,6 @@
         <span id="video-queue-count" class="status-pill">待播：0 条</span>
       </div>
       <div class="inline-controls action-controls">
-        <button id="video-start" type="button">启动</button>
-        <button id="video-pause" type="button" class="secondary-button">暂停</button>
-        <button id="video-resume" type="button" class="secondary-button">恢复</button>
-        <button id="video-close" type="button" class="secondary-button">关闭</button>
-      </div>
-      <div class="inline-controls action-controls">
         <button id="video-next" type="button" class="secondary-button">下一个</button>
         <button id="video-clear" type="button" class="secondary-button">清空待播队列</button>
       </div>
@@ -141,7 +154,6 @@
         <span id="model-state" class="status-pill">检查中</span>
       </div>
       <div class="inline-controls action-controls">
-        <button type="button" id="live2d-toggle" class="secondary-button">停用 Live2D</button>
         <label for="live2d-version">运行时版本</label>
         <select id="live2d-version">
           <option value="moc2">MOC2（Cubism 2）</option>
@@ -160,12 +172,6 @@
       <div class="model-row">
         <strong id="voice-module-state">运行中</strong>
         <a href="/voice">语音设置</a>
-      </div>
-      <div class="inline-controls action-controls">
-        <button type="button" onclick="moduleAction('voice','start')">启动</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('voice','pause')">暂停</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('voice','resume')">恢复</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('voice','close')">关闭</button>
       </div>
       <p class="muted">语音由 Live2D 浏览器展示页播放；关闭语音模块不会关闭 Live2D 模型。</p>
     </section>
@@ -225,6 +231,53 @@
       }
     }
 
+    const moduleStates = { music: "stopped", video: "stopped", voice: "stopped" };
+    const moduleStateLabels = {
+      stopped: "已关闭", starting: "启动中", running: "运行中",
+      pausing: "暂停中", paused: "已暂停", resuming: "恢复中",
+      closing: "关闭中", error: "运行异常"
+    };
+
+    async function toggleModuleControl(moduleName, pair) {
+      const state = moduleStates[moduleName] || "stopped";
+      const action = pair === "lifecycle"
+        ? (["stopped", "error"].includes(state) ? "start" : "close")
+        : (state === "running" ? "pause" : state === "paused" ? "resume" : null);
+      if (!action) return;
+      const message = $(moduleName + "-control-message");
+      const buttons = [$(moduleName + "-toggle-lifecycle"), $(moduleName + "-toggle-pause")];
+      buttons.forEach(button => { button.disabled = true; });
+      message.textContent = "正在执行" + ({start:"启动",close:"关闭",pause:"暂停",resume:"恢复"}[action]) + "操作…";
+      try {
+        await api("/api/modules/" + moduleName + "/" + action, { method: "POST" });
+        message.textContent = "操作已提交：" + ({start:"启动",close:"关闭",pause:"暂停",resume:"恢复"}[action]);
+      } catch (error) {
+        message.textContent = "操作失败：" + error.message;
+      }
+      await refreshStatus();
+      buttons.forEach(button => { button.disabled = false; });
+      renderModuleControls();
+    }
+
+    function renderModuleControls() {
+      for (const name of ["music", "video", "voice"]) {
+        const state = moduleStates[name] || "stopped";
+        const busy = ["starting", "pausing", "resuming", "closing"].includes(state);
+        $(name + "-control-state").textContent = moduleStateLabels[state] || "状态未知";
+        const lifecycle = $(name + "-toggle-lifecycle");
+        const pause = $(name + "-toggle-pause");
+        lifecycle.textContent = ["stopped", "error"].includes(state) ? "启动" : "关闭";
+        pause.textContent = state === "paused" ? "恢复" : "暂停";
+        lifecycle.disabled = busy;
+        pause.disabled = busy || !["running", "paused"].includes(state);
+      }
+    }
+
+    for (const name of ["music", "video", "voice"]) {
+      $(name + "-toggle-lifecycle").addEventListener("click", () => toggleModuleControl(name, "lifecycle"));
+      $(name + "-toggle-pause").addEventListener("click", () => toggleModuleControl(name, "pause"));
+    }
+
     async function videoQueueAction(payload) {
       try {
         const data = await api("/api/video/action", {
@@ -238,10 +291,6 @@
       }
     }
 
-    $("video-start").addEventListener("click", () => videoModuleAction("start"));
-    $("video-pause").addEventListener("click", () => videoModuleAction("pause"));
-    $("video-resume").addEventListener("click", () => videoModuleAction("resume"));
-    $("video-close").addEventListener("click", () => videoModuleAction("close"));
     $("video-next").addEventListener("click", () => videoQueueAction({ action: "next" }));
     $("video-clear").addEventListener("click", () => videoQueueAction({ action: "clear" }));
 
@@ -345,10 +394,6 @@
       }
     }
 
-    $("music-start").addEventListener("click", () => musicModuleAction("start"));
-    $("music-pause").addEventListener("click", () => musicModuleAction("pause"));
-    $("music-resume").addEventListener("click", () => musicModuleAction("resume"));
-    $("music-close").addEventListener("click", () => musicModuleAction("close"));
     $("music-skip").addEventListener("click", () => musicQueueAction({ action: "skip" }));
     $("music-clear").addEventListener("click", () => musicQueueAction({ action: "clear" }));
     $("music-toggle-request").addEventListener("click", () => {
@@ -384,21 +429,18 @@
         $("live2d-toggle").dataset.enabled = String(live2dEnabled);
         $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
         const music = (data.modules || {}).music || { state: "stopped" };
-        $("music-state").textContent = ({
-          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
-        }[music.state] || "状态未知");
         const video = (data.modules || {}).video || { state: "stopped" };
-        $("video-state").textContent = ({
-          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
-        }[video.state] || "状态未知");
         const live2d = (data.modules || {}).live2d || { state: "stopped" };
         const voice = (data.modules || {}).voice || { state: "stopped" };
-        $("live2d-module-state").textContent = ({
-          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
-        }[live2d.state] || "状态未知");
-        $("voice-module-state").textContent = ({
-          stopped: "已关闭", running: "运行中", paused: "已暂停", error: "运行异常"
-        }[voice.state] || "状态未知");
+        moduleStates.music = music.state || "stopped";
+        moduleStates.video = video.state || "stopped";
+        moduleStates.voice = voice.state || "stopped";
+        $("music-state").textContent = moduleStateLabels[music.state] || "状态未知";
+        $("video-state").textContent = moduleStateLabels[video.state] || "状态未知";
+        $("live2d-module-state").textContent = moduleStateLabels[live2d.state] || "状态未知";
+        $("voice-module-state").textContent = moduleStateLabels[voice.state] || "状态未知";
+        $("live2d-control-state").textContent = live2dEnabled ? "已启用" : "已停用";
+        renderModuleControls();
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }
