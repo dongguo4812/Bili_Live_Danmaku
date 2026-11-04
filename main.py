@@ -1808,7 +1808,11 @@ def set_live2d_version():
         "message": (
             "已切换到 MOC2 运行时。"
             if version == "moc2"
-            else "已保存 MOC3 版本选择；展示页将使用 Cubism 5 R5 运行时加载模型。"
+            else (
+                "已切换到 MOC3 运行时；展示页将使用 Cubism 5 R5 加载模型。"
+                if _moc3_runtime_available()
+                else "已保存 MOC3 版本选择，但 Cubism 5 R5 运行时文件缺失或不完整；不会回退到 MOC2。"
+            )
         ),
     })
 
