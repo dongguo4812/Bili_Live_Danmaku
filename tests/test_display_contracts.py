@@ -381,6 +381,7 @@ class Live2DModelProfileContractTests(unittest.TestCase):
         self.assertIn('directory.glob("model*.json")', main)
         self.assertIn('named_config = directory / f"{model_id}.model.json"', main)
         self.assertIn('candidate_paths.append(named_config)', main)
+        self.assertIn('or profile == f"{model_id}.model.json"', main)
         self.assertIn('data.get("textures")', main)
         self.assertIn('"model.default.json"', main)
         self.assertIn('profile: str | None = None', main)
