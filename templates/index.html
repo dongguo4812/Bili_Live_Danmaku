@@ -262,7 +262,9 @@
       for (const name of ["music", "video", "voice"]) {
         const state = moduleStates[name] || "stopped";
         const busy = ["starting", "pausing", "resuming", "closing"].includes(state);
-        $(name + "-control-state").textContent = moduleStateLabels[state] || "状态未知";
+        const statePill = $(name + "-control-state");
+        statePill.textContent = moduleStateLabels[state] || "状态未知";
+        statePill.dataset.state = ["stopped", "starting", "running", "pausing", "paused", "resuming", "closing", "error"].includes(state) ? state : "unknown";
         const lifecycle = $(name + "-toggle-lifecycle");
         const pause = $(name + "-toggle-pause");
         lifecycle.textContent = ["stopped", "error"].includes(state) ? "启动" : "关闭";
@@ -438,7 +440,9 @@
         $("video-state").textContent = moduleStateLabels[video.state] || "状态未知";
         $("live2d-module-state").textContent = moduleStateLabels[live2d.state] || "状态未知";
         $("voice-module-state").textContent = moduleStateLabels[voice.state] || "状态未知";
-        $("live2d-control-state").textContent = live2dEnabled ? "已启用" : "已停用";
+        const live2dControlState = $("live2d-control-state");
+        live2dControlState.textContent = live2dEnabled ? "已启用" : "已停用";
+        live2dControlState.dataset.state = live2dEnabled ? "enabled" : "disabled";
         renderModuleControls();
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
