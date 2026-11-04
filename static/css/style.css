@@ -357,3 +357,41 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .module-control-row { grid-template-columns: minmax(0, 1fr); }
   .module-control-row .action-controls { justify-content: flex-start; }
 }
+
+/* State colors for the access-center module status indicators */
+#module-controls .status-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+#module-controls .status-pill[data-state="running"],
+#module-controls .status-pill[data-state="enabled"] {
+  color: #36b978;
+  background: rgba(54, 185, 120, .12);
+}
+#module-controls .status-pill[data-state="paused"] {
+  color: #e5a93d;
+  background: rgba(229, 169, 61, .12);
+}
+#module-controls .status-pill[data-state="stopped"],
+#module-controls .status-pill[data-state="disabled"] {
+  color: #9aa3af;
+  background: rgba(154, 163, 175, .12);
+}
+#module-controls .status-pill[data-state="error"] {
+  color: #ef6262;
+  background: rgba(239, 98, 98, .12);
+}
+#module-controls .status-pill[data-state="starting"],
+#module-controls .status-pill[data-state="pausing"],
+#module-controls .status-pill[data-state="resuming"],
+#module-controls .status-pill[data-state="closing"],
+#module-controls .status-pill[data-state="unknown"] {
+  color: #65a9ed;
+  background: rgba(101, 169, 237, .12);
+}
