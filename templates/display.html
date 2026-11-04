@@ -158,7 +158,9 @@
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
   {% if live2d_enabled|default(true) %}
+  {% if live2d_enabled|default(true) %}
   <script src="/static/js/live2d.min.js?v=20261102-tts-mouth-sync"></script>
+  {% endif %}
   {% endif %}
   <script src="/static/js/display.js?v=20261103-live2d-preview-transform-metadata"></script>
 </body>
