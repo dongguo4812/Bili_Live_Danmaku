@@ -123,6 +123,10 @@ GitHub Actions runs Python compilation, configuration and offline regression tes
 
 Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **生成并试听** control on `/voice` remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
+## Verification status
+
+The maintainer has manually verified saved-room startup connection, access-center module controls and status colors, MOC2/MOC3 switching and model isolation, MOC3 actions/expressions/shortcuts/HitArea mappings, and model capability reporting. TTS mouth synchronization works on models with compatible mouth parameters; models without those parameters are correctly reported as unsupported. Gift and Super Chat event paths still need a separate complete end-to-end check. Music and video playback must be validated with the local LX Music, Chrome, OBS and live-room environment.
+
 ## Development principles
 
 - Keep modules small and independently testable.
