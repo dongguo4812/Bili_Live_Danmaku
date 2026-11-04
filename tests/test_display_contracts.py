@@ -698,3 +698,23 @@ class Live2DModelCapabilityDiagnosticsTests(unittest.TestCase):
         self.assertIn('const isStale = () => token !== null && token !== modelSwitchToken', script)
         self.assertIn('await diagnoseModelCapabilities(config, modelId, token)', script)
         self.assertIn('if (isStale()) return;', script)
+
+
+class Live2DMoc3MotionMetadataRecoveryTests(unittest.TestCase):
+    def test_motion_loader_repairs_exported_metadata_counts_before_consistency_check(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("function normalizeMotion3Consistency(buffer,byteLength)", runtime)
+        self.assertIn("meta.TotalSegmentCount=segmentTotal", runtime)
+        self.assertIn("meta.TotalPointCount=pointTotal", runtime)
+        self.assertIn("meta.CurveCount=curves.length", runtime)
+        self.assertIn("if(c){let n=normalizeMotion3Consistency(e,t);e=n.buffer,t=n.byteLength}", runtime)
+        self.assertIn("_n.create(e,t,r,i,c)", runtime)
+
+    def test_motion_metadata_recovery_validates_segment_encoding_before_rewriting(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("type===0||type===2||type===3", runtime)
+        self.assertIn("type===1", runtime)
+        self.assertIn("index+6>=segments.length", runtime)
+        self.assertIn("return{buffer,byteLength}", runtime)
