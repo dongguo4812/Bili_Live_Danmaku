@@ -109,7 +109,7 @@ GitHub Actions runs Python compilation, configuration and offline regression tes
 ## Current scope
 
 - Bilibili WEB QR-code login and local credential storage
-- Login validation before connecting
+- Saved-credential validation and automatic connection to the saved live room on startup
 - Live-room WebSocket connection, reconnection and event reception
 - Danmaku, gift and Super Chat event display in the Live2D speech bubble
 - Edge TTS speech for danmaku, gifts and Super Chat, with independent switches
@@ -117,8 +117,9 @@ GitHub Actions runs Python compilation, configuration and offline regression tes
 - Super Chat and gifts share the high-priority speech tier; ordinary danmaku is lower priority
 - When the waiting queue is full, the oldest waiting ordinary-danmaku speech is discarded first; current playback is never interrupted
 - Audio-level-driven mouth synchronization through the selected MOC2 or MOC3 runtime, when the model exposes a compatible mouth parameter
-- Per-model speech-bubble positioning and sizing controls
-- Transparent OBS Live2D display
+- MOC2/MOC3 model separation, per-model speech-bubble positioning and sizing controls
+- MOC3 motion/expression playback, keyboard shortcuts, custom HitArea mappings and model capability checks
+- Transparent OBS Live2D display through the selected MOC2 or MOC3 runtime
 
 Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **生成并试听** control on `/voice` remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
 
@@ -126,4 +127,5 @@ Configure Edge TTS on the `/voice` management page. The `/live2d/display` page k
 
 - Keep modules small and independently testable.
 - Do not report a feature as implemented until it is actually working.
-- Keep credentials and model assets out of version control unless their licenses permit it.
+- Never commit credentials, passwords or local user configuration.
+- Only include model assets when their licenses explicitly permit repository storage and redistribution.
