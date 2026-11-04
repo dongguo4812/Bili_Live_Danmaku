@@ -456,9 +456,16 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn('runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)))', display_script)
         self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', display_script)
         self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
-        self.assertIn('i.getModel().setParameterValueById(e,this._mouthOpen)', moc3_runtime)
-        self.assertIn('ParamMouthOpenY', moc3_runtime)
+        self.assertIn('getParameterId(t).getString()', moc3_runtime)
+        self.assertIn('this._mouthOpenParameterIndex>=0&&e.setParameterValueByIndex(this._mouthOpenParameterIndex,this._mouthOpen)', moc3_runtime)
+        for parameter_id in ('ParamMouthOpenY', 'PARAM_MOUTH_OPEN_Y', 'MouthOpenY'):
+            self.assertIn(parameter_id, moc3_runtime)
         self.assertIn('function startMouthSync(analyser)', display_script)
+        self.assertIn('analyser.getFloatTimeDomainData(floatSamples)', display_script)
+        self.assertIn('const targetLevel = Math.max(0, Math.min(1, (rms - 0.008) * 11.5))', display_script)
+        self.assertIn('const smoothing = targetLevel > smoothedLevel ? 0.55 : 0.2', display_script)
+        self.assertIn('source.connect(analyser)', display_script)
+        self.assertIn('analyser.connect(audioContext.destination)', display_script)
 
     def test_moc3_model_switch_waits_for_load_and_cancels_stale_requests(self):
         root = Path(__file__).resolve().parents[1]
