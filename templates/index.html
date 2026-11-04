@@ -58,8 +58,7 @@
       </div>
       <div class="inline-controls action-controls">
         <button id="qr-start" type="button">扫码登录</button>
-        <button id="connect-live" type="button">连接直播间</button>
-        <button id="disconnect-live" type="button" class="secondary-button">断开连接</button>
+        <button id="connection-toggle" type="button">连接直播间</button>
       </div>
       <p id="bili-action-message" class="muted" role="status">连接直播间前必须完成 B 站登录。</p>
       <div id="qr-area" class="qr-area" hidden>
@@ -382,6 +381,10 @@
         $("connection-state").dataset.state = data.bilibili.connected ? "connected" : ({
           connecting: "connecting", reconnecting: "reconnecting"
         }[data.bilibili.connection_state] || "disconnected");
+        const connectionActive = data.bilibili.connected ||
+          ["connecting", "reconnecting"].includes(data.bilibili.connection_state);
+        $("connection-toggle").textContent = connectionActive ? "断开连接" : "连接直播间";
+        $("connection-toggle").dataset.active = String(connectionActive);
         $("runtime-state").textContent = data.live2d.enabled === false ? "已停用" : ({
           not_started: "等待 OBS 展示页",
           loading: "正在加载",
@@ -493,33 +496,35 @@
       qrTimer = null;
     });
 
-    $("connect-live").addEventListener("click", async () => {
+    async function toggleLiveConnection() {
+      const button = $("connection-toggle");
+      const shouldDisconnect = button.dataset.active === "true";
+      button.disabled = true;
       try {
-        const room_id = Number($("room-id").value);
-        await api("/api/bilibili/room", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room_id })
-        });
-        await api("/api/bilibili/connect", { method: "POST" });
-        $("bili-action-message").textContent = "连接任务已启动，等待 B 站 WebSocket 真实认证。";
-        refreshStatus();
+        if (shouldDisconnect) {
+          const data = await api("/api/bilibili/disconnect", { method: "POST" });
+          $("bili-action-message").textContent = data.message;
+        } else {
+          const room_id = Number($("room-id").value);
+          await api("/api/bilibili/room", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ room_id })
+          });
+          await api("/api/bilibili/connect", { method: "POST" });
+          $("bili-action-message").textContent = "连接任务已启动，等待 B 站 WebSocket 真实认证。";
+        }
       } catch (error) {
         $("bili-action-message").textContent = error.message;
-        if (error.message.includes("登录") || error.message.includes("Cookie")) {
+        if (!shouldDisconnect && (error.message.includes("登录") || error.message.includes("Cookie"))) {
           startQr();
         }
+      } finally {
+        await refreshStatus();
+        button.disabled = false;
       }
-    });
+    }
 
-    $("disconnect-live").addEventListener("click", async () => {
-      try {
-        const data = await api("/api/bilibili/disconnect", { method: "POST" });
-        $("bili-action-message").textContent = data.message;
-        refreshStatus();
-      } catch (error) {
-        $("bili-action-message").textContent = error.message;
-      }
-    });
+    $("connection-toggle").addEventListener("click", toggleLiveConnection);
 
     refreshStatus();
     refreshMusicQueue();
