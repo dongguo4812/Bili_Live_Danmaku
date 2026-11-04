@@ -51,6 +51,9 @@ class Moc3AlphaDiagnosticTests(unittest.TestCase):
         self.assertIn('background: #00ff00 !important', template)
         self.assertIn('allowtransparency="true"', template)
         self.assertIn('src="{{ runtime_url }}"', template)
+        self.assertIn('#probe-viewport.with-clip', template)
+        self.assertIn('clip-path: inset(0% 0% 0% 0%)', template)
+        self.assertIn('get("clip") === "1"', template)
 
 
 if __name__ == "__main__":
