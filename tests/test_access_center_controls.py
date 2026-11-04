@@ -15,6 +15,16 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertLess(connection, controls)
         self.assertLess(controls, music_details)
 
+    def test_bilibili_connection_uses_one_connect_disconnect_toggle(self):
+        self.assertEqual(self.page.count('id="connection-toggle"'), 1)
+        self.assertNotIn('id="connect-live"', self.page)
+        self.assertNotIn('id="disconnect-live"', self.page)
+        self.assertIn('connectionActive ? "断开连接" : "连接直播间"', self.page)
+        self.assertIn('["connecting", "reconnecting"].includes(data.bilibili.connection_state)', self.page)
+        self.assertIn('button.dataset.active === "true"', self.page)
+        self.assertIn('api("/api/bilibili/connect"', self.page)
+        self.assertIn('api("/api/bilibili/disconnect"', self.page)
+
     def test_each_lifecycle_pair_uses_one_toggle_button(self):
         for module in ("music", "video", "voice"):
             with self.subTest(module=module):
