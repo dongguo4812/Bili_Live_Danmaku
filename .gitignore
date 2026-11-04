@@ -5,7 +5,22 @@ __pycache__/
 venv/
 .env
 .env.*
+
+# Local credentials must never be committed
 credentials/
+bili_cookie.txt
+obs_config.txt
+uid.txt
+*.cookie
+*.secret
+*.key
+chrome_profile/
+
+# Legacy local secrets and standalone-bot configuration
+room_config.txt
+house.txt
+
+# Preserve model directory placeholders while keeping local model assets out of version control
 !models/.gitkeep
 !models/moc2/**/.gitkeep
 !models/moc3/.gitkeep
@@ -22,18 +37,6 @@ data/video/
 data/cache/
 *.tmp
 
-# Local credentials must never be committed
-credentials/
-
-# Legacy local secrets and administrator lists
-bili_cookie.txt
-obs_config.txt
-uid.txt
-*.cookie
-*.secret
-*.key
-chrome_profile/
-
 # Retired migration markers/journals may remain on user machines; keep them ignored.
 # The current runtime never reads, writes, or deletes these historical marker files.
 config.json
@@ -45,11 +48,3 @@ config/.legacy_config_migration_v1.json
 build/
 dist/
 *.spec
-
-# Legacy local credential/config files from standalone bots
-bili_cookie.txt
-uid.txt
-room_config.txt
-obs_config.txt
-house.txt
-chrome_profile/
