@@ -510,3 +510,25 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         self.assertIn('canvas { background-color: transparent !important; }', runtime_html)
         self.assertIn('background-color: transparent !important;', display_html)
         self.assertIn('allowtransparency="true"', display_html)
+
+
+class Live2DMoc3FollowupAuditTests(unittest.TestCase):
+    def test_moc3_expression_reset_availability_uses_model3_references(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('selectedModelConfig.FileReferences.Expressions', script)
+        self.assertIn('Array.isArray(expressionEntries)', script)
+
+    def test_model_action_config_loading_ignores_stale_model_switch_results(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('async function loadModelActionConfig(modelId, token = null)', script)
+        self.assertIn('if (token !== null && token !== modelSwitchToken) return false;', script)
+        self.assertIn('loadModelActionConfig(selectedModelId, token)', script)
+        self.assertIn('loadModelActionConfig(modelId, token)', script)
+
+    def test_moc3_runtime_html_contains_valid_separate_canvas_css_rule(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        self.assertIn('body { position: relative; background-color: transparent !important; }\\n    canvas', runtime_html)
+        self.assertNotIn('}\\\\n    canvas', runtime_html)
