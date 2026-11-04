@@ -57,25 +57,24 @@ OBS WebSocket ordinary settings are stored in `config/local/obs.json`. Enter the
 
 System settings: `http://127.0.0.1:8768/settings`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**.
 
-## Default Live2D model
+## Live2D model runtimes
 
-The default model is \`live_uu\`:
+The application supports two isolated Live2D runtimes:
 
-- Model setting: \`models/live_uu/model.json\` (or \`models/<model-id>/<model-id>.model.json\`)
-- Cubism 2 runtime bundle: \`static/js/live2d.min.js\`
-- OBS display controller: \`static/js/display.js\`
+| Runtime | Model directory | Model entry | Runtime assets |
+|---|---|---|---|
+| MOC2 | `models/moc2/<model-id>/` | `model.json` or `<directory-name>.model.json` | `static/js/live2d.min.js` |
+| MOC3 | `models/moc3/<model-id>/` | `<directory-name>.model3.json` | Cubism 5 R5 Core / Framework under `static/js/live2d/moc3/` |
 
-The display page calls the legacy runtime API \`loadlive2d(canvasId, modelJsonUrl)\`. Flask serves model assets through \`/models/<path>\`. The page checks referenced model files before starting the renderer and reports success only after detecting rendered pixels in the WebGL drawing buffer.
+The full display page at `/live2d/display` loads the selected runtime from `config/local/live2d.json`. Model directories, selections and per-model preferences are kept separate between MOC2 and MOC3. The configured default MOC2 model ID is `live_uu`; if it is not installed locally, select an installed model in the display settings or add a properly licensed model under the MOC2 directory. When no MOC3 default is configured, the first available MOC3 model is selected.
 
-Add the OBS Browser Source URL:
+The model capability panel checks model files, textures, motions, expressions, physics, HitArea mappings and TTS mouth parameters. MOC3 motions, expressions, keyboard shortcuts and custom hit-area mappings are handled by the Cubism 5 runtime. Availability still depends on the features declared by each model.
 
-\`\`\`text
-http://127.0.0.1:8768/live2d/display
-\`\`\`
+TTS mouth synchronization is driven by the audio actually played in the display page. Models with a usable LipSync group or compatible mouth parameter can synchronize. A model with neither is reported as unsupported; this is a model-resource limitation, not a runtime loading failure.
 
-For best clarity, set the OBS Browser Source resolution to the intended output resolution (normally 1920×1080) rather than stretching a small source.
+Add model assets only when their licenses permit their use, and ensure all referenced textures, motions, expressions and physics files are present.
 
-## MOC2 rendering quality
+## Live2D rendering quality
 
 Rendering quality is a first-class requirement. The implementation:
 
@@ -110,7 +109,7 @@ The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the a
 - Configurable Chinese voice, speech rate, volume, queue limit and minimum gift value
 - Super Chat and gifts share the high-priority speech tier; ordinary danmaku is lower priority
 - When the waiting queue is full, the oldest waiting ordinary-danmaku speech is discarded first; current playback is never interrupted
-- Audio-level-driven mouth synchronization through the Cubism 2 MOC2 runtime
+- Audio-level-driven mouth synchronization through the selected MOC2 or MOC3 runtime, when the model exposes a compatible mouth parameter
 - Per-model speech-bubble positioning and sizing controls
 - Transparent OBS Live2D display
 
