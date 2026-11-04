@@ -677,3 +677,24 @@ class Live2DHitAreaMotionMappingTests(unittest.TestCase):
         self.assertIn('if(a===`Head`)', runtime)
         self.assertIn('n.setRandomExpression()', runtime)
         self.assertIn('if(a===`Body`)', runtime)
+
+
+class Live2DModelCapabilityDiagnosticsTests(unittest.TestCase):
+    def test_capability_panel_reports_runtime_features_and_invalid_resources(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates/display.html").read_text(encoding="utf-8")
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('id="model-capabilities"', page)
+        self.assertIn('async function diagnoseModelCapabilities(config, modelId, token = null)', script)
+        for label in ("Idle 动作", "可播放动作", "表情", "物理配置", "触摸区域", "TTS 嘴型同步", "无效资源"):
+            self.assertIn(label, script)
+        self.assertIn('Array.isArray(data.PhysicsSettings) && data.PhysicsSettings.length > 0', script)
+        self.assertIn('getParamIndex(id) >= 0', script)
+        self.assertIn('event.data.supported', script)
+
+    def test_capability_checks_ignore_stale_model_switches(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('const isStale = () => token !== null && token !== modelSwitchToken', script)
+        self.assertIn('await diagnoseModelCapabilities(config, modelId, token)', script)
+        self.assertIn('if (isStale()) return;', script)
