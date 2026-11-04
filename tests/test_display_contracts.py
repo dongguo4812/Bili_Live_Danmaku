@@ -465,7 +465,9 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn("setParameterValueByIndex(t.index,t.min+(t.max-t.min)*this._mouthOpen)", moc3_runtime)
         self.assertIn('当前模型没有可识别的嘴型参数，TTS 嘴型同步不可用。', moc3_runtime)
         self.assertIn('parameterCount:e.getParameterCount()', moc3_runtime)
-        self.assertIn('parameterIds:Array.from', moc3_runtime)
+        self.assertIn('parameterIds:r.map(e=>e.id)', moc3_runtime)
+        self.assertIn('declaredIds:n', moc3_runtime)
+        self.assertIn('invalidDeclaredIds:a', moc3_runtime)
         self.assertIn('检测到可用嘴型参数：', moc3_runtime)
         for parameter_id in ('ParamMouthOpenY', 'PARAM_MOUTH_OPEN_Y', 'MouthOpenY'):
             self.assertIn(parameter_id, moc3_runtime)
