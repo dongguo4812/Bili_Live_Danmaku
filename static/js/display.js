@@ -299,22 +299,41 @@
   }
 
   function startMouthSync(analyser) {
-    const samples = new Uint8Array(analyser.fftSize);
+    const floatSamples = new Float32Array(analyser.fftSize);
+    const byteSamples = new Uint8Array(analyser.fftSize);
+    let smoothedLevel = 0;
     const tick = () => {
       if (!audioPlaying) {
+        smoothedLevel = 0;
         setLive2DMouth(0);
         mouthAnimationFrame = 0;
         return;
       }
-      analyser.getByteTimeDomainData(samples);
+
       let sum = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const normalized = (samples[i] - 128) / 128;
-        sum += normalized * normalized;
+      if (typeof analyser.getFloatTimeDomainData === "function") {
+        analyser.getFloatTimeDomainData(floatSamples);
+        for (let i = 0; i < floatSamples.length; i++) {
+          sum += floatSamples[i] * floatSamples[i];
+        }
+      } else {
+        analyser.getByteTimeDomainData(byteSamples);
+        for (let i = 0; i < byteSamples.length; i++) {
+          const sample = (byteSamples[i] - 128) / 128;
+          sum += sample * sample;
+        }
       }
-      const rms = Math.sqrt(sum / samples.length);
-      const level = Math.max(0, Math.min(1, (rms - 0.012) * 7.5));
-      setLive2DMouth(level);
+
+      // Use the actual decoded playback signal, not the requested TTS volume setting.
+      const sampleCount = floatSamples.length;
+      const rms = Math.sqrt(sum / sampleCount);
+      const targetLevel = Math.max(0, Math.min(1, (rms - 0.008) * 11.5));
+      // Fast attack and slower release make speech articulation visible without jitter.
+      const smoothing = targetLevel > smoothedLevel ? 0.55 : 0.2;
+      smoothedLevel += (targetLevel - smoothedLevel) * smoothing;
+      if (smoothedLevel < 0.005) smoothedLevel = 0;
+
+      setLive2DMouth(smoothedLevel);
       mouthAnimationFrame = requestAnimationFrame(tick);
     };
     if (mouthAnimationFrame) cancelAnimationFrame(mouthAnimationFrame);
@@ -614,6 +633,7 @@
     const source = audioContext.createBufferSource();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.72;
     source.buffer = decodedAudio;
     source.connect(analyser);
     analyser.connect(audioContext.destination);
