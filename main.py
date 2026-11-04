@@ -198,7 +198,12 @@ def _model_config_path(directory: Path, model_id: str, version: str = "moc2", pr
     """查找指定版本和服装配置；profile 仅允许当前模型目录内的 model*.json 文件名。"""
     version = _normalize_live2d_version(version)
     if version == "moc2" and profile:
-        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile):
+        # 兼容标准 model*.json 配置，以及 "<model_id>.model.json" 命名配置。
+        valid_profile = (
+            re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile)
+            or profile == f"{model_id}.model.json"
+        )
+        if not valid_profile:
             return None
         candidate = directory / profile
         try:
