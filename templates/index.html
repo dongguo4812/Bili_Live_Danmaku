@@ -136,16 +136,22 @@
         <div>
           <strong id="live2d-module-state">已启用</strong>
           <p class="muted">统一控制 Live2D 运行环境；内部根据模型版本选择对应运行时。</p>
-          <a href="/live2d/moc2/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
+          <a href="/live2d/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
       <div class="inline-controls action-controls">
         <button type="button" id="live2d-toggle" class="secondary-button">停用 Live2D</button>
+        <label for="live2d-version">运行时版本</label>
+        <select id="live2d-version">
+          <option value="moc2">MOC2（Cubism 2）</option>
+          <option value="moc3">MOC3（Cubism 5）</option>
+        </select>
         <strong id="model-name">live_uu</strong>
       </div>
-      <p id="live2d-toggle-message" class="muted" role="status">当前已接入 MOC2 运行时；MOC3 将由内部版本选择器接入。</p>
-      <p class="muted">模型目录：<code>models/moc2/live_uu/</code></p>
+      <p id="live2d-toggle-message" class="muted" role="status">MOC2 / MOC3 使用独立模型目录和设置；切换版本不会覆盖另一版本的配置。</p>
+      <p id="live2d-version-message" class="muted" role="status"></p>
+      <p class="muted">模型目录随版本分别位于 <code>models/moc2/</code> 和 <code>models/moc3/</code>。</p>
       <p class="muted">请自行放入具有合法使用授权的模型文件；模型资源不会随项目自动分发。</p>
     </section>
 
@@ -272,6 +278,30 @@
       setLive2DEnabled(!currentlyEnabled);
     });
 
+    async function setLive2DVersion(version) {
+      const selector = $("live2d-version");
+      const message = $("live2d-version-message");
+      selector.disabled = true;
+      message.textContent = "正在切换 Live2D 版本…";
+      try {
+        const data = await api("/api/modules/live2d/version", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version })
+        });
+        message.textContent = data.runtime_supported
+          ? data.message
+          : data.message + " 当前 MOC3 展示暂不可用；不会回退到 MOC2。";
+        await refreshStatus();
+      } catch (error) {
+        message.textContent = "版本切换失败：" + error.message;
+        await refreshStatus();
+      } finally {
+        selector.disabled = false;
+      }
+    }
+    $("live2d-version").addEventListener("change", event => setLive2DVersion(event.target.value));
+
     async function refreshMusicQueue() {
       try {
         const data = await api("/api/music/queue");
@@ -344,7 +374,11 @@
         }[data.live2d.runtime_state] || "状态未知");
         const live2dEnabled = data.live2d.enabled !== false;
         $("model-state").textContent = !live2dEnabled ? "运行时已停用" : (data.live2d.config_exists ? "已找到配置" : "缺少模型配置");
-        $("model-name").textContent = data.live2d.name || "live_uu";
+        $("model-name").textContent = data.live2d.name || "尚未选择模型";
+        $("live2d-version").value = data.live2d.version || "moc2";
+        $("live2d-version-message").textContent = data.live2d.version === "moc3" && !data.live2d.runtime_supported
+          ? "MOC3 已选中，但 Cubism 5 Framework/Core 尚未集成；当前不会加载 MOC2 模型。"
+          : "";
         $("live2d-module-state").textContent = live2dEnabled ? "已启用" : "已停用";
         $("live2d-toggle").textContent = live2dEnabled ? "停用 Live2D" : "启用 Live2D";
         $("live2d-toggle").dataset.enabled = String(live2dEnabled);

@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - integration/unified-control-center
+      - "feat/live2d-moc3-runtime"
   pull_request:
     branches:
       - master
@@ -24,6 +25,10 @@ jobs:
         run: python -m compileall -q .
       - name: Check Live2D display JavaScript syntax
         run: node --check static/js/display.js
+      - name: Check Cubism 5 MOC3 runtime JavaScript syntax
+        run: |
+          node --input-type=module --check < static/js/live2d/moc3/runtime.js
+          node --check static/js/live2d/moc3/Core/live2dcubismcore.min.js
       - name: Run core config and credential regression tests
         timeout-minutes: 3
         run: python -u -m unittest discover -s tests -p "test_core.py" -v

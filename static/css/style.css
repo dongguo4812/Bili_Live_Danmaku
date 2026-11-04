@@ -83,6 +83,7 @@ html.display-root { background: transparent !important; }
   cursor: pointer;
 }
 .setting-field { display: grid; gap: 9px; margin: 14px 0; font-size: 13px; }
+.setting-field[hidden] { display: none !important; }
 .setting-field > span { display: flex; justify-content: space-between; gap: 12px; color: #e7ebf3; }
 .setting-field output { color: #9fbaff; font-variant-numeric: tabular-nums; }
 .setting-field select {
@@ -109,8 +110,9 @@ html.display-root { background: transparent !important; }
 .room-control { display: grid; gap: 9px; margin: 8px 0 18px; }
 .room-control label { color: #e7ebf3; font-size: 13px; }
 .inline-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.inline-controls input {
-  flex: 1 1 220px; min-width: 0; padding: 10px 12px;
+.inline-controls input,
+.inline-controls select {
+  flex: 1 1 180px; min-width: 0; padding: 10px 12px;
   border: 1px solid #465166; border-radius: 8px;
   background: #111722; color: #f2f4f8; font: inherit;
 }

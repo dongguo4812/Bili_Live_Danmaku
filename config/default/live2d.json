@@ -1,5 +1,8 @@
 {
   "format": "MOC2",
   "default_model": "live_uu",
-  "enabled": true
+  "enabled": true,
+  "runtime_version": "moc2",
+  "default_model_moc2": "live_uu",
+  "default_model_moc3": ""
 }

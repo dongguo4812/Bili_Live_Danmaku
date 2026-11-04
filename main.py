@@ -120,12 +120,24 @@ LIVE_CLIENT = LiveRoomClient(
 )
 
 
-def _safe_model_dir(model_id: str) -> Path | None:
-    """解析独立的 MOC2 模型目录。"""
+def _normalize_live2d_version(version: Any = "moc2") -> str:
+    """规范化 Live2D 版本标识。"""
+    value = str(version or "moc2").strip().lower()
+    aliases = {"2": "moc2", "moc2": "moc2", "3": "moc3", "moc3": "moc3"}
+    if value not in aliases:
+        raise ValueError("Live2D 版本仅支持 moc2 或 moc3。")
+    return aliases[value]
+
+
+def _safe_model_dir(model_id: str, version: str = "moc2") -> Path | None:
+    """安全解析指定版本的独立模型目录。"""
     if not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", model_id):
         return None
-
-    root = (MODEL_ROOT / "moc2").resolve()
+    try:
+        version = _normalize_live2d_version(version)
+    except ValueError:
+        return None
+    root = (MODEL_ROOT / version).resolve()
     directory = (root / model_id).resolve()
     try:
         directory.relative_to(root)
@@ -133,17 +145,15 @@ def _safe_model_dir(model_id: str) -> Path | None:
         return None
     if not directory.is_dir():
         return None
-    has_config = any(
-        (directory / filename).is_file()
-        for filename in ("model.json", f"{model_id}.model.json")
-    )
-    return directory if has_config else None
+    names = ("model.json", "model.default.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
+    return directory if any((directory / name).is_file() for name in names) else None
 
 
-def _model_asset_prefix(directory: Path) -> str:
-    """返回版本化 MOC2 模型资源的站点绝对 URL 前缀。"""
-    relative = directory.resolve().relative_to((MODEL_ROOT / "moc2").resolve())
-    return "/models/moc2/" + relative.as_posix().rstrip("/") + "/"
+def _model_asset_prefix(directory: Path, version: str = "moc2") -> str:
+    """返回指定版本模型资源的站点绝对 URL 前缀。"""
+    version = _normalize_live2d_version(version)
+    relative = directory.resolve().relative_to((MODEL_ROOT / version).resolve())
+    return f"/models/{version}/" + relative.as_posix().rstrip("/") + "/"
 
 
 def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, Any]:
@@ -184,35 +194,85 @@ def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, An
     return data
 
 
-def _model_config_path(directory: Path, model_id: str) -> Path | None:
-    """查找模型配置：优先 model.json，其次 <模型目录名>.model.json。"""
-    for filename in ("model.json", f"{model_id}.model.json"):
+def _model_config_path(directory: Path, model_id: str, version: str = "moc2", profile: str | None = None) -> Path | None:
+    """查找指定版本和服装配置；profile 仅允许当前模型目录内的 model*.json 文件名。"""
+    version = _normalize_live2d_version(version)
+    if version == "moc2" and profile:
+        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile):
+            return None
+        candidate = directory / profile
+        try:
+            candidate.resolve().relative_to(directory.resolve())
+        except ValueError:
+            return None
+        return candidate if candidate.is_file() else None
+    names = ("model.json", "model.default.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
+    for filename in names:
         candidate = directory / filename
         if candidate.is_file():
             return candidate
     return None
 
 
-def _read_model_config(model_id: str) -> tuple[Path, dict[str, Any]]:
-    directory = _safe_model_dir(model_id)
+def _model_profiles(model_id: str, version: str = "moc2") -> list[dict[str, str]]:
+    """列出角色模型的可选配置；MOC3 暂按单配置模型处理。"""
+    version = _normalize_live2d_version(version)
+    directory = _safe_model_dir(model_id, version)
     if directory is None:
-        raise FileNotFoundError(f"模型目录不存在：{model_id}")
-    config_path = _model_config_path(directory, model_id)
+        return []
+    if version == "moc3":
+        path = _model_config_path(directory, model_id, version)
+        return [{"id": path.name, "name": "默认配置"}] if path else []
+    candidates = []
+    for path in directory.glob("model*.json"):
+        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("model"), str):
+            continue
+        textures = data.get("textures")
+        if not isinstance(textures, list) or not textures or not all(isinstance(item, str) and item for item in textures):
+            continue
+        label = str(data.get("name") or ("默认服装" if path.name in {"model.json", "model.default.json"} else path.stem.removeprefix("model.")))
+        candidates.append({"id": path.name, "name": label})
+    candidates.sort(key=lambda item: (0 if item["id"] in {"model.json", "model.default.json"} else 1, item["id"].casefold()))
+    return candidates
+
+
+def _read_model_config(model_id: str, version: str = "moc2", profile: str | None = None) -> tuple[Path, dict[str, Any]]:
+    version = _normalize_live2d_version(version)
+    directory = _safe_model_dir(model_id, version)
+    if directory is None:
+        raise FileNotFoundError(f"{version} 模型目录不存在：{model_id}")
+    config_path = _model_config_path(directory, model_id, version, profile)
     if config_path is None:
-        raise FileNotFoundError(
-            f"模型配置不存在：models/moc2/{model_id}/model.json 或 "
-            f"models/moc2/{model_id}/{model_id}.model.json"
-        )
+        raise FileNotFoundError(f"{version} 模型配置不存在或配置版本无效：models/{version}/{model_id}/{profile or ''}")
     data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError(f"{config_path.name} 必须是 JSON 对象")
     return directory, data
 
 
-def _default_model_id() -> str:
-    configured = CONFIG.get("live2d", {}).get("default_model", DEFAULT_MODEL)
-    if isinstance(configured, str) and _safe_model_dir(configured):
+def _live2d_runtime_version() -> str:
+    try:
+        return _normalize_live2d_version(CONFIG.get("live2d", {}).get("runtime_version", "moc2"))
+    except ValueError:
+        logger.warning("Live2D runtime_version 配置无效，回退到 MOC2。")
+        return "moc2"
+
+
+def _default_model_id(version: str = "moc2") -> str:
+    version = _normalize_live2d_version(version)
+    live2d = CONFIG.get("live2d", {})
+    configured = live2d.get("default_model_moc2", live2d.get("default_model", DEFAULT_MODEL)) if version == "moc2" else live2d.get("default_model_moc3", "")
+    if isinstance(configured, str) and configured and _safe_model_dir(configured, version):
         return configured
+    if version == "moc3":
+        available = _available_models("moc3")
+        return available[0]["id"] if available else ""
     return DEFAULT_MODEL
 
 
@@ -233,10 +293,14 @@ def _load_user_settings() -> dict[str, Any]:
     if "idle_tips" in live2d:
         live2d.pop("idle_tips", None)
         manager.save("live2d", live2d)
-    default_model = str(live2d.get("default_model") or DEFAULT_MODEL)
-    model_id = live2d.get("model")
-    if not isinstance(model_id, str) or _safe_model_dir(model_id) is None:
-        model_id = default_model
+    model_by_version = live2d.get("model_by_version")
+    if not isinstance(model_by_version, dict):
+        model_by_version = {}
+    legacy_model = live2d.get("model")
+    if "moc2" not in model_by_version and isinstance(legacy_model, str):
+        model_by_version["moc2"] = legacy_model
+        live2d["model_by_version"] = model_by_version
+        manager.save("live2d", live2d)
     models = live2d.get("models") if isinstance(live2d.get("models"), dict) else {}
     tts = voice.get("tts") if isinstance(voice.get("tts"), dict) else {}
     try:
@@ -244,7 +308,10 @@ def _load_user_settings() -> dict[str, Any]:
     except (TypeError, ValueError):
         room_id = 0
     return {
-        "model": model_id, "models": models,
+        "model": model_by_version.get("moc2") or str(live2d.get("default_model") or DEFAULT_MODEL),
+        "model_by_version": model_by_version,
+        "models": models,
+        "runtime_version": _live2d_runtime_version(),
         "bilibili": {"room_id": room_id}, "tts": tts, "idle_tips": idle_tips,
     }
 
@@ -254,7 +321,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
     if not isinstance(models, dict):
         models = {}
     # 优先读取带版本前缀的新键；旧版纯 model_id 设置作为迁移回退。
-    raw = models.get(f"{model_version}:{model_id}", models.get(model_id, {}))
+    raw = models.get(f"{model_version}:{model_id}", models.get(model_id, {}) if model_version == "moc2" else {})
     if not isinstance(raw, dict):
         raw = {}
 
@@ -288,6 +355,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
         "bubble_max_items": integer("bubble_max_items", 5, 1, 12),
         "bubble_duration": integer("bubble_duration", 10, 2, 60),
         "bubble_font_size": integer("bubble_font_size", 20, 12, 40),
+        "profile": raw.get("profile") if isinstance(raw.get("profile"), str) else "",
     }
 
 
@@ -303,8 +371,15 @@ def _save_user_settings(settings: dict[str, Any]) -> None:
     live["room_id"] = max(0, int(bilibili.get("room_id", live.get("room_id", 0)) or 0))
 
     model_id = settings.get("model")
-    if isinstance(model_id, str) and _safe_model_dir(model_id):
+    if isinstance(model_id, str) and _safe_model_dir(model_id, "moc2"):
         live2d["model"] = model_id
+    model_by_version = settings.get("model_by_version")
+    if isinstance(model_by_version, dict):
+        live2d["model_by_version"] = {
+            version: value for version, value in model_by_version.items()
+            if version in {"moc2", "moc3"} and isinstance(value, str)
+            and _safe_model_dir(value, version)
+        }
     models = settings.get("models")
     if isinstance(models, dict):
         live2d["models"] = models
@@ -922,39 +997,61 @@ def _register_windows_console_handler() -> None:
         logger.warning("注册 Windows CMD 关闭事件处理失败：%s", exc)
 
 
-def _available_models() -> list[dict[str, str]]:
-    """只扫描 models/moc2/ 下的 Cubism 2 模型。"""
+def _available_models(version: str = "moc2") -> list[dict[str, str]]:
+    """仅扫描指定版本目录，并按该版本的配置格式验证模型入口。"""
+    version = _normalize_live2d_version(version)
     result: list[dict[str, str]] = []
-    moc2_root = MODEL_ROOT / "moc2"
-    if not moc2_root.is_dir():
+    version_root = MODEL_ROOT / version
+    if not version_root.is_dir():
         return result
-
-    for directory in sorted(moc2_root.iterdir(), key=lambda item: item.name.casefold()):
-        if not directory.is_dir() or _safe_model_dir(directory.name) is None:
+    for directory in sorted(version_root.iterdir(), key=lambda item: item.name.casefold()):
+        if not directory.is_dir() or _safe_model_dir(directory.name, version) is None:
             continue
-        config_path = _model_config_path(directory, directory.name)
+        config_path = _model_config_path(directory, directory.name, version)
         if config_path is None:
             continue
         try:
             data = json.loads(config_path.read_text(encoding="utf-8-sig"))
-            if not isinstance(data, dict) or not isinstance(data.get("model"), str):
+            if not isinstance(data, dict):
                 continue
-            if not isinstance(data.get("textures"), list) or not data["textures"]:
-                continue
-            result.append({"id": directory.name, "name": str(data.get("name") or directory.name), "version": "moc2"})
+            if version == "moc2":
+                valid = isinstance(data.get("model"), str) and isinstance(data.get("textures"), list) and bool(data["textures"])
+            else:
+                refs = data.get("FileReferences")
+                valid = isinstance(refs, dict) and isinstance(refs.get("Moc"), str) and isinstance(refs.get("Textures"), list) and bool(refs["Textures"])
+            if valid:
+                result.append({"id": directory.name, "name": str(data.get("name") or directory.name), "version": version})
         except Exception:
-            logger.warning("跳过无效 MOC2 模型配置：%s", config_path)
+            logger.warning("跳过无效 %s 模型配置：%s", version.upper(), config_path)
     return result
 
 
-def _model_assets(model_id: str) -> tuple[bool, list[str], dict[str, Any]]:
-    directory = _safe_model_dir(model_id)
+def _model_assets(model_id: str, version: str = "moc2") -> tuple[bool, list[str], dict[str, Any]]:
+    version = _normalize_live2d_version(version)
+    directory = _safe_model_dir(model_id, version)
     if directory is None:
-        return False, [f"模型目录不存在：{model_id}"], {}
+        return False, [f"{version} 模型目录不存在：{model_id}"], {}
     try:
-        _, data = _read_model_config(model_id)
+        _, data = _read_model_config(model_id, version)
     except Exception as exc:
         return False, [str(exc)], {}
+    if version == "moc3":
+        refs = data.get("FileReferences", {})
+        required = [refs.get("Moc")] + (refs.get("Textures") if isinstance(refs.get("Textures"), list) else []) if isinstance(refs, dict) else []
+        missing = []
+        for relative in required:
+            if not isinstance(relative, str) or not relative:
+                missing.append(str(relative))
+                continue
+            candidate = (directory / relative).resolve()
+            try:
+                candidate.relative_to(directory.resolve())
+            except ValueError:
+                missing.append(f"非法资源路径：{relative}")
+                continue
+            if not candidate.is_file():
+                missing.append(relative)
+        return not missing, missing, data
 
     references: list[str] = []
     for key in ("model", "physics", "pose"):
@@ -996,30 +1093,46 @@ def _live2d_enabled() -> bool:
     return bool(CONFIG.get("live2d", {}).get("enabled", True))
 
 
+def _moc3_runtime_available() -> bool:
+    """检查 Cubism 5 R5 Core、Framework bundle 与 WebGL shader 是否齐备。"""
+    runtime_root = BASE_DIR / "static" / "js" / "live2d" / "moc3"
+    core = runtime_root / "Core" / "live2dcubismcore.min.js"
+    framework_bundle = runtime_root / "runtime.js"
+    shader = runtime_root / "Framework" / "Shaders" / "WebGL" / "vertshadersrc.vert"
+    return core.is_file() and framework_bundle.is_file() and shader.is_file()
+
+
 def model_status() -> dict[str, Any]:
     enabled = _live2d_enabled()
+    version = _live2d_runtime_version()
     settings = _load_user_settings()
-    model_id = settings["model"]
-    directory = _safe_model_dir(model_id)
-    model_config = _model_config_path(directory, model_id) if directory else None
-    runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"
-    assets_ok, missing, _ = _model_assets(model_id) if enabled else (False, [], {})
+    model_id = settings.get("model_by_version", {}).get(version) or _default_model_id(version)
+    directory = _safe_model_dir(model_id, version) if model_id else None
+    model_config = _model_config_path(directory, model_id, version) if directory else None
+    runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js" if version == "moc2" else BASE_DIR / "static" / "live2d" / "moc3" / "Core" / "live2dcubismcore.min.js"
+    assets_ok, missing, _ = _model_assets(model_id, version) if enabled and model_id else (False, [], {})
     with RUNTIME_STATE_LOCK:
         runtime_state = dict(RUNTIME_STATE)
     if not enabled:
         runtime_state = {"state": "not_started", "message": "Live2D 运行时已停用。"}
     return {
         "enabled": enabled,
-        "format": CONFIG.get("live2d", {}).get("format", "MOC2"),
+        "format": version.upper(),
+        "version": version,
         "name": model_id,
         "directory_exists": bool(directory),
         "config_exists": bool(model_config and model_config.is_file()),
         "runtime_file_exists": runtime_file.is_file(),
+        "runtime_supported": version == "moc2" or _moc3_runtime_available(),
         "assets_ready": assets_ok,
         "missing_assets": missing,
         "runtime_state": runtime_state["state"],
-        "runtime_ready": enabled and runtime_state["state"] == "loaded",
-        "message": runtime_state["message"],
+        "runtime_ready": enabled and (version == "moc2" or _moc3_runtime_available()) and runtime_state["state"] == "loaded",
+        "message": (
+            "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+            if version == "moc3" and not _moc3_runtime_available()
+            else runtime_state["message"]
+        ),
     }
 
 
@@ -1184,13 +1297,29 @@ def index():
 @app.get("/live2d/display")
 def display():
     # Live2D 完整展示：包含模型、弹幕和 TTS。
-    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())
+
+
+@app.get("/live2d/moc3/runtime/<model_id>")
+def live2d_moc3_runtime_page(model_id: str):
+    if not _live2d_enabled() or not _moc3_runtime_available():
+        abort(404)
+    if _safe_model_dir(model_id, "moc3") is None:
+        abort(404)
+    assets_ok, missing, _ = _model_assets(model_id, "moc3")
+    if not assets_ok:
+        abort(404)
+    return render_template(
+        "live2d_moc3_runtime.html",
+        model_url=f"/models/moc3/{model_id}/model.json",
+    )
+
 
 
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
-    # MOC2 独立展示。
-    return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())
+    # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
+    return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled(), live2d_version="moc2")
 
 
 @app.get("/danmaku/display")
@@ -1231,6 +1360,7 @@ def system_settings_page():
 @app.get("/credentials")
 def credentials_page():
     return render_template("credentials.html")
+
 
 
 @app.get("/display/combined")
@@ -1285,22 +1415,52 @@ def video_display_page():
     return render_template("video_display.html")
 
 
+@app.get("/api/models")
+def api_live2d_models():
+    requested = str(request.args.get("version", "3")).strip().lower()
+    if requested not in {"3", "moc3"}:
+        return jsonify({"ok": False, "error": "该接口仅提供 MOC3 模型列表。"}), 400
+    models = [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "config": f"/models/moc3/{item['id']}/model.json",
+        }
+        for item in _available_models("moc3")
+    ]
+    return jsonify({"ok": True, "models": models})
+
+
 @app.get("/api/live2d/settings")
 def get_display_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
-    model_id = settings["model"]
-    available = _available_models()
+    try:
+        version = _normalize_live2d_version(request.args.get("version") or settings.get("runtime_version") or _live2d_runtime_version())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    available = _available_models(version)
+    model_id = settings.get("model_by_version", {}).get(version) or _default_model_id(version)
     requested_model = request.args.get("model")
     if isinstance(requested_model, str) and any(item["id"] == requested_model for item in available):
         model_id = requested_model
     if not any(item["id"] == model_id for item in available):
-        model_id = _default_model_id()
+        model_id = available[0]["id"] if available else ""
+    preferences = _model_preferences(settings, model_id, version) if model_id else {}
+    profiles = _model_profiles(model_id, version) if model_id else []
+    requested_profile = request.args.get("profile")
+    valid_profile_ids = {item["id"] for item in profiles}
+    if requested_profile in valid_profile_ids:
+        preferences["profile"] = requested_profile
+    elif preferences.get("profile") not in valid_profile_ids:
+        preferences["profile"] = profiles[0]["id"] if profiles else ""
     return jsonify({
         "ok": True,
+        "version": version,
         "model": model_id,
         "models": available,
-        "preferences": _model_preferences(settings, model_id),
+        "preferences": preferences,
+        "profiles": profiles,
         "enabled": _live2d_enabled(),
     })
 
@@ -1310,9 +1470,19 @@ def save_display_settings():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        version = _normalize_live2d_version(payload.get("version") or request.args.get("version") or _live2d_runtime_version())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     model_id = payload.get("model")
-    if not isinstance(model_id, str) or not any(item["id"] == model_id for item in _available_models()):
+    if not isinstance(model_id, str) or not any(item["id"] == model_id for item in _available_models(version)):
         return jsonify({"ok": False, "error": "所选模型不存在或缺少有效模型配置。"}), 400
+    profile = payload.get("profile")
+    available_profiles = _model_profiles(model_id, version)
+    if not available_profiles:
+        return jsonify({"ok": False, "error": "所选模型没有可用配置。"}), 400
+    if not isinstance(profile, str) or not any(item["id"] == profile for item in available_profiles):
+        profile = available_profiles[0]["id"]
 
     def bounded_number(key: str, default: float, low: float, high: float) -> float:
         try:
@@ -1351,8 +1521,11 @@ def save_display_settings():
 
     with SETTINGS_LOCK:
         settings = _load_user_settings()
-        settings["model"] = model_id
-        settings.setdefault("models", {})[f"moc2:{model_id}"] = preferences
+        settings.setdefault("model_by_version", {})[version] = model_id
+        if version == "moc2":
+            settings["model"] = model_id
+        preferences["profile"] = profile
+        settings.setdefault("models", {})[f"{version}:{model_id}"] = preferences
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
@@ -1363,7 +1536,9 @@ def save_display_settings():
             obs_refresh = _refresh_obs_browser_sources()
     return jsonify({
         "ok": True,
+        "version": version,
         "model": model_id,
+        "profile": profile,
         "preferences": preferences,
         "obs_refresh": obs_refresh,
     })
@@ -1371,34 +1546,52 @@ def save_display_settings():
 
 @app.get("/models/<model_id>/model.json")
 def model_config_file(model_id: str):
+    return _serve_model_config(model_id, "moc2")
+
+
+@app.get("/models/<version>/<model_id>/model.json")
+def versioned_model_config_file(version: str, model_id: str):
+    try:
+        version = _normalize_live2d_version(version)
+    except ValueError:
+        abort(404)
+    return _serve_model_config(model_id, version)
+
+
+def _serve_model_config(model_id: str, version: str):
     if not _live2d_enabled():
         abort(404)
+    profile = request.args.get("profile") if version == "moc2" else None
     try:
-        directory, data = _read_model_config(model_id)
+        directory, data = _read_model_config(model_id, version, profile)
     except (FileNotFoundError, ValueError, json.JSONDecodeError):
         abort(404)
     with SETTINGS_LOCK:
         settings = _load_user_settings()
-    preferences = _model_preferences(settings, model_id)
-    data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))
-    layout = data.get("layout")
-    if not isinstance(layout, dict):
-        layout = {}
-        data["layout"] = layout
-    original_width = layout.get("width", 2.0)
-    original_height = layout.get("height")
-    try:
-        if isinstance(original_width, (int, float)) and math.isfinite(float(original_width)):
-            layout["width"] = float(original_width) * preferences["scale"]
-    except (TypeError, ValueError):
-        pass
-    if isinstance(original_height, (int, float)) and math.isfinite(float(original_height)):
-        layout["height"] = float(original_height) * preferences["scale"]
-    try:
-        layout["center_x"] = float(layout.get("center_x", 0.0)) + preferences["x"]
-        layout["center_y"] = float(layout.get("center_y", 0.0)) + preferences["y"]
-    except (TypeError, ValueError):
-        abort(500)
+    preferences = _model_preferences(settings, model_id, version)
+    if version == "moc2":
+        data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))
+    if version == "moc2":
+        layout = data.get("layout")
+        if not isinstance(layout, dict):
+            layout = {}
+            data["layout"] = layout
+        original_width = layout.get("width", 2.0)
+        original_height = layout.get("height")
+        try:
+            if isinstance(original_width, (int, float)) and math.isfinite(float(original_width)):
+                layout["width"] = float(original_width) * preferences["scale"]
+        except (TypeError, ValueError):
+            pass
+        if isinstance(original_height, (int, float)) and math.isfinite(float(original_height)):
+            layout["height"] = float(original_height) * preferences["scale"]
+        try:
+            layout["center_x"] = float(layout.get("center_x", 0.0)) + preferences["x"]
+            layout["center_y"] = float(layout.get("center_y", 0.0)) + preferences["y"]
+        except (TypeError, ValueError):
+            abort(500)
+    # MOC3 的缩放和位置由 Cubism 5 Runtime 的模型矩阵实时处理；这里原样保留
+    # model3.json 的 Layout，避免将 Cubism 2 的布局处理重复应用到 MOC3 模型。
     return jsonify(data)
 
 
@@ -1530,6 +1723,58 @@ def disconnect_live_room():
 @app.get("/api/modules")
 def api_modules():
     return jsonify({"ok": True, "modules": APPLICATION_RUNTIME.modules.list_status()})
+
+
+@app.post("/api/modules/live2d/version")
+def set_live2d_version():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        version = _normalize_live2d_version(payload.get("version"))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    manager = ConfigManager()
+    with SETTINGS_LOCK:
+        config = manager.load("live2d", {
+            "format": "MOC2", "default_model": DEFAULT_MODEL, "enabled": True,
+        })
+        previous = _normalize_live2d_version(config.get("runtime_version", "moc2"))
+        if previous == version:
+            return jsonify({
+                "ok": True, "version": version,
+                "runtime_supported": version == "moc2" or _moc3_runtime_available(),
+                "message": "当前已经是所选 Live2D 版本。",
+            })
+        config["runtime_version"] = version
+        try:
+            manager.save("live2d", config)
+            CONFIG["live2d"] = config
+        except Exception as exc:
+            logger.exception("保存 Live2D 运行时版本失败。")
+            return jsonify({"ok": False, "error": f"保存 Live2D 版本失败：{type(exc).__name__}"}), 500
+
+    with RUNTIME_STATE_LOCK:
+        RUNTIME_STATE["state"] = "not_started"
+        RUNTIME_STATE["message"] = (
+            "Live2D 运行时版本已切换，等待展示页重新加载。"
+            if version == "moc2" or _moc3_runtime_available()
+            else "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+        )
+    with OBS_DISPLAY_LOCK:
+        obs_refresh = _refresh_obs_browser_sources()
+    return jsonify({
+        "ok": True,
+        "version": version,
+        "runtime_supported": version == "moc2" or _moc3_runtime_available(),
+        "obs_refresh": obs_refresh,
+        "message": (
+            "已切换到 MOC2 运行时。"
+            if version == "moc2"
+            else "已保存 MOC3 版本选择；MOC3 渲染运行时将在下一阶段接入。"
+        ),
+    })
 
 
 @app.post("/api/modules/live2d/enabled")
@@ -2268,7 +2513,8 @@ def api_status():
             "tts": True,
             "mouth_sync": True,
             "live2d_runtime": live2d["enabled"],
-            "moc2_runtime": live2d["enabled"] and live2d["runtime_ready"],
+            "moc2_runtime": live2d["enabled"] and live2d["version"] == "moc2" and live2d["runtime_ready"],
+            "moc3_runtime": live2d["enabled"] and live2d["version"] == "moc3" and live2d["runtime_ready"],
             "music": True,
             "video": True,
         },

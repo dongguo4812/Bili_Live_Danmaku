@@ -3,17 +3,21 @@
 
   const canvas = document.getElementById("live2d-canvas");
   const live2dViewport = document.getElementById("live2d-viewport");
+  const moc3Frame = document.getElementById("moc3-runtime-frame");
   const placeholder = document.getElementById("display-placeholder");
   const panel = document.getElementById("display-settings-panel");
   const toggle = document.getElementById("display-settings-toggle");
   const closeButton = document.getElementById("display-settings-close");
   const modelSelect = document.getElementById("model-select");
+  const modelProfileField = document.getElementById("model-profile-field");
+  const modelProfileSelect = document.getElementById("model-profile-select");
   const motionSelect = document.getElementById("model-motion-select");
   const motionPlayButton = document.getElementById("model-motion-play");
   const expressionSelect = document.getElementById("model-expression-select");
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
+  const mouthSyncStatusElement = document.getElementById("moc3-mouth-sync-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
@@ -52,6 +56,7 @@
 
   const displayMode = document.documentElement.dataset.displayMode || "all";
   const live2dEnabledAtLoad = document.documentElement.dataset.live2dEnabled !== "0";
+  const live2dRuntimeVersion = document.documentElement.dataset.live2dVersion || "moc2";
   const showLive2D = live2dEnabledAtLoad && (displayMode === "all" || displayMode === "live2d");
   const showDanmaku = displayMode === "all" || displayMode === "live2d" || displayMode === "danmaku";
   const showTts = displayMode === "all" || displayMode === "tts";
@@ -70,8 +75,10 @@
   let resizePending = false;
   let statusSent = false;
   let currentModel = "live_uu";
+  let currentModelProfile = "";
   let selectedModelConfig = null;
   let loadedModelId = null;
+  let loadedModelProfile = "";
   let live2dTransformBase = null;
   let modelSwitchPromise = Promise.resolve();
   let modelSwitchToken = 0;
@@ -270,6 +277,13 @@
 
   function setLive2DMouth(value) {
     try {
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (runtimeWindow && typeof runtimeWindow.live2dSetMouthOpen === "function") {
+          runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)));
+        }
+        return;
+      }
       const manager = window.__live2dManager;
       const model = manager && manager.getModel(0);
       if (!model || !model.initialized || typeof model.getLive2DModel !== "function") return;
@@ -290,22 +304,41 @@
   }
 
   function startMouthSync(analyser) {
-    const samples = new Uint8Array(analyser.fftSize);
+    const floatSamples = new Float32Array(analyser.fftSize);
+    const byteSamples = new Uint8Array(analyser.fftSize);
+    let smoothedLevel = 0;
     const tick = () => {
       if (!audioPlaying) {
+        smoothedLevel = 0;
         setLive2DMouth(0);
         mouthAnimationFrame = 0;
         return;
       }
-      analyser.getByteTimeDomainData(samples);
+
       let sum = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const normalized = (samples[i] - 128) / 128;
-        sum += normalized * normalized;
+      if (typeof analyser.getFloatTimeDomainData === "function") {
+        analyser.getFloatTimeDomainData(floatSamples);
+        for (let i = 0; i < floatSamples.length; i++) {
+          sum += floatSamples[i] * floatSamples[i];
+        }
+      } else {
+        analyser.getByteTimeDomainData(byteSamples);
+        for (let i = 0; i < byteSamples.length; i++) {
+          const sample = (byteSamples[i] - 128) / 128;
+          sum += sample * sample;
+        }
       }
-      const rms = Math.sqrt(sum / samples.length);
-      const level = Math.max(0, Math.min(1, (rms - 0.012) * 7.5));
-      setLive2DMouth(level);
+
+      // Use the actual decoded playback signal, not the requested TTS volume setting.
+      const sampleCount = floatSamples.length;
+      const rms = Math.sqrt(sum / sampleCount);
+      const targetLevel = Math.max(0, Math.min(1, (rms - 0.008) * 11.5));
+      // Fast attack and slower release make speech articulation visible without jitter.
+      const smoothing = targetLevel > smoothedLevel ? 0.55 : 0.2;
+      smoothedLevel += (targetLevel - smoothedLevel) * smoothing;
+      if (smoothedLevel < 0.005) smoothedLevel = 0;
+
+      setLive2DMouth(smoothedLevel);
       mouthAnimationFrame = requestAnimationFrame(tick);
     };
     if (mouthAnimationFrame) cancelAnimationFrame(mouthAnimationFrame);
@@ -605,6 +638,7 @@
     const source = audioContext.createBufferSource();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.72;
     source.buffer = decodedAudio;
     source.connect(analyser);
     analyser.connect(audioContext.destination);
@@ -717,7 +751,117 @@
   }
 
   function showMessage(message) {
-    if (placeholder) placeholder.textContent = message;
+    if (placeholder) {
+      placeholder.textContent = message;
+      placeholder.style.display = message ? "block" : "none";
+    }
+  }
+
+  function modelConfigUrl(modelId, profile = currentModelProfile) {
+    const encodedId = encodeURIComponent(modelId);
+    if (live2dRuntimeVersion !== "moc2") {
+      return "/models/" + live2dRuntimeVersion + "/" + encodedId + "/model.json";
+    }
+    const base = "/models/" + encodedId + "/model.json";
+    return profile ? base + "?profile=" + encodeURIComponent(profile) : base;
+  }
+
+  function populateModelProfiles(profiles, selectedProfile) {
+    if (!modelProfileSelect || !modelProfileField) return;
+    modelProfileSelect.replaceChildren();
+    const entries = Array.isArray(profiles) ? profiles : [];
+    for (const profile of entries) {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.name && profile.name !== profile.id
+        ? profile.name + "（" + profile.id + "）"
+        : profile.id;
+      modelProfileSelect.appendChild(option);
+    }
+    currentModelProfile = entries.some(item => item.id === selectedProfile)
+      ? selectedProfile
+      : (entries[0] ? entries[0].id : "");
+    modelProfileSelect.value = currentModelProfile;
+    modelProfileField.hidden = live2dRuntimeVersion !== "moc2" || entries.length <= 1;
+  }
+
+  async function loadMoc3Model(modelId, token = null) {
+    if (!moc3Frame) throw new Error("MOC3 展示框架不存在。");
+    if (!modelId) throw new Error("尚未选择有效的 MOC3 模型。");
+    const isStale = () => token !== null && token !== modelSwitchToken;
+    setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking");
+    showMessage("正在加载 Cubism 5 MOC3 模型：" + modelId + "…");
+    await reportState("loading", "正在加载 Cubism 5 R5 模型：" + modelId);
+    const loaded = await new Promise((resolve, reject) => {
+      let frameLoaded = false;
+      let modelLoaded = false;
+      const expectedUrl = modelConfigUrl(modelId);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        moc3Frame.removeEventListener("load", onLoad);
+        window.removeEventListener("message", onMessage);
+      };
+      const finish = () => {
+        if (isStale()) {
+          cleanup();
+          resolve(false);
+          return;
+        }
+        if (frameLoaded && modelLoaded) {
+          cleanup();
+          resolve(true);
+        }
+      };
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("MOC3 模型加载超时；请检查模型资源和浏览器控制台。"));
+      }, 45000);
+      const onLoad = () => {
+        if (isStale()) {
+          cleanup();
+          resolve(false);
+          return;
+        }
+        const runtimeWindow = moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dLoadModel !== "function" ||
+            typeof runtimeWindow.live2dSetMouthOpen !== "function") {
+          cleanup();
+          reject(new Error("Cubism 5 R5 运行时未能完成初始化。"));
+          return;
+        }
+        frameLoaded = true;
+        finish();
+      };
+      const onMessage = event => {
+        if (isStale()) {
+          cleanup();
+          resolve(false);
+          return;
+        }
+        if (event.origin !== window.location.origin ||
+            event.source !== moc3Frame.contentWindow ||
+            !event.data || event.data.modelUrl !== expectedUrl) return;
+        if (event.data.type === "moc3-model-error") {
+          cleanup();
+          const resource = event.data.resource ? "（资源：" + event.data.resource + "）" : "";
+          reject(new Error((event.data.message || "MOC3 模型资源加载失败") + resource));
+          return;
+        }
+        if (event.data.type !== "moc3-model-loaded") return;
+        modelLoaded = true;
+        finish();
+      };
+      moc3Frame.addEventListener("load", onLoad, { once: true });
+      window.addEventListener("message", onMessage);
+      moc3Frame.src = "/live2d/moc3/runtime/" + encodeURIComponent(modelId);
+    });
+    if (!loaded || isStale()) return false;
+    loadedModelId = modelId;
+    applyLive2DTransform();
+    showMessage("");
+    if (placeholder) placeholder.style.display = "none";
+    await reportState("loaded", modelId + " 已由 Cubism 5 R5 Framework 完成模型和纹理加载。");
+    return true;
   }
 
   function setSaveStatus(message, isError = false) {
@@ -768,6 +912,39 @@
     modelActionStatusElement.classList.toggle("error", isError);
   }
 
+  function setMouthSyncStatus(message, state = "checking") {
+    if (!mouthSyncStatusElement) return;
+    mouthSyncStatusElement.textContent = message;
+    mouthSyncStatusElement.dataset.state = state;
+    mouthSyncStatusElement.classList.toggle("error", state === "unsupported");
+  }
+
+  window.addEventListener("message", event => {
+    if (live2dRuntimeVersion !== "moc3" || !moc3Frame ||
+        event.origin !== window.location.origin || event.source !== moc3Frame.contentWindow ||
+        !event.data || event.data.type !== "moc3-mouth-sync-status") return;
+    const currentModelId = modelSelect && modelSelect.value;
+    if (!currentModelId || event.data.modelUrl !== modelConfigUrl(currentModelId)) return;
+    if (event.data.supported) {
+      const ids = Array.isArray(event.data.parameterIds) ? event.data.parameterIds : [];
+      const source = event.data.source === "model3-lipsync"
+        ? "模型配置 LipSync 参数组"
+        : "兼容嘴型参数检测";
+      let message = "支持 TTS 嘴型同步（" + source + "：" + ids.join("、") + "）。";
+      const invalid = Array.isArray(event.data.invalidDeclaredIds) ? event.data.invalidDeclaredIds : [];
+      if (invalid.length) message += " 以下配置参数未通过验证，已跳过：" + invalid.join("、") + "。";
+      setMouthSyncStatus(message, "supported");
+    } else {
+      const declared = Array.isArray(event.data.declaredIds) ? event.data.declaredIds : [];
+      const invalid = Array.isArray(event.data.invalidDeclaredIds) ? event.data.invalidDeclaredIds : [];
+      let detail = event.data.reason || "未找到可用的嘴型参数。";
+      if (declared.length) detail = "模型声明了 LipSync 参数 " + declared.join("、") + "，但这些参数未能通过实际参数验证；" + detail;
+      else detail = "模型没有声明 LipSync 参数组；" + detail;
+      if (invalid.length) detail += " 无效参数：" + invalid.join("、") + "。";
+      setMouthSyncStatus("当前模型无法进行 TTS 嘴型同步。" + detail, "unsupported");
+    }
+  });
+
   function updateModelActionAvailability() {
     const sameModel = Boolean(loadedModelId && modelSelect && modelSelect.value === loadedModelId);
     const ready = sameModel && statusSent;
@@ -775,23 +952,31 @@
     if (motionPlayButton) motionPlayButton.disabled = !ready || !motionSelect || !motionSelect.value;
     if (expressionSelect) expressionSelect.disabled = !ready || expressionSelect.options.length <= 1;
     if (expressionApplyButton) expressionApplyButton.disabled = !ready || !expressionSelect || !expressionSelect.value;
-    if (expressionResetButton) expressionResetButton.disabled = !ready || !selectedModelConfig || !Array.isArray(selectedModelConfig.expressions) || !selectedModelConfig.expressions.length;
+    const expressionEntries = live2dRuntimeVersion === "moc3"
+      ? selectedModelConfig && selectedModelConfig.FileReferences && selectedModelConfig.FileReferences.Expressions
+      : selectedModelConfig && selectedModelConfig.expressions;
+    if (expressionResetButton) expressionResetButton.disabled = !ready || !Array.isArray(expressionEntries) || !expressionEntries.length;
   }
 
   function populateModelActions(config, modelId) {
     selectedModelConfig = config && typeof config === "object" ? config : {};
+    const moc3References = live2dRuntimeVersion === "moc3" &&
+      selectedModelConfig.FileReferences && typeof selectedModelConfig.FileReferences === "object"
+      ? selectedModelConfig.FileReferences : null;
+    const groups = moc3References
+      ? (moc3References.Motions && typeof moc3References.Motions === "object" ? moc3References.Motions : {})
+      : (selectedModelConfig.motions && typeof selectedModelConfig.motions === "object" ? selectedModelConfig.motions : {});
     if (motionSelect) {
       motionSelect.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      const groups = selectedModelConfig.motions && typeof selectedModelConfig.motions === "object"
-        ? selectedModelConfig.motions : {};
       const entries = [];
       for (const [group, motions] of Object.entries(groups)) {
         if (!Array.isArray(motions)) continue;
         motions.forEach((motion, index) => {
-          if (!motion || typeof motion.file !== "string" || !motion.file) return;
-          entries.push({ group, index, file: motion.file });
+          const file = motion && (motion.file || motion.File);
+          if (typeof file !== "string" || !file) return;
+          entries.push({ group, index, file });
         });
       }
       placeholder.textContent = entries.length ? "请选择动作" : "当前模型没有配置动作";
@@ -799,7 +984,7 @@
       for (const entry of entries) {
         const option = document.createElement("option");
         option.value = entry.group + "::" + entry.index;
-        option.textContent = entry.group + " / " + entry.file.split("/").pop();
+        option.textContent = (entry.group || "默认动作组") + " / " + entry.file.split("/").pop();
         motionSelect.appendChild(option);
       }
     }
@@ -807,8 +992,12 @@
       expressionSelect.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      const expressions = Array.isArray(selectedModelConfig.expressions)
-        ? selectedModelConfig.expressions.filter(item => item && typeof item.file === "string" && item.file)
+      const rawExpressions = moc3References ? moc3References.Expressions : selectedModelConfig.expressions;
+      const expressions = Array.isArray(rawExpressions)
+        ? rawExpressions.map(item => ({
+            name: item && (item.name || item.Name),
+            file: item && (item.file || item.File)
+          })).filter(item => typeof item.file === "string" && item.file)
         : [];
       placeholder.textContent = expressions.length ? "请选择表情" : "当前模型没有配置独立表情";
       expressionSelect.appendChild(placeholder);
@@ -827,15 +1016,17 @@
     updateModelActionAvailability();
   }
 
-  async function loadModelActionConfig(modelId) {
-    const url = "/models/" + encodeURIComponent(modelId) + "/model.json";
+  async function loadModelActionConfig(modelId, token = null) {
+    const url = modelConfigUrl(modelId);
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取模型动作配置（HTTP " + response.status + "）。");
     const config = await response.json();
+    if (token !== null && token !== modelSwitchToken) return false;
     populateModelActions(config, modelId);
+    return true;
   }
 
-  function playSelectedModelMotion() {
+  async function playSelectedModelMotion() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
       setModelActionStatus("模型正在加载，完成后即可操作动作和表情。", true);
       return;
@@ -845,15 +1036,24 @@
     const separator = value.lastIndexOf("::");
     const group = value.slice(0, separator);
     const index = Number(value.slice(separator + 2));
-    const model = window.__live2dManager && window.__live2dManager.getModel(0);
-    if (!model || !model.initialized || typeof model.startMotion !== "function") {
-      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
-      return;
-    }
     try {
-      // Cubism 2 priority 4 is FORCE: user-selected motion takes precedence
-      // over the model's low-priority automatic idle motion.
-      model.startMotion(group, index, 4);
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dPlayMotion !== "function") {
+          setModelActionStatus("MOC3 动作接口尚未就绪。", true);
+          return;
+        }
+        const result = await runtimeWindow.live2dPlayMotion(group, index);
+        if (result === false || result === -1) throw new Error("运行时未能启动该动作，请检查动作资源和运行时缓存。");
+      } else {
+        const model = window.__live2dManager && window.__live2dManager.getModel(0);
+        if (!model || !model.initialized || typeof model.startMotion !== "function") {
+          setModelActionStatus("Live2D 模型尚未完成初始化。", true);
+          return;
+        }
+        // Cubism 2 priority 4 is FORCE.
+        model.startMotion(group, index, 4);
+      }
       setModelActionStatus("已播放动作：" + group + " / " + motionSelect.selectedOptions[0].textContent);
     } catch (error) {
       setModelActionStatus("动作播放失败：" + error.message, true);
@@ -867,17 +1067,26 @@
     }
     const name = expressionSelect && expressionSelect.value;
     if (!name) return;
-    const model = window.__live2dManager && window.__live2dManager.getModel(0);
-    if (!model || !model.initialized || typeof model.setExpression !== "function") {
-      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
-      return;
-    }
-    if (!model.expressions || !model.expressions[name]) {
-      setModelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
-      return;
-    }
     try {
-      model.setExpression(name);
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dSetExpression !== "function") {
+          setModelActionStatus("MOC3 表情接口尚未就绪。", true);
+          return;
+        }
+        if (!runtimeWindow.live2dSetExpression(name)) throw new Error("当前模型未找到该表情。");
+      } else {
+        const model = window.__live2dManager && window.__live2dManager.getModel(0);
+        if (!model || !model.initialized || typeof model.setExpression !== "function") {
+          setModelActionStatus("Live2D 模型尚未完成初始化。", true);
+          return;
+        }
+        if (!model.expressions || !model.expressions[name]) {
+          setModelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
+          return;
+        }
+        model.setExpression(name);
+      }
       setModelActionStatus("已切换表情：" + name);
     } catch (error) {
       setModelActionStatus("表情切换失败：" + error.message, true);
@@ -886,6 +1095,16 @@
 
   function resetSelectedModelExpression() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) return;
+    if (live2dRuntimeVersion === "moc3") {
+      const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+      if (!runtimeWindow || typeof runtimeWindow.live2dResetExpression !== "function" ||
+          !runtimeWindow.live2dResetExpression()) {
+        setModelActionStatus("当前 MOC3 模型不支持恢复默认表情。", true);
+        return;
+      }
+      setModelActionStatus("已恢复模型默认表情。");
+      return;
+    }
     const model = window.__live2dManager && window.__live2dManager.getModel(0);
     if (!model || !model.expressionManager || typeof model.expressionManager.stopAllMotions !== "function") {
       setModelActionStatus("当前模型不支持恢复默认表情。", true);
@@ -941,6 +1160,7 @@
   function currentPreferences() {
     return {
       model: modelSelect.value,
+      profile: currentModelProfile,
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
@@ -1060,7 +1280,7 @@
       const response = await fetch("/api/live2d/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...preferences, refresh_obs: false })
+        body: JSON.stringify({ ...preferences, version: live2dRuntimeVersion, refresh_obs: false })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "保存失败。");
@@ -1090,7 +1310,7 @@
   }
 
   async function loadDisplaySettings() {
-    const response = await fetch("/api/live2d/settings", { cache: "no-store" });
+    const response = await fetch("/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion), { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取展示设置（HTTP " + response.status + "）。");
     const data = await response.json();
     if (!data.ok || !Array.isArray(data.models) || data.models.length === 0) {
@@ -1110,6 +1330,7 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
+    populateModelProfiles(data.profiles, p.profile);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1127,6 +1348,7 @@
     updateSliderLabels();
     applyBubblePreferences();
     applyLive2DCrop();
+    applyLive2DTransform();
     return currentModel;
   }
 
@@ -1312,9 +1534,15 @@
   }
 
   function applyLive2DTransform(preferences = currentPreferences()) {
+    const current = transformSnapshot(preferences);
+    if (live2dRuntimeVersion === "moc3" && moc3Frame) {
+      if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
+      const runtimeWindow = moc3Frame.contentWindow;
+      if (!runtimeWindow || typeof runtimeWindow.live2dSetModelTransform !== "function") return false;
+      return runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y) !== false;
+    }
     const base = live2dTransformBase;
     if (!base || !base.matrix) return false;
-    const current = transformSnapshot(preferences);
     if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
 
     // 模型矩阵已经包含后端应用的已保存设置，因此只叠加相对差量。
@@ -1344,14 +1572,16 @@
 
   async function switchModelInPlace(modelId, token, modelPreferences) {
     const previousModelId = loadedModelId;
+    const previousModelProfile = loadedModelProfile;
     let modelReplaced = false;
     statusSent = false;
+    if (live2dRuntimeVersion === "moc3") setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking");
     updateModelActionAvailability();
     showMessage("正在切换 Live2D 模型：" + modelId + "…");
     await reportState("loading", "正在局部切换 Live2D 模型：" + modelId);
 
     try {
-      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+      const modelUrl = modelConfigUrl(modelId);
       const modelConfig = await verifyAssets(modelUrl);
       if (token !== modelSwitchToken) return false;
       if (!window.__live2dManager || !gl) {
@@ -1364,6 +1594,7 @@
       await waitForRenderedPixels();
 
       loadedModelId = modelId;
+      loadedModelProfile = currentModelProfile;
       captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       statusSent = true;
@@ -1379,11 +1610,12 @@
       let restored = false;
       if (modelReplaced && previousModelId) {
         try {
-          const previousUrl = "/models/" + encodeURIComponent(previousModelId) + "/model.json";
+          const previousUrl = modelConfigUrl(previousModelId, previousModelProfile);
           await verifyAssets(previousUrl);
           replaceLive2DModel(previousUrl);
           await waitForRenderedPixels();
           loadedModelId = previousModelId;
+          loadedModelProfile = previousModelProfile;
           statusSent = true;
           restored = true;
           await reportState("loaded", "新模型加载失败，已恢复原模型：" + previousModelId);
@@ -1412,10 +1644,31 @@
   }
 
   async function start() {
+    if (live2dRuntimeVersion === "moc3") {
+      try {
+        const modelId = await loadDisplaySettings();
+        const token = ++modelSwitchToken;
+        modelSwitchPromise = loadMoc3Model(modelId, token);
+        const loaded = await modelSwitchPromise;
+        if (loaded) {
+          const actionsLoaded = await loadModelActionConfig(modelId, token);
+          if (actionsLoaded && token === modelSwitchToken) {
+            statusSent = true;
+            updateModelActionAvailability();
+          }
+        }
+      } catch (error) {
+        console.error("MOC3 initialization failed:", error);
+        showMessage("MOC3 加载失败：" + error.message);
+        await reportState("error", error.message);
+        setSaveStatus(error.message, true);
+      }
+      return;
+    }
     try {
       showMessage("正在读取展示设置…");
       const modelId = await loadDisplaySettings();
-      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+      const modelUrl = modelConfigUrl(modelId);
       showMessage("正在检查 " + modelId + " 模型资源…");
       await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
       const modelConfig = await verifyAssets(modelUrl);
@@ -1443,6 +1696,7 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
+      loadedModelProfile = currentModelProfile;
       captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       updateModelActionAvailability();
@@ -1471,11 +1725,15 @@
     const selectedModelId = modelSelect.value;
     const token = ++modelSwitchToken;
     try {
-      const response = await fetch("/api/live2d/settings?model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
+      const query = "/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion)
+        + "&model=" + encodeURIComponent(selectedModelId)
+        + (modelProfileSelect && modelProfileSelect.value ? "&profile=" + encodeURIComponent(modelProfileSelect.value) : "");
+      const response = await fetch(query, { cache: "no-store" });
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
       if (token !== modelSwitchToken) return;
       const p = data.preferences || {};
+      populateModelProfiles(data.profiles, p.profile);
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1495,19 +1753,37 @@
       markUnsaved();
 
       // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
-      await queueModelSwitch(selectedModelId, token, p);
+      if (live2dRuntimeVersion === "moc3") {
+        modelSwitchPromise = loadMoc3Model(selectedModelId, token);
+        const loaded = await modelSwitchPromise;
+        if (loaded && token === modelSwitchToken) {
+          const actionsLoaded = await loadModelActionConfig(selectedModelId, token);
+          if (actionsLoaded && token === modelSwitchToken) {
+            statusSent = true;
+            updateModelActionAvailability();
+          }
+        }
+      } else {
+        await queueModelSwitch(selectedModelId, token, p);
+      }
     } catch (error) {
+      if (token !== modelSwitchToken) return;
+      setModelActionStatus("模型动作/表情配置读取失败：" + error.message, true);
       setSaveStatus(error.message, true);
     }
   }
 
   if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
+  if (modelProfileSelect) modelProfileSelect.addEventListener("change", handleModelChange);
   if (motionPlayButton) motionPlayButton.addEventListener("click", playSelectedModelMotion);
   if (expressionApplyButton) expressionApplyButton.addEventListener("click", applySelectedModelExpression);
   if (expressionResetButton) expressionResetButton.addEventListener("click", resetSelectedModelExpression);
   if (motionSelect) motionSelect.addEventListener("change", updateModelActionAvailability);
   if (expressionSelect) expressionSelect.addEventListener("change", updateModelActionAvailability);
   if (saveButton) saveButton.addEventListener("click", saveSettings);
+  window.addEventListener("resize", () => {
+    if (live2dRuntimeVersion === "moc3") applyLive2DTransform();
+  }, { passive: true });
   for (const [key, slider] of Object.entries(controls)) {
     if (!slider) continue;
     slider.addEventListener("input", () => {

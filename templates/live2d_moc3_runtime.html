@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Live2D MOC3 Runtime</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent !important;
+    }
+    body { position: relative; background-color: transparent !important; }
+    canvas { background-color: transparent !important; }
+    body > canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: transparent;
+    }
+    #moc3-panel-toggle, #moc3-tts-panel, #live2d-bubble { display: none !important; }
+  </style>
+  <script>
+    // The parent page chooses the model; do not restore a stale model from the sample app's localStorage.
+    try { localStorage.removeItem("live2d_moc3_selected_model_v1"); } catch (_) {}
+    const modelParams = new URLSearchParams(window.location.search);
+    modelParams.set("model", {{ model_url|tojson }});
+    window.history.replaceState(null, "", window.location.pathname + "?" + modelParams.toString());
+  </script>
+  <script>
+    // Forward model-resource failures to the parent display page instead of leaving it
+    // waiting for the model-loaded signal until its 45-second timeout.
+    window.__moc3ModelUrl = {{ model_url|tojson }};
+    (() => {
+      const isModelResource = value => {
+        try {
+          const url = new URL(value, window.location.href);
+          return url.origin === window.location.origin && url.pathname.startsWith("/models/moc3/");
+        } catch (_) {
+          return false;
+        }
+      };
+      const reportFailure = (resource, message) => {
+        if (!isModelResource(resource) || window.parent === window) return;
+        window.parent.postMessage({
+          type: "moc3-model-error",
+          modelUrl: window.__moc3ModelUrl,
+          resource: new URL(resource, window.location.href).pathname,
+          message: String(message || "模型资源加载失败").slice(0, 300)
+        }, window.location.origin);
+      };
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const requestUrl = typeof args[0] === "string" ? args[0] : args[0]?.url;
+        try {
+          const response = await originalFetch(...args);
+          if (!response.ok && isModelResource(requestUrl)) {
+            reportFailure(requestUrl, "HTTP " + response.status + " " + response.statusText);
+          }
+          return response;
+        } catch (error) {
+          reportFailure(requestUrl, error && error.message ? error.message : "网络请求失败");
+          throw error;
+        }
+      };
+
+      // Cubism's texture manager only registers an image load callback. Capture
+      // image errors here so a missing/invalid texture also fails promptly.
+      window.addEventListener("error", event => {
+        const target = event.target;
+        if (target instanceof HTMLImageElement) {
+          reportFailure(target.currentSrc || target.src, "纹理图片加载失败或无法解码");
+        }
+      }, true);
+    })();
+  </script>
+  <script src="/static/js/live2d/moc3/Core/live2dcubismcore.min.js"></script>
+  <script type="module" crossorigin src="/static/js/live2d/moc3/runtime.js"></script>
+</head>
+<body></body>
+</html>

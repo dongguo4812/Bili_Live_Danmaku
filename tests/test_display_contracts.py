@@ -96,8 +96,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("#danmaku-bubble", live2d_mode_css)
         self.assertNotIn("#danmaku-preview", live2d_mode_css)
         self.assertIn('displayMode === "live2d" || displayMode === "danmaku"', script)
-        self.assertIn('return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())', main)
-        self.assertIn('return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())', main)
+        self.assertIn('return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())', main)
+        self.assertIn('live2d_version="moc2"', main)
         self.assertIn('const showLive2D =', script)
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
@@ -311,23 +311,23 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
     def test_model_scan_uses_only_versioned_moc2_directory(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('root = (MODEL_ROOT / "moc2").resolve()', main)
-        self.assertIn('moc2_root = MODEL_ROOT / "moc2"', main)
-        self.assertIn('for directory in sorted(moc2_root.iterdir()', main)
+        self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
+        self.assertIn('version_root = MODEL_ROOT / version', main)
+        self.assertIn('for directory in sorted(version_root.iterdir()', main)
         self.assertNotIn('roots = (MODEL_ROOT / "moc2", MODEL_ROOT)', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
-        self.assertIn('"version": "moc2"', main)
+        self.assertIn('"version": version', main)
         self.assertIn('models.get(f"{model_version}:{model_id}"', main)
-        self.assertIn('[f"moc2:{model_id}"] = preferences', main)
+        self.assertIn('[f"{version}:{model_id}"] = preferences', main)
 
     def test_versioned_model_assets_are_served_from_their_new_directory(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('def _model_asset_prefix(directory: Path) -> str:', main)
-        self.assertIn('"/models/moc2/" + relative.as_posix().rstrip("/") + "/"', main)
+        self.assertIn('def _model_asset_prefix(directory: Path, version: str = "moc2") -> str:', main)
+        self.assertIn('f"/models/{version}/" + relative.as_posix().rstrip("/") + "/"', main)
         self.assertIn('relative_prefix = "../" + prefix.removeprefix("/models/")', main)
         self.assertIn('return relative_prefix + value.lstrip("./")', main)
-        self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))', main)
+        self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))', main)
         self.assertIn('@app.get("/models/<path:filename>")', main)
 
     def test_moc3_directory_is_reserved_without_changing_moc2_runtime(self):
@@ -335,10 +335,292 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertTrue((root / "models" / "moc3" / ".gitkeep").is_file())
         self.assertTrue((root / "models" / "moc2").is_dir())
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('root = (MODEL_ROOT / "moc2").resolve()', main)
+        self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
         self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
 
 
+class Live2DVersionIsolationContractTests(unittest.TestCase):
+    def test_live2d_versions_use_separate_model_roots_and_config_formats(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('def _normalize_live2d_version(', source)
+        self.assertIn('(MODEL_ROOT / version).resolve()', source)
+        self.assertIn('f"{model_id}.model3.json"', source)
+        self.assertIn('refs.get("Moc")', source)
+        self.assertIn('@app.get("/models/<version>/<model_id>/model.json")', source)
+
+    def test_live2d_model_selection_and_preferences_are_version_scoped(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('"model_by_version"', source)
+        self.assertIn('settings.setdefault("models", {})[f"{version}:{model_id}"]', source)
+        self.assertIn('models.get(model_id, {}) if model_version == "moc2" else {}', source)
+        self.assertIn('_available_models(version)', source)
+
+    def test_live2d_runtime_defaults_to_moc2(self):
+        defaults = json.loads((Path(__file__).resolve().parents[1] / "config" / "default" / "live2d.json").read_text(encoding="utf-8"))
+        self.assertEqual(defaults["runtime_version"], "moc2")
+
+
+
+
+class Live2DModelProfileContractTests(unittest.TestCase):
+    def test_moc2_model_profiles_are_discovered_and_validated(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('def _model_profiles(model_id: str, version: str = "moc2")', main)
+        self.assertIn('directory.glob("model*.json")', main)
+        self.assertIn('data.get("textures")', main)
+        self.assertIn('"model.default.json"', main)
+        self.assertIn('profile: str | None = None', main)
+        self.assertIn('_read_model_config(model_id, version, profile)', main)
+
+    def test_live2d_display_can_select_and_persist_a_model_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('"profiles": profiles', main)
+        self.assertIn('request.args.get("profile")', main)
+        self.assertIn('preferences["profile"] = profile', main)
+        self.assertIn('id="model-profile-select"', page)
+        self.assertIn('function populateModelProfiles(', script)
+        self.assertIn('modelProfileSelect.addEventListener("change", handleModelChange)', script)
+        self.assertIn('"&profile=" + encodeURIComponent(modelProfileSelect.value)', script)
+        self.assertIn('profile: currentModelProfile', script)
+        self.assertIn('?profile=" + encodeURIComponent(profile)', script)
+
+
+class Live2DRuntimeSelectionContractTests(unittest.TestCase):
+    def test_runtime_version_has_a_persistent_api_and_manager_selector(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('@app.post("/api/modules/live2d/version")', main)
+        self.assertIn('config["runtime_version"] = version', main)
+        self.assertIn('id="live2d-version"', page)
+        self.assertIn('"/api/modules/live2d/version"', page)
+
+    def test_moc3_never_falls_back_to_cubism2_loader(self):
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("live2d_version|default('moc2') == 'moc2'", template)
+        self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
+        self.assertIn("async function loadMoc3Model(modelId, token = null)", script)
+        self.assertIn('typeof runtimeWindow.live2dSetMouthOpen === "function"', script)
+        self.assertIn('id="moc3-runtime-frame"', template)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
+    def test_moc3_runtime_assets_and_renderer_route_are_present(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/live2d/moc3/runtime/<model_id>")', main)
+        self.assertIn('@app.get("/api/models")', main)
+        self.assertIn('"moc3_runtime":', main)
+        self.assertIn('if version == "moc2":', main)
+        self.assertIn('MOC3 的缩放和位置由 Cubism 5 Runtime 的模型矩阵实时处理', main)
+        self.assertTrue((root / "static/js/live2d/moc3/runtime.js").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Core/live2dcubismcore.min.js").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Framework/Shaders/WebGL/vertshadersrc.vert").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Framework/LICENSE.md").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Core/LICENSE.md").is_file())
+
+    def test_moc3_runtime_bundle_uses_local_shader_paths(self):
+        root = Path(__file__).resolve().parents[1]
+        bundle = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("/static/js/live2d/moc3/Framework/Shaders/WebGL/", bundle)
+        self.assertIn('type:"moc3-model-loaded"', bundle)
+        self.assertNotIn("window.setInterval(()=>{Ma()},700);", bundle)
+
+    def test_moc3_size_position_and_crop_use_runtime_model_matrix(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y)', script)
+        self.assertNotIn('moc3Frame.style.transform =', script)
+        self.assertIn('window.live2dSetModelTransform=', (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8"))
+        self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
+        self.assertIn('applyLive2DCrop();\n    applyLive2DTransform();', script)
+
+
+
+class Live2DModelLoadFailureContractTests(unittest.TestCase):
+    def test_moc3_runtime_reports_failed_model_fetches_and_texture_images(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime_page = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        self.assertIn('type: "moc3-model-error"', runtime_page)
+        self.assertIn('url.pathname.startsWith("/models/moc3/")', runtime_page)
+        self.assertIn('if (!response.ok && isModelResource(requestUrl))', runtime_page)
+        self.assertIn('target instanceof HTMLImageElement', runtime_page)
+        self.assertIn('window.__moc3ModelUrl', runtime_page)
+
+    def test_parent_display_rejects_moc3_resource_error_without_waiting_for_timeout(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('event.data.type === "moc3-model-error"', script)
+        self.assertIn('reject(new Error((event.data.message || "MOC3 模型资源加载失败") + resource))', script)
+        self.assertIn('event.data.modelUrl !== expectedUrl', script)
+        self.assertIn('event.source !== moc3Frame.contentWindow', script)
+
+
+class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
+    def test_combined_display_reuses_the_full_live2d_display_page(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        display = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        self.assertGreaterEqual(combined.count('frame.src="/live2d/display?embedded=1"'), 2)
+        self.assertIn('id="moc3-runtime-frame"', display)
+        self.assertIn('id="live2d-viewport"', display)
+
+    def test_tts_mouth_sync_bridges_both_runtimes(self):
+        root = Path(__file__).resolve().parents[1]
+        display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        moc3_runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn('runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)))', display_script)
+        self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', display_script)
+        self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
+        self.assertIn("getParameterId(n).getString()", moc3_runtime)
+        self.assertIn("i._lipSyncIds", moc3_runtime)
+        self.assertIn("getParameterMinimumValue(n)", moc3_runtime)
+        self.assertIn("getParameterMaximumValue(n)", moc3_runtime)
+        self.assertIn("this._mouthOpenParameterIndices", moc3_runtime)
+        self.assertIn('type:"moc3-mouth-sync-status"', moc3_runtime)
+        self.assertIn("setParameterValueByIndex(t.index,t.min+(t.max-t.min)*this._mouthOpen)", moc3_runtime)
+        self.assertIn('当前模型没有可识别的嘴型参数，TTS 嘴型同步不可用。', moc3_runtime)
+        self.assertIn('parameterCount:e.getParameterCount()', moc3_runtime)
+        self.assertIn('parameterIds:r.map(e=>e.id)', moc3_runtime)
+        self.assertIn('declaredIds:n', moc3_runtime)
+        self.assertIn('invalidDeclaredIds:a', moc3_runtime)
+        self.assertIn('检测到可用嘴型参数：', moc3_runtime)
+        for parameter_id in ('ParamMouthOpenY', 'PARAM_MOUTH_OPEN_Y', 'MouthOpenY'):
+            self.assertIn(parameter_id, moc3_runtime)
+        self.assertIn('function startMouthSync(analyser)', display_script)
+        self.assertIn('analyser.getFloatTimeDomainData(floatSamples)', display_script)
+        self.assertIn('const targetLevel = Math.max(0, Math.min(1, (rms - 0.008) * 11.5))', display_script)
+        self.assertIn('const smoothing = targetLevel > smoothedLevel ? 0.55 : 0.2', display_script)
+        self.assertIn('source.connect(analyser)', display_script)
+        self.assertIn('analyser.connect(audioContext.destination)', display_script)
+
+    def test_moc3_model_switch_waits_for_load_and_cancels_stale_requests(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('if (live2dRuntimeVersion === "moc3") {\n        modelSwitchPromise = loadMoc3Model(selectedModelId, token)', script)
+        self.assertIn('const isStale = () => token !== null && token !== modelSwitchToken', script)
+        self.assertIn('if (!loaded || isStale()) return false', script)
+        self.assertIn('await modelSwitchPromise.catch(() => {})', script)
+        self.assertIn('loadedModelId = modelId', script)
+
+    def test_moc2_runtime_regression_path_remains_separate(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('if (live2dRuntimeVersion === "moc3") {\n      try {\n        const modelId = await loadDisplaySettings()', script)
+        self.assertIn('window.loadlive2d(canvas.id, modelUrl)', script)
+        self.assertIn('window.__live2dManager', script)
+        self.assertIn('replaceLive2DModel(modelUrl)', script)
+        self.assertIn('captureLive2DTransformBase()', script)
+        self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', script)
+
+
+class Live2DReportedIssueRegressionTests(unittest.TestCase):
+    def test_moc3_actions_and_expressions_are_loaded_from_cubism_model3_schema(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('selectedModelConfig.FileReferences', script)
+        self.assertIn('moc3References.Motions', script)
+        self.assertIn('motion.File', script)
+        self.assertIn('moc3References ? moc3References.Expressions', script)
+        self.assertIn('await loadModelActionConfig(modelId, token)', script)
+
+    def test_moc3_action_controls_call_the_cubism5_runtime_bridge(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn('runtimeWindow.live2dPlayMotion(group, index)', script)
+        self.assertIn('runtimeWindow.live2dSetExpression(name)', script)
+        self.assertIn('runtimeWindow.live2dResetExpression()', script)
+        self.assertIn('window.live2dPlayMotion=', runtime)
+        self.assertIn('window.live2dSetExpression=', runtime)
+        self.assertIn('window.live2dResetExpression=', runtime)
+
+    def test_moc3_webgl_canvas_and_iframe_request_alpha_transparency(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        display_html = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('getContext(`webgl2`,{alpha:!0,premultipliedAlpha:!0,preserveDrawingBuffer:!1})', runtime)
+        self.assertIn('e.clearColor(0,0,0,0)', runtime)
+        self.assertIn('blendFunc(e.ONE,e.ONE_MINUS_SRC_ALPHA)', runtime)
+        self.assertNotIn("reportAlphaDiagnostic", runtime)
+        self.assertNotIn("moc3-alpha-diagnostic", script)
+        self.assertIn('<meta name="color-scheme" content="dark">', runtime_html)
+        self.assertNotIn('}Aa();var ja=!1;', runtime)
+        self.assertIn('canvas { background-color: transparent !important; }', runtime_html)
+        self.assertIn('background-color: transparent !important;', display_html)
+        self.assertIn('allowtransparency="true"', display_html)
+
+
+class Live2DMoc3FollowupAuditTests(unittest.TestCase):
+    def test_moc3_expression_reset_availability_uses_model3_references(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('selectedModelConfig.FileReferences.Expressions', script)
+        self.assertIn('Array.isArray(expressionEntries)', script)
+
+    def test_model_action_config_loading_ignores_stale_model_switch_results(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('async function loadModelActionConfig(modelId, token = null)', script)
+        self.assertIn('if (token !== null && token !== modelSwitchToken) return false;', script)
+        self.assertIn('loadModelActionConfig(selectedModelId, token)', script)
+        self.assertIn('loadModelActionConfig(modelId, token)', script)
+
+    def test_moc3_runtime_html_contains_valid_separate_canvas_css_rule(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        self.assertIn('body { position: relative; background-color: transparent !important; }\n    canvas', runtime_html)
+        self.assertNotIn('}\\n    canvas', runtime_html)
+
+
+class Live2DMoc3MotionPlaybackRegressionTests(unittest.TestCase):
+    def test_moc3_motion_bridge_loads_missing_motion_into_runtime_cache(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn("window.live2dPlayMotion=async", runtime)
+        self.assertIn("r._modelSetting.getMotionFileName(t,i)", runtime)
+        self.assertIn("r.loadMotion(l,l.byteLength,a,null,null,r._modelSetting,t,i,r._motionConsistency)", runtime)
+        self.assertIn("r._motions.set(a,o)", runtime)
+        self.assertIn("r.startMotion(t,i,3)!==-1", runtime)
+
+    def test_display_waits_for_async_moc3_motion_playback_result(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("async function playSelectedModelMotion()", script)
+        self.assertIn("await runtimeWindow.live2dPlayMotion(group, index)", script)
+
+
+class Live2DMoc3MouthSyncSettingsTests(unittest.TestCase):
+    def test_display_settings_show_live_moc3_mouth_sync_validation(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('id="moc3-mouth-sync-status"', page)
+        self.assertIn('type !== "moc3-mouth-sync-status"', script)
+        self.assertIn("当前模型无法进行 TTS 嘴型同步。", script)
+        self.assertIn("支持 TTS 嘴型同步", script)
+        self.assertIn('setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking")', script)
+
+    def test_moc3_parameter_validation_prefers_model3_lipsync_group(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("i._lipSyncIds", runtime)
+        self.assertIn('"model3-lipsync"', runtime)
+        self.assertIn('"compatibility-after-invalid-lipsync"', runtime)
+        self.assertIn('"ParamMouthOpenY"', runtime)
+        self.assertIn("getParameterMinimumValue(n)", runtime)
+        self.assertIn("getParameterMaximumValue(n)", runtime)
+        self.assertIn("invalidDeclaredIds", runtime)
