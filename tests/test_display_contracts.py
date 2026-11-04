@@ -456,7 +456,7 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn('runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)))', display_script)
         self.assertIn('model.lipSyncValue = Math.max(0, Math.min(1, value))', display_script)
         self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
-        self.assertIn('getParameterId(t).getString()', moc3_runtime)
+        self.assertIn("getParameterId(n).getString()", moc3_runtime)
         self.assertIn("i._lipSyncIds", moc3_runtime)
         self.assertIn("getParameterMinimumValue(n)", moc3_runtime)
         self.assertIn("getParameterMaximumValue(n)", moc3_runtime)
