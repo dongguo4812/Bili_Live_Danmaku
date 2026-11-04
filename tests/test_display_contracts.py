@@ -308,7 +308,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('if not _live2d_enabled():', main)
         self.assertIn('"enabled": enabled', main)
 
-    def test_model_scan_uses_only_versioned_moc2_directory(self):
+    def test_model_scan_uses_only_versioned_model_directories(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
