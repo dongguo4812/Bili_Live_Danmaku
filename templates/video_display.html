@@ -24,7 +24,9 @@ body.embedded{padding:0}
   let displayScale=1;
   function applyDisplayScale(scale){
     displayScale=Math.max(0.5,Math.min(2,Number(scale)||1));
-    root.style.setProperty("--display-scale",String(displayScale));
+    root.style.zoom=String(displayScale);
+    root.style.width=(100/displayScale)+"%";
+    root.style.height=(100/displayScale)+"%";
   }
   window.addEventListener("message",event=>{
     if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-display-scale") return;
