@@ -19,6 +19,7 @@
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
+  const modelCapabilitiesElement = document.getElementById("model-capabilities");
   const mouthSyncStatusElement = document.getElementById("moc3-mouth-sync-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
@@ -927,6 +928,14 @@
         !event.data || event.data.type !== "moc3-mouth-sync-status") return;
     const currentModelId = modelSelect && modelSelect.value;
     if (!currentModelId || event.data.modelUrl !== modelConfigUrl(currentModelId)) return;
+    const capabilityRows = modelCapabilitiesElement ? Array.from(modelCapabilitiesElement.querySelectorAll(".model-capability-row")) : [];
+    const mouthCapability = capabilityRows.find(item => item.firstElementChild && item.firstElementChild.textContent === "TTS 嘴型同步");
+    if (mouthCapability && mouthCapability.lastElementChild) {
+      mouthCapability.lastElementChild.textContent = event.data.supported
+        ? "支持；检测到参数 " + (event.data.parameterIds || []).join("、")
+        : "不支持；" + (event.data.reason || "没有可用嘴型参数");
+      mouthCapability.lastElementChild.dataset.state = event.data.supported ? "ok" : "warn";
+    }
     if (event.data.supported) {
       const ids = Array.isArray(event.data.parameterIds) ? event.data.parameterIds : [];
       const source = event.data.source === "model3-lipsync"
@@ -1104,6 +1113,106 @@
     playSelectedModelMotion();
   });
 
+  function renderModelCapabilityRows(rows) {
+    if (!modelCapabilitiesElement) return;
+    modelCapabilitiesElement.replaceChildren();
+    for (const row of rows) {
+      const item = document.createElement("div");
+      item.className = "model-capability-row";
+      const label = document.createElement("strong");
+      label.textContent = row.label;
+      const value = document.createElement("span");
+      value.textContent = row.value;
+      value.dataset.state = row.state || "info";
+      item.append(label, value);
+      modelCapabilitiesElement.appendChild(item);
+    }
+  }
+
+  async function diagnoseModelCapabilities(config, modelId, token = null) {
+    if (!modelCapabilitiesElement) return;
+    const isStale = () => token !== null && token !== modelSwitchToken;
+    const moc3 = live2dRuntimeVersion === "moc3";
+    const refs = moc3 && config.FileReferences && typeof config.FileReferences === "object"
+      ? config.FileReferences : null;
+    const motions = refs ? (refs.Motions || {}) : (config.motions || {});
+    const expressions = refs ? (refs.Expressions || []) : (config.expressions || []);
+    const hitAreas = refs ? (config.HitAreas || []) : (config.hit_areas || config.hitAreas || []);
+    const baseUrl = modelConfigUrl(modelId);
+    const assetUrl = file => new URL(String(file || ""), new URL(baseUrl, window.location.href)).href;
+    const checkAsset = async file => {
+      if (typeof file !== "string" || !file) return false;
+      try {
+        const response = await fetch(assetUrl(file), { method: "HEAD", cache: "no-store" });
+        return response.ok;
+      } catch (_) { return false; }
+    };
+    const motionEntries = [];
+    for (const [group, items] of Object.entries(motions || {})) {
+      if (!Array.isArray(items)) continue;
+      items.forEach((item, index) => {
+        const file = item && (item.File || item.file);
+        if (file) motionEntries.push({ group, index, file });
+      });
+    }
+    const validMotions = await Promise.all(motionEntries.map(async item => ({ ...item, valid: await checkAsset(item.file) })));
+    const idle = validMotions.filter(item => item.group.toLowerCase() === "idle");
+    const expressionEntries = Array.isArray(expressions) ? expressions.map(item => item && (item.File || item.file)).filter(Boolean) : [];
+    const validExpressions = await Promise.all(expressionEntries.map(checkAsset));
+    const physicsFile = refs ? refs.Physics : config.physics;
+    let physicsState = "未配置";
+    if (physicsFile) {
+      try {
+        const response = await fetch(assetUrl(physicsFile), { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = await response.json();
+        const valid = moc3
+          ? Array.isArray(data.PhysicsSettings) && data.PhysicsSettings.length > 0
+          : Boolean(data && typeof data === "object" && Object.keys(data).length > 0);
+        physicsState = valid ? "有效配置" : "文件存在，但没有有效物理设置";
+      } catch (error) {
+        physicsState = "资源无效：" + error.message;
+      }
+    }
+    const touchNames = Array.isArray(hitAreas) ? hitAreas.map(item => item && (item.Name || item.name)).filter(name => typeof name === "string" && name) : [];
+    const mappedTouchNames = touchNames.map(name => {
+      const group = name.startsWith("Touch") ? "Tap" + name : name === "Body" ? "TapBody" : "";
+      const exists = validMotions.some(item => item.group === group && item.valid);
+      return { name, group, exists };
+    });
+    const validTouchCount = mappedTouchNames.filter(item => item.exists || item.name === "Head").length;
+    const invalidAssets = [
+      ...validMotions.filter(item => !item.valid).map(item => item.file),
+      ...expressionEntries.filter((file, index) => !validExpressions[index]),
+      ...(physicsFile && physicsState.startsWith("资源无效") ? [physicsFile] : [])
+    ];
+    const rows = [
+      { label: "Idle 动作", value: idle.length ? (idle.some(item => item.valid) ? "存在且资源可读取" : "已声明，但动作文件无效") : "未配置", state: idle.length && idle.some(item => item.valid) ? "ok" : "warn" },
+      { label: "可播放动作", value: validMotions.filter(item => item.valid).length + " / " + motionEntries.length + " 个动作资源有效", state: validMotions.some(item => item.valid) ? "ok" : "warn" },
+      { label: "表情", value: validExpressions.filter(Boolean).length + " / " + expressionEntries.length + " 个表情资源有效", state: expressionEntries.length && validExpressions.every(Boolean) ? "ok" : "warn" },
+      { label: "物理配置", value: physicsState, state: physicsState === "有效配置" ? "ok" : physicsFile ? "warn" : "info" },
+      { label: "触摸区域", value: touchNames.length ? touchNames.map(item => item).join("、") + "；映射可用 " + validTouchCount + " / " + touchNames.length : "未配置", state: touchNames.length && validTouchCount ? "ok" : "warn" },
+      { label: "TTS 嘴型同步", value: moc3 ? "等待 Cubism 运行时参数检测" : "等待 MOC2 模型参数检测", state: "checking" },
+      { label: "无效资源", value: invalidAssets.length ? [...new Set(invalidAssets)].join("、") : "未发现已声明资源缺失", state: invalidAssets.length ? "warn" : "ok" }
+    ];
+    if (isStale()) return;
+    renderModelCapabilityRows(rows);
+    if (!moc3) {
+      const model = window.__live2dManager && window.__live2dManager.getModel(0);
+      const liveModel = model && model.live2DModel;
+      const candidates = Array.isArray(config.lip_sync) ? config.lip_sync : ["PARAM_MOUTH_OPEN_Y"];
+      const parameter = liveModel && typeof liveModel.getParamIndex === "function"
+        ? candidates.find(id => liveModel.getParamIndex(id) >= 0) : null;
+      const mouth = rows.find(row => row.label === "TTS 嘴型同步");
+      if (mouth) {
+        mouth.value = parameter ? "支持；检测到参数 " + parameter : "未检测到可用嘴型参数";
+        mouth.state = parameter ? "ok" : "warn";
+        renderModelCapabilityRows(rows);
+      }
+    }
+    return { motionEntries, validMotions, expressionEntries, validExpressions, touchNames, mappedTouchNames, invalidAssets };
+  }
+
   async function loadModelActionConfig(modelId, token = null) {
     const url = modelConfigUrl(modelId);
     const response = await fetch(url, { cache: "no-store" });
@@ -1111,7 +1220,8 @@
     const config = await response.json();
     if (token !== null && token !== modelSwitchToken) return false;
     populateModelActions(config, modelId);
-    return true;
+    await diagnoseModelCapabilities(config, modelId, token);
+    return token === null || token === modelSwitchToken;
   }
 
   async function playSelectedModelMotion() {
