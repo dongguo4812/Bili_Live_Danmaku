@@ -162,7 +162,8 @@ class ModuleManager:
                 if method in {"start", "resume"}:
                     with self._lock:
                         connection_active = self._connection_active
-                    if not connection_active:
+                        requires_connection = record.requires_connection
+                    if requires_connection and not connection_active:
                         pause_result = instance.pause()
                         if inspect.isawaitable(pause_result):
                             await pause_result
