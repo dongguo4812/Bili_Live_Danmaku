@@ -400,7 +400,8 @@ class LiveRoomClient:
 
                 @room.on("DISCONNECT")
                 async def disconnected(event: Any) -> None:
-                    self.on_state("disconnected", "B 站 WebSocket 已断开。")
+                    if not self.stop_event.is_set():
+                        self.on_state("disconnected", "B 站 WebSocket 已断开。")
 
                 await room.connect()
                 if not self.stop_event.is_set():
