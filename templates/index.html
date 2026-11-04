@@ -109,9 +109,9 @@
         <span id="music-request-state" class="status-pill">点歌开关：开启</span>
       </div>
       <div class="inline-controls action-controls module-operation-controls">
-        <button id="music-skip" type="button" class="secondary-button">切歌</button>
-        <button id="music-clear" type="button" class="secondary-button">清空待播队列</button>
-        <button id="music-toggle-request" type="button" class="secondary-button">关闭观众点歌</button>
+        <button id="music-skip" type="button" class="secondary-button" disabled>切歌</button>
+        <button id="music-clear" type="button" class="secondary-button" disabled>清空待播队列</button>
+        <button id="music-toggle-request" type="button" class="secondary-button" disabled>关闭观众点歌</button>
       </div>
       <p id="music-current" class="muted">当前歌曲：无</p>
       <p id="music-queue" class="muted">待播队列：0 首</p>
@@ -133,8 +133,8 @@
         <span id="video-queue-count" class="status-pill">待播：0 条</span>
       </div>
       <div class="inline-controls action-controls module-operation-controls">
-        <button id="video-next" type="button" class="secondary-button">下一个</button>
-        <button id="video-clear" type="button" class="secondary-button">清空待播队列</button>
+        <button id="video-next" type="button" class="secondary-button" disabled>下一个</button>
+        <button id="video-clear" type="button" class="secondary-button" disabled>清空待播队列</button>
       </div>
       <p id="video-current" class="muted">当前视频：无</p>
       <p id="video-queue" class="muted">待播队列：0 条</p>
@@ -214,15 +214,16 @@
       }
     }
 
-    const moduleStates = { music: "stopped", video: "stopped", voice: "stopped" };
+    const moduleStates = { music: "unknown", video: "unknown", voice: "unknown" };
     const moduleStateLabels = {
       stopped: "已关闭", starting: "启动中", running: "运行中",
       pausing: "暂停中", paused: "已暂停", resuming: "恢复中",
-      closing: "关闭中", error: "运行异常"
+      closing: "关闭中", error: "运行异常", unknown: "状态未知"
     };
 
     async function toggleModuleControl(moduleName, pair) {
-      const state = moduleStates[moduleName] || "stopped";
+      const state = moduleStates[moduleName] || "unknown";
+      if (state === "unknown") return;
       const action = pair === "lifecycle"
         ? (["stopped", "error"].includes(state) ? "start" : "close")
         : (state === "running" ? "pause" : state === "paused" ? "resume" : null);
@@ -276,13 +277,13 @@
     function renderModuleControls() {
       for (const name of ["music", "video", "voice"]) {
         const state = moduleStates[name] || "stopped";
-        const busy = ["starting", "pausing", "resuming", "closing"].includes(state);
+        const busy = ["starting", "pausing", "resuming", "closing", "unknown"].includes(state);
         const statePill = $(name + "-control-state");
         statePill.textContent = moduleStateLabels[state] || "状态未知";
         statePill.dataset.state = ["stopped", "starting", "running", "pausing", "paused", "resuming", "closing", "error"].includes(state) ? state : "unknown";
         const lifecycle = $(name + "-toggle-lifecycle");
         const pause = $(name + "-toggle-pause");
-        lifecycle.textContent = ["stopped", "error"].includes(state) ? "启动" : "关闭";
+        lifecycle.textContent = state === "unknown" ? "状态未知" : ["stopped", "error"].includes(state) ? "启动" : "关闭";
         pause.textContent = state === "paused" ? "恢复" : "暂停";
         lifecycle.disabled = busy;
         pause.disabled = busy || !["running", "paused"].includes(state);
@@ -580,6 +581,8 @@
 
     $("connection-toggle").addEventListener("click", toggleLiveConnection);
 
+    renderModuleControls();
+    renderModuleOperations();
     refreshStatus();
     refreshMusicQueue();
     refreshVideoQueue();
