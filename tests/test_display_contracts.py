@@ -335,7 +335,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertTrue((root / "models" / "moc3" / ".gitkeep").is_file())
         self.assertTrue((root / "models" / "moc2").is_dir())
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('root = (MODEL_ROOT / "moc2").resolve()', main)
+        self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
         self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
 
