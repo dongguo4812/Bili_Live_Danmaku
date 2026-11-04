@@ -1052,6 +1052,13 @@ def _live2d_enabled() -> bool:
     return bool(CONFIG.get("live2d", {}).get("enabled", True))
 
 
+def _moc3_runtime_available() -> bool:
+    """MOC3 Framework/Core 尚未集成时明确返回不可用。"""
+    core = BASE_DIR / "static" / "js" / "live2d" / "moc3" / "Core" / "live2dcubismcore.min.js"
+    framework = BASE_DIR / "static" / "js" / "live2d" / "moc3" / "Framework" / "live2dcubismframework.js"
+    return core.is_file() and framework.is_file()
+
+
 def model_status() -> dict[str, Any]:
     enabled = _live2d_enabled()
     version = _live2d_runtime_version()
@@ -1073,11 +1080,16 @@ def model_status() -> dict[str, Any]:
         "directory_exists": bool(directory),
         "config_exists": bool(model_config and model_config.is_file()),
         "runtime_file_exists": runtime_file.is_file(),
+        "runtime_supported": version == "moc2" or _moc3_runtime_available(),
         "assets_ready": assets_ok,
         "missing_assets": missing,
         "runtime_state": runtime_state["state"],
-        "runtime_ready": enabled and runtime_state["state"] == "loaded",
-        "message": runtime_state["message"],
+        "runtime_ready": enabled and (version == "moc2" or _moc3_runtime_available()) and runtime_state["state"] == "loaded",
+        "message": (
+            "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+            if version == "moc3" and not _moc3_runtime_available()
+            else runtime_state["message"]
+        ),
     }
 
 
@@ -1242,13 +1254,13 @@ def index():
 @app.get("/live2d/display")
 def display():
     # Live2D 完整展示：包含模型、弹幕和 TTS。
-    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())
 
 
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
-    # MOC2 独立展示。
-    return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())
+    # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
+    return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled(), live2d_version="moc2")
 
 
 @app.get("/danmaku/display")
@@ -1348,7 +1360,7 @@ def get_display_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
     try:
-        version = _normalize_live2d_version(request.args.get("version") or settings.get("runtime_version") or "moc2")
+        version = _normalize_live2d_version(request.args.get("version") or settings.get("runtime_version") or _live2d_runtime_version())
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     available = _available_models(version)
@@ -1374,7 +1386,7 @@ def save_display_settings():
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
     try:
-        version = _normalize_live2d_version(payload.get("version") or request.args.get("version") or "moc2")
+        version = _normalize_live2d_version(payload.get("version") or request.args.get("version") or _live2d_runtime_version())
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     model_id = payload.get("model")
@@ -1614,6 +1626,58 @@ def disconnect_live_room():
 @app.get("/api/modules")
 def api_modules():
     return jsonify({"ok": True, "modules": APPLICATION_RUNTIME.modules.list_status()})
+
+
+@app.post("/api/modules/live2d/version")
+def set_live2d_version():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    try:
+        version = _normalize_live2d_version(payload.get("version"))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    manager = ConfigManager()
+    with SETTINGS_LOCK:
+        config = manager.load("live2d", {
+            "format": "MOC2", "default_model": DEFAULT_MODEL, "enabled": True,
+        })
+        previous = _normalize_live2d_version(config.get("runtime_version", "moc2"))
+        if previous == version:
+            return jsonify({
+                "ok": True, "version": version,
+                "runtime_supported": version == "moc2" or _moc3_runtime_available(),
+                "message": "当前已经是所选 Live2D 版本。",
+            })
+        config["runtime_version"] = version
+        try:
+            manager.save("live2d", config)
+            CONFIG["live2d"] = config
+        except Exception as exc:
+            logger.exception("保存 Live2D 运行时版本失败。")
+            return jsonify({"ok": False, "error": f"保存 Live2D 版本失败：{type(exc).__name__}"}), 500
+
+    with RUNTIME_STATE_LOCK:
+        RUNTIME_STATE["state"] = "not_started"
+        RUNTIME_STATE["message"] = (
+            "Live2D 运行时版本已切换，等待展示页重新加载。"
+            if version == "moc2" or _moc3_runtime_available()
+            else "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+        )
+    with OBS_DISPLAY_LOCK:
+        obs_refresh = _refresh_obs_browser_sources()
+    return jsonify({
+        "ok": True,
+        "version": version,
+        "runtime_supported": version == "moc2" or _moc3_runtime_available(),
+        "obs_refresh": obs_refresh,
+        "message": (
+            "已切换到 MOC2 运行时。"
+            if version == "moc2"
+            else "已保存 MOC3 版本选择；MOC3 渲染运行时将在下一阶段接入。"
+        ),
+    })
 
 
 @app.post("/api/modules/live2d/enabled")
