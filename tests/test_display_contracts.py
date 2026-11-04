@@ -411,6 +411,21 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         self.assertIn('id="moc3-runtime-frame"', template)
 
 
+    def test_moc3_status_messages_describe_runtime_file_availability(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        index = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        for stale in (
+            "Cubism 5 Framework/Core 尚未集成",
+            "MOC3 渲染运行时将在下一阶段接入",
+            "MOC3 展示暂不可用",
+        ):
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, main + index)
+        self.assertIn("Cubism 5 R5 运行时文件缺失或不完整", main)
+        self.assertIn("Cubism 5 R5 运行时文件缺失或不完整", index)
+
+
 if __name__ == "__main__":
     unittest.main()
 
