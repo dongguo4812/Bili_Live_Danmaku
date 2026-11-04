@@ -61,6 +61,9 @@
         <button id="connection-toggle" type="button">连接直播间</button>
       </div>
       <p id="bili-action-message" class="muted" role="status">连接直播间前必须完成 B 站登录。</p>
+      <div class="module-links">
+        <a href="/danmaku/display" target="_blank" rel="noopener">弹幕 OBS 展示页</a>
+      </div>
       <div id="qr-area" class="qr-area" hidden>
         <img id="qr-image" alt="B站登录二维码">
         <div>
@@ -105,19 +108,19 @@
         </div>
         <span id="music-request-state" class="status-pill">点歌开关：开启</span>
       </div>
-      <div class="inline-controls action-controls">
+      <div class="inline-controls action-controls module-operation-controls">
         <button id="music-skip" type="button" class="secondary-button">切歌</button>
         <button id="music-clear" type="button" class="secondary-button">清空待播队列</button>
         <button id="music-toggle-request" type="button" class="secondary-button">关闭观众点歌</button>
       </div>
       <p id="music-current" class="muted">当前歌曲：无</p>
       <p id="music-queue" class="muted">待播队列：0 首</p>
-      <p id="music-message" class="muted" role="status">歌曲模块每次启动后默认关闭；请先连接直播间，再启动模块。</p>
-      <div class="inline-controls">
-        <a href="/music" target="_blank" rel="noopener">打开完整点歌控制面板</a>
-        <a href="/music/display" target="_blank" rel="noopener">打开歌曲 OBS 展示页</a>
-        <a href="/music/widget" target="_blank" rel="noopener">打开歌曲信息组件页面</a>
+      <div class="module-links">
+        <a href="/music" target="_blank" rel="noopener">点歌控制面板</a>
+        <a href="/music/display" target="_blank" rel="noopener">歌曲队列 OBS 展示页</a>
+        <a href="/music/widget" target="_blank" rel="noopener">歌曲信息组件页</a>
       </div>
+      <p id="music-message" class="muted module-operation-message" role="status">歌曲模块未启动，启动后可进行切歌、清空队列和观众点歌开关操作。</p>
     </section>
 
     <section class="panel">
@@ -129,17 +132,17 @@
         </div>
         <span id="video-queue-count" class="status-pill">待播：0 条</span>
       </div>
-      <div class="inline-controls action-controls">
+      <div class="inline-controls action-controls module-operation-controls">
         <button id="video-next" type="button" class="secondary-button">下一个</button>
         <button id="video-clear" type="button" class="secondary-button">清空待播队列</button>
       </div>
       <p id="video-current" class="muted">当前视频：无</p>
       <p id="video-queue" class="muted">待播队列：0 条</p>
-      <p id="video-message" class="muted" role="status">视频模块每次启动后默认关闭；请先连接直播间，再启动模块。</p>
-      <div class="inline-controls">
-        <a href="/video" target="_blank" rel="noopener">打开完整视频队列控制面板</a>
-        <a href="/video/display" target="_blank" rel="noopener">打开视频 OBS 展示页</a>
+      <div class="module-links">
+        <a href="/video" target="_blank" rel="noopener">视频队列控制面板</a>
+        <a href="/video/display" target="_blank" rel="noopener">视频 OBS 展示页</a>
       </div>
+      <p id="video-message" class="muted module-operation-message" role="status">视频模块未启动，启动后可进行下一个和清空队列操作。</p>
     </section>
 
     <section class="panel" id="live2d-settings">
@@ -172,22 +175,11 @@
         <a href="/voice">语音设置</a>
       </div>
       <p class="muted">语音由 Live2D 浏览器展示页播放；关闭语音模块不会关闭 Live2D 模型。</p>
+      <div class="module-links">
+        <a href="/voice/display" target="_blank" rel="noopener">语音 OBS 展示页</a>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>OBS 展示</h2>
-      <p>完整组合展示：</p>
-      <code>http://127.0.0.1:8768/live2d/display</code>
-      <p>独立展示页面：</p>
-      <div class="inline-controls">
-        <a href="/danmaku/display" target="_blank" rel="noopener">弹幕</a>
-        <a href="/voice/display" target="_blank" rel="noopener">语音</a>
-        <a href="/music/display" target="_blank" rel="noopener">歌曲队列</a>
-        <a href="/video/display" target="_blank" rel="noopener">视频队列</a>
-        <a href="/music/widget" target="_blank" rel="noopener">歌曲信息</a>
-      </div>
-      <p class="muted">建议 OBS 浏览器源画布分辨率与实际输出分辨率一致。Live2D 模型与弹幕布局设置仍在完整组合展示页左上角「设置」中调整。</p>
-    </section>
   </main>
   </div>
   <script>
@@ -213,6 +205,7 @@
         $("video-queue-count").textContent = "待播：" + queue.length + " 条";
         $("video-queue").textContent = "待播队列：" + queue.length + " 条" +
           (queue.length ? "（" + queue.slice(0, 4).map(x => x.title).join("、") + (queue.length > 4 ? "…" : "") + "）" : "");
+        renderModuleOperations();
       } catch (error) {
         $("video-message").textContent = "读取视频队列失败：" + error.message;
       }
@@ -246,6 +239,37 @@
       renderModuleControls();
     }
 
+    function moduleOperationsAvailable(name) {
+      return ["running", "paused"].includes(moduleStates[name]);
+    }
+
+    function renderModuleOperations() {
+      const musicReady = moduleOperationsAvailable("music");
+      const videoReady = moduleOperationsAvailable("video");
+      ["music-skip", "music-clear", "music-toggle-request"].forEach(id => {
+        $(id).disabled = !musicReady;
+      });
+      ["video-next", "video-clear"].forEach(id => {
+        $(id).disabled = !videoReady;
+      });
+      if (!musicReady) {
+        const state = moduleStateLabels[moduleStates.music] || "状态未知";
+        $("music-message").textContent = "歌曲点播当前" + state + "，无法执行切歌、清空队列或切换观众点歌。请先在上方启动歌曲点播。";
+      } else if ($("music-message").dataset.blocked === "true") {
+        $("music-message").textContent = "歌曲点播已恢复，可以进行队列操作。";
+        $("music-message").dataset.blocked = "false";
+      }
+      if (!videoReady) {
+        const state = moduleStateLabels[moduleStates.video] || "状态未知";
+        $("video-message").textContent = "视频点播当前" + state + "，无法执行下一个或清空队列。请先在上方启动视频点播。";
+      } else if ($("video-message").dataset.blocked === "true") {
+        $("video-message").textContent = "视频点播已恢复，可以进行队列操作。";
+        $("video-message").dataset.blocked = "false";
+      }
+      $("music-message").dataset.blocked = String(!musicReady);
+      $("video-message").dataset.blocked = String(!videoReady);
+    }
+
     function renderModuleControls() {
       for (const name of ["music", "video", "voice"]) {
         const state = moduleStates[name] || "stopped";
@@ -268,6 +292,10 @@
     }
 
     async function videoQueueAction(payload) {
+      if (!moduleOperationsAvailable("video")) {
+        renderModuleOperations();
+        return;
+      }
       try {
         const data = await api("/api/video/action", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -342,12 +370,17 @@
         $("music-request-state").textContent = "点歌开关：" + (enabled ? "开启" : "关闭");
         $("music-toggle-request").textContent = enabled ? "关闭观众点歌" : "开启观众点歌";
         $("music-toggle-request").dataset.enabled = String(enabled);
+        renderModuleOperations();
       } catch (error) {
         $("music-message").textContent = "读取歌曲队列失败：" + error.message;
       }
     }
 
     async function musicQueueAction(payload) {
+      if (!moduleOperationsAvailable("music")) {
+        renderModuleOperations();
+        return;
+      }
       try {
         const data = await api("/api/music/action", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -422,6 +455,7 @@
         live2dControlState.textContent = live2dEnabled ? "已启用" : "已停用";
         live2dControlState.dataset.state = live2dEnabled ? "enabled" : "disabled";
         renderModuleControls();
+        renderModuleOperations();
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }
