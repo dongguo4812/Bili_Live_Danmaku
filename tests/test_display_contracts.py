@@ -413,8 +413,9 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
     def test_moc3_size_position_and_crop_use_live_iframe_transform(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "static/js/display.js").read_text(encoding="utf-8")
-        self.assertIn('moc3Frame.style.transformOrigin = "50% 50%"', script)
-        self.assertIn('moc3Frame.style.transform = "translate3d("', script)
+        self.assertIn('runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y)', script)
+        self.assertNotIn('moc3Frame.style.transform =', script)
+        self.assertIn('window.live2dSetModelTransform=', (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf--8"))
         self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
         self.assertIn('applyLive2DCrop();\n    applyLive2DTransform();', script)
 
@@ -507,6 +508,9 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         display_html = (root / "templates" / "display.html").read_text(encoding="utf-8")
         self.assertIn('getContext(`webgl2`,{alpha:!0,premultipliedAlpha:!0,preserveDrawingBuffer:!1})', runtime)
         self.assertIn('e.clearColor(0,0,0,0)', runtime)
+        self.assertIn('blendFunc(e.ONE,e.ONE_MINUS_SRC_ALPHA)', runtime)
+        self.assertIn('reportAlphaDiagnostic(e)', runtime)
+        self.assertIn('readPixels(t[0],t[1],1,1,e.RGBA,e.UNSIGNED_BYTE,n)', runtime)
         self.assertIn('canvas { background-color: transparent !important; }', runtime_html)
         self.assertIn('background-color: transparent !important;', display_html)
         self.assertIn('allowtransparency="true"', display_html)
