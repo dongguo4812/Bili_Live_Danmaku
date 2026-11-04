@@ -16,7 +16,7 @@
 |---|---|
 | `app.json` | 服务设置及唯一的系统管理员 UID 列表 |
 | `live.json` | 直播间号与连接设置 |
-| `live2d.json` | Live2D 运行时启用状态、模型与按模型保存的弹幕框布局偏好 |
+| `live2d.json` | Live2D 启用状态、当前运行时版本、MOC2/MOC3 分版本模型选择，以及按模型保存的展示偏好 |
 | `danmaku.json` | 弹幕模块设置与空闲随机提示 |
 | `voice.json` | 语音播报设置 |
 | `music.json` | 歌曲模块普通设置 |
@@ -25,6 +25,9 @@
 | `logging.json` | 日志等级与保留天数 |
 
 点歌和视频点播的粉丝牌配置统一使用布尔值：`true` 表示要求本直播间粉丝牌，`false` 表示不要求。新用户默认均为 `false`。旧版点歌配置的数字 `0/1` 会按原有含义转换（`0` 转为 `true`，`1` 转为 `false`）。
+
+
+Live2D 模型资源本身不存放在普通配置目录：MOC2 模型放在 `models/moc2/<模型ID>/`，MOC3 模型放在 `models/moc3/<模型ID>/`。`live2d.json` 中的 `runtime_version` 选择运行时，`model_by_version` 分别保存两种运行时的模型 ID；按模型的展示偏好使用版本与模型 ID 隔离保存。
 
 ## 与配置目录分离的数据
 
