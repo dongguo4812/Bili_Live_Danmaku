@@ -771,6 +771,26 @@ OBS_COMBINED_REFRESH_STOP = threading.Event()
 OBS_COMBINED_DISPLAY_REFRESHED = False
 
 
+def _display_service_address() -> tuple[str, int]:
+    """返回本地展示服务绑定地址；通配绑定地址允许匹配 OBS 使用的实际访问主机。"""
+    app_config = CONFIG.get("app", {})
+    if not isinstance(app_config, dict):
+        app_config = {}
+    host = str(app_config.get("host", "127.0.0.1") or "127.0.0.1").strip().lower()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    # 0.0.0.0 / :: 表示监听所有网卡，不能拿它与浏览器源 URL 的主机名直接比较。
+    if host in {"", "0.0.0.0", "::"}:
+        host = ""
+    try:
+        port = int(app_config.get("port", 8768))
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except (TypeError, ValueError):
+        port = 8768
+    return host, port
+
+
 def _is_combined_display_browser_url(value: Any) -> bool:
     """匹配当前程序地址下的默认综合展示页或指定布局展示页。"""
     if not isinstance(value, str) or not value.strip():
@@ -783,7 +803,7 @@ def _is_combined_display_browser_url(value: Any) -> bool:
         if actual_port is None:
             actual_port = 443 if parsed.scheme.lower() == "https" else 80
         loopbacks = {"localhost", "127.0.0.1", "::1"}
-        same_host = actual_host == expected_host or (
+        same_host = not expected_host or actual_host == expected_host or (
             actual_host in loopbacks and expected_host in loopbacks
         )
         path = parsed.path.rstrip("/")
