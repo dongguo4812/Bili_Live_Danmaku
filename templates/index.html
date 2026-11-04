@@ -336,7 +336,7 @@
         $("connection-state").textContent = data.bilibili.connected ? "已连接" : ({
           connecting: "连接中", reconnecting: "等待重连"
         }[data.bilibili.connection_state] || "未连接");
-        $("runtime-state").textContent = ({
+        $("runtime-state").textContent = data.live2d.enabled === false ? "已停用" : ({
           not_started: "等待 OBS 展示页",
           loading: "正在加载",
           loaded: "已就绪",
