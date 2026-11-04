@@ -102,6 +102,7 @@ The management center is available at `http://127.0.0.1:8768/`. The access cente
 - Display URLs: full Live2D/danmaku/TTS display `/live2d/display`; MOC2-only display `/live2d/moc2/display`; danmaku `/danmaku/display`; voice `/voice/display`; music queue `/music/display`; video queue `/video/display`; music widget `/music/widget`.
 - Live2D settings APIs use the `/api/live2d/` namespace. The module lifecycle API is shared by the access-center controls.
 - The combined layout editor is `/dashboard`. It supports multiple named layouts, and each layout can use its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
+- When OBS WebSocket becomes available, the application refreshes matching combined-display browser sources (`/display/combined` or `/display/combined/<layout-id>`) once. This is independent of Bilibili connection state and never changes OBS source visibility. If OBS is not yet available or the source has not been added, connection/source discovery is retried every three seconds until one successful refresh.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
 
 GitHub Actions runs Python compilation, configuration and offline regression tests on Ubuntu, plus real DPAPI and retired-configuration checks on Windows. Passing CI does not mean every device has completed manual integration testing; music and video still need local validation with LX Music, Chrome, OBS WebSocket and a real live room.
