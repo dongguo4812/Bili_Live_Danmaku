@@ -22,6 +22,18 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
+    def test_saving_combined_layout_triggers_non_blocking_obs_refresh(self):
+        main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        start = main.index('@app.post("/api/display/layout")')
+        end = main.index('\n\n@app.get("/api/danmaku")', start)
+        route = main[start:end]
+        self.assertIn("_save_display_layout_store(store)", route)
+        self.assertIn('target=_refresh_obs_combined_display_sources', route)
+        self.assertIn('name="obs-layout-save-refresh"', route)
+        self.assertIn("daemon=True", route)
+        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("target=_refresh_obs_combined_display_sources"))
+
+
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
