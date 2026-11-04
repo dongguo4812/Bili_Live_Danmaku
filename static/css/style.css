@@ -337,3 +337,84 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .model-capability-row > span[data-state="ok"] { color: #70c995; }
 .model-capability-row > span[data-state="warn"] { color: #e7b65c; }
 .model-capability-row > span[data-state="checking"] { color: #82b6ee; }
+
+
+/* Access-center unified module lifecycle controls */
+.module-control-panel { display: grid; gap: 12px; }
+.module-control-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color, rgba(255,255,255,.12));
+}
+.module-control-info { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; }
+.module-control-info > strong { font-size: 14px; }
+.module-control-message { grid-column: 1 / -1; margin: 0; min-height: 0; }
+.module-control-row button:disabled { opacity: .55; cursor: not-allowed; }
+@media(max-width: 620px) {
+  .module-control-row { grid-template-columns: minmax(0, 1fr); }
+  .module-control-row .action-controls { justify-content: flex-start; }
+}
+
+/* State colors for the access-center module status indicators */
+#module-controls .status-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+#module-controls .status-pill[data-state="running"],
+#module-controls .status-pill[data-state="enabled"] {
+  color: #36b978;
+  background: rgba(54, 185, 120, .12);
+}
+#module-controls .status-pill[data-state="paused"] {
+  color: #e5a93d;
+  background: rgba(229, 169, 61, .12);
+}
+#module-controls .status-pill[data-state="stopped"],
+#module-controls .status-pill[data-state="disabled"] {
+  color: #9aa3af;
+  background: rgba(154, 163, 175, .12);
+}
+#module-controls .status-pill[data-state="error"] {
+  color: #ef6262;
+  background: rgba(239, 98, 98, .12);
+}
+#module-controls .status-pill[data-state="starting"],
+#module-controls .status-pill[data-state="pausing"],
+#module-controls .status-pill[data-state="resuming"],
+#module-controls .status-pill[data-state="closing"],
+#module-controls .status-pill[data-state="unknown"] {
+  color: #65a9ed;
+  background: rgba(101, 169, 237, .12);
+}
+
+
+/* Access-center connection and runtime status colors */
+.status-grid strong[data-state="logged_in"],
+.status-grid strong[data-state="connected"],
+.status-grid strong[data-state="loaded"] {
+  color: #36b978;
+}
+.status-grid strong[data-state="logged_out"],
+.status-grid strong[data-state="disconnected"],
+.status-grid strong[data-state="disabled"] {
+  color: #9aa3af;
+}
+.status-grid strong[data-state="connecting"],
+.status-grid strong[data-state="reconnecting"],
+.status-grid strong[data-state="waiting"],
+.status-grid strong[data-state="loading"],
+.status-grid strong[data-state="unknown"] {
+  color: #65a9ed;
+}
+.status-grid strong[data-state="error"] {
+  color: #ef6262;
+}
