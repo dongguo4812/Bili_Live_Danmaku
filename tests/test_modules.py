@@ -33,6 +33,8 @@ class ModuleConnectionRequirementTests(unittest.IsolatedAsyncioTestCase):
         manager.register("live2d", live2d, requires_connection=False)
         await manager.start("live2d")
         self.assertEqual(manager.list_status()["live2d"]["state"], "running")
+        await manager.on_connection_lost()
+        self.assertEqual(manager.list_status()["live2d"]["state"], "running")
         await manager.close("live2d")
         self.assertEqual(manager.list_status()["live2d"]["state"], "stopped")
 
