@@ -458,6 +458,10 @@ class Live2DFourthPhaseIntegrationContractTests(unittest.TestCase):
         self.assertIn('window.live2dSetMouthOpen=t=>e?.setMouthOpen(t)', moc3_runtime)
         self.assertIn('getParameterId(t).getString()', moc3_runtime)
         self.assertIn('this._mouthOpenParameterIndex>=0&&(e.setParameterValueByIndex(this._mouthOpenParameterIndex,this._mouthOpen),e.update())', moc3_runtime)
+        self.assertIn('当前模型没有可识别的嘴型参数，TTS 嘴型同步不可用。', moc3_runtime)
+        self.assertIn('parameterCount:e.getParameterCount()', moc3_runtime)
+        self.assertIn('parameterIds:Array.from', moc3_runtime)
+        self.assertIn('检测到可用嘴型参数：', moc3_runtime)
         for parameter_id in ('ParamMouthOpenY', 'PARAM_MOUTH_OPEN_Y', 'MouthOpenY'):
             self.assertIn(parameter_id, moc3_runtime)
         self.assertIn('function startMouthSync(analyser)', display_script)
