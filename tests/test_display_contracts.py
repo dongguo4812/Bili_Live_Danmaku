@@ -409,3 +409,11 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         self.assertIn('type:"moc3-model-loaded"', bundle)
         self.assertNotIn("window.setInterval(()=>{Ma()},700);", bundle)
 
+    def test_moc3_size_position_and_crop_use_live_iframe_transform(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static/js/display.js").read_text(encoding="utf-8")
+        self.assertIn('moc3Frame.style.transformOrigin = "50% 50%"', script)
+        self.assertIn('moc3Frame.style.transform = "translate3d("', script)
+        self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
+        self.assertIn('applyLive2DCrop();\n    applyLive2DTransform();', script)
+
