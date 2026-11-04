@@ -1130,7 +1130,7 @@ def model_status() -> dict[str, Any]:
         "runtime_state": runtime_state["state"],
         "runtime_ready": enabled and (version == "moc2" or _moc3_runtime_available()) and runtime_state["state"] == "loaded",
         "message": (
-            "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+            "已选择 MOC3，但 Cubism 5 R5 运行时文件缺失或不完整；不会回退到 MOC2。"
             if version == "moc3" and not _moc3_runtime_available()
             else runtime_state["message"]
         ),
@@ -1796,7 +1796,7 @@ def set_live2d_version():
         RUNTIME_STATE["message"] = (
             "Live2D 运行时版本已切换，等待展示页重新加载。"
             if version == "moc2" or _moc3_runtime_available()
-            else "已选择 MOC3，但 Cubism 5 Framework/Core 尚未集成；目前不会尝试用 MOC2 加载 MOC3 模型。"
+            else "已选择 MOC3，但 Cubism 5 R5 运行时文件缺失或不完整；不会回退到 MOC2。"
         )
     with OBS_DISPLAY_LOCK:
         obs_refresh = _refresh_obs_browser_sources()
@@ -1808,7 +1808,7 @@ def set_live2d_version():
         "message": (
             "已切换到 MOC2 运行时。"
             if version == "moc2"
-            else "已保存 MOC3 版本选择；MOC3 渲染运行时将在下一阶段接入。"
+            else "已保存 MOC3 版本选择；展示页将使用 Cubism 5 R5 运行时加载模型。"
         ),
     })
 
