@@ -1525,7 +1525,10 @@ def save_display_settings():
         shortcuts = {}
         used_keys = set()
         for action, key in raw_shortcuts.items():
-            if not isinstance(action, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}::[0-9]{1,4}", action):
+            if not isinstance(action, str) or len(action) > 256 or "::" not in action:
+                raise ValueError("动作快捷键对应的动作标识无效。")
+            action_group, action_index = action.rsplit("::", 1)
+            if not action_group or len(action_group) > 200 or not action_index.isdigit() or any(ord(char) < 32 for char in action_group):
                 raise ValueError("动作快捷键对应的动作标识无效。")
             if key in (None, ""):
                 continue
