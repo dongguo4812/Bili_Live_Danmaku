@@ -184,7 +184,7 @@ class ModuleManager:
             snapshot = {
                 name: record.generation
                 for name, record in self._modules.items()
-                if record.state in {"running", "starting", "resuming"}
+                if record.requires_connection and record.state in {"running", "starting", "resuming"}
             }
             self._disconnect_snapshot = snapshot
             names = tuple(snapshot)
