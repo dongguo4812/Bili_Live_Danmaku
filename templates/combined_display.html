@@ -425,7 +425,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       positionWidget(widget,item);
       const header=make("header","widget-header");
       const title=make("span","widget-title",labels[item.type]||item.type);
-      if(item.type==="music"||item.type==="video") title.hidden=true;
+      if(displayMode && (item.type==="music"||item.type==="video")) title.hidden=true;
       header.appendChild(title);
       const actions=make("div","widget-actions");
       if(!displayMode){
