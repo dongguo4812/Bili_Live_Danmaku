@@ -21,6 +21,16 @@ body.embedded{padding:0}
 (function(){
   const root=document.getElementById("media-root");
   let queueInFlight=false,statusInFlight=false;
+  let displayScale=1;
+  function applyDisplayScale(scale){
+    displayScale=Math.max(0.5,Math.min(2,Number(scale)||1));
+    root.style.setProperty("--display-scale",String(displayScale));
+  }
+  window.addEventListener("message",event=>{
+    if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-display-scale") return;
+    applyDisplayScale(event.data.scale);
+  });
+  applyDisplayScale(1);
   function setOnline(online){root.classList.toggle("offline",!online);}
   async function refreshStatus(){
     if(statusInFlight)return;
