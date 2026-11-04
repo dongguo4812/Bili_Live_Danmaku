@@ -876,18 +876,23 @@
 
   function populateModelActions(config, modelId) {
     selectedModelConfig = config && typeof config === "object" ? config : {};
+    const moc3References = live2dRuntimeVersion === "moc3" &&
+      selectedModelConfig.FileReferences && typeof selectedModelConfig.FileReferences === "object"
+      ? selectedModelConfig.FileReferences : null;
+    const groups = moc3References
+      ? (moc3References.Motions && typeof moc3References.Motions === "object" ? moc3References.Motions : {})
+      : (selectedModelConfig.motions && typeof selectedModelConfig.motions === "object" ? selectedModelConfig.motions : {});
     if (motionSelect) {
       motionSelect.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      const groups = selectedModelConfig.motions && typeof selectedModelConfig.motions === "object"
-        ? selectedModelConfig.motions : {};
       const entries = [];
       for (const [group, motions] of Object.entries(groups)) {
         if (!Array.isArray(motions)) continue;
         motions.forEach((motion, index) => {
-          if (!motion || typeof motion.file !== "string" || !motion.file) return;
-          entries.push({ group, index, file: motion.file });
+          const file = motion && (motion.file || motion.File);
+          if (typeof file !== "string" || !file) return;
+          entries.push({ group, index, file });
         });
       }
       placeholder.textContent = entries.length ? "请选择动作" : "当前模型没有配置动作";
@@ -895,7 +900,7 @@
       for (const entry of entries) {
         const option = document.createElement("option");
         option.value = entry.group + "::" + entry.index;
-        option.textContent = entry.group + " / " + entry.file.split("/").pop();
+        option.textContent = (entry.group || "默认动作组") + " / " + entry.file.split("/").pop();
         motionSelect.appendChild(option);
       }
     }
@@ -903,8 +908,12 @@
       expressionSelect.replaceChildren();
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      const expressions = Array.isArray(selectedModelConfig.expressions)
-        ? selectedModelConfig.expressions.filter(item => item && typeof item.file === "string" && item.file)
+      const rawExpressions = moc3References ? moc3References.Expressions : selectedModelConfig.expressions;
+      const expressions = Array.isArray(rawExpressions)
+        ? rawExpressions.map(item => ({
+            name: item && (item.name || item.Name),
+            file: item && (item.file || item.File)
+          })).filter(item => typeof item.file === "string" && item.file)
         : [];
       placeholder.textContent = expressions.length ? "请选择表情" : "当前模型没有配置独立表情";
       expressionSelect.appendChild(placeholder);
@@ -941,15 +950,24 @@
     const separator = value.lastIndexOf("::");
     const group = value.slice(0, separator);
     const index = Number(value.slice(separator + 2));
-    const model = window.__live2dManager && window.__live2dManager.getModel(0);
-    if (!model || !model.initialized || typeof model.startMotion !== "function") {
-      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
-      return;
-    }
     try {
-      // Cubism 2 priority 4 is FORCE: user-selected motion takes precedence
-      // over the model's low-priority automatic idle motion.
-      model.startMotion(group, index, 4);
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dPlayMotion !== "function") {
+          setModelActionStatus("MOC3 动作接口尚未就绪。", true);
+          return;
+        }
+        const result = runtimeWindow.live2dPlayMotion(group, index);
+        if (result === false || result === -1) throw new Error("运行时拒绝播放该动作。");
+      } else {
+        const model = window.__live2dManager && window.__live2dManager.getModel(0);
+        if (!model || !model.initialized || typeof model.startMotion !== "function") {
+          setModelActionStatus("Live2D 模型尚未完成初始化。", true);
+          return;
+        }
+        // Cubism 2 priority 4 is FORCE.
+        model.startMotion(group, index, 4);
+      }
       setModelActionStatus("已播放动作：" + group + " / " + motionSelect.selectedOptions[0].textContent);
     } catch (error) {
       setModelActionStatus("动作播放失败：" + error.message, true);
@@ -963,17 +981,26 @@
     }
     const name = expressionSelect && expressionSelect.value;
     if (!name) return;
-    const model = window.__live2dManager && window.__live2dManager.getModel(0);
-    if (!model || !model.initialized || typeof model.setExpression !== "function") {
-      setModelActionStatus("Live2D 模型尚未完成初始化。", true);
-      return;
-    }
-    if (!model.expressions || !model.expressions[name]) {
-      setModelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
-      return;
-    }
     try {
-      model.setExpression(name);
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dSetExpression !== "function") {
+          setModelActionStatus("MOC3 表情接口尚未就绪。", true);
+          return;
+        }
+        if (!runtimeWindow.live2dSetExpression(name)) throw new Error("当前模型未找到该表情。");
+      } else {
+        const model = window.__live2dManager && window.__live2dManager.getModel(0);
+        if (!model || !model.initialized || typeof model.setExpression !== "function") {
+          setModelActionStatus("Live2D 模型尚未完成初始化。", true);
+          return;
+        }
+        if (!model.expressions || !model.expressions[name]) {
+          setModelActionStatus("表情资源尚未加载完成，请稍后再试。", true);
+          return;
+        }
+        model.setExpression(name);
+      }
       setModelActionStatus("已切换表情：" + name);
     } catch (error) {
       setModelActionStatus("表情切换失败：" + error.message, true);
@@ -982,6 +1009,16 @@
 
   function resetSelectedModelExpression() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) return;
+    if (live2dRuntimeVersion === "moc3") {
+      const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+      if (!runtimeWindow || typeof runtimeWindow.live2dResetExpression !== "function" ||
+          !runtimeWindow.live2dResetExpression()) {
+        setModelActionStatus("当前 MOC3 模型不支持恢复默认表情。", true);
+        return;
+      }
+      setModelActionStatus("已恢复模型默认表情。");
+      return;
+    }
     const model = window.__live2dManager && window.__live2dManager.getModel(0);
     if (!model || !model.expressionManager || typeof model.expressionManager.stopAllMotions !== "function") {
       setModelActionStatus("当前模型不支持恢复默认表情。", true);
@@ -1522,7 +1559,12 @@
         const modelId = await loadDisplaySettings();
         const token = ++modelSwitchToken;
         modelSwitchPromise = loadMoc3Model(modelId, token);
-        await modelSwitchPromise;
+        const loaded = await modelSwitchPromise;
+        if (loaded) {
+          await loadModelActionConfig(modelId);
+          statusSent = true;
+          updateModelActionAvailability();
+        }
       } catch (error) {
         console.error("MOC3 initialization failed:", error);
         showMessage("MOC3 加载失败：" + error.message);
@@ -1616,7 +1658,12 @@
       // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
       if (live2dRuntimeVersion === "moc3") {
         modelSwitchPromise = loadMoc3Model(selectedModelId, token);
-        await modelSwitchPromise;
+        const loaded = await modelSwitchPromise;
+        if (loaded && token === modelSwitchToken) {
+          await loadModelActionConfig(selectedModelId);
+          statusSent = true;
+          updateModelActionAvailability();
+        }
       } else {
         await queueModelSwitch(selectedModelId, token, p);
       }
