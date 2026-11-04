@@ -24,6 +24,19 @@ class DisplayModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(live2d.paused)
 
 
+class ModuleConnectionRequirementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live2d_can_be_enabled_without_bilibili_connection(self):
+        from core.module_manager import ModuleManager
+
+        manager = ModuleManager()
+        live2d = Live2DModule()
+        manager.register("live2d", live2d, requires_connection=False)
+        await manager.start("live2d")
+        self.assertEqual(manager.list_status()["live2d"]["state"], "running")
+        await manager.close("live2d")
+        self.assertEqual(manager.list_status()["live2d"]["state"], "stopped")
+
+
 class EventBusTests(unittest.IsolatedAsyncioTestCase):
     async def test_standard_danmaku_event_reaches_subscriber(self):
         bus = EventBus()
