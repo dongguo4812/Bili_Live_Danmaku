@@ -1696,6 +1696,7 @@
       await waitForRenderedPixels();
       statusSent = true;
       loadedModelId = modelId;
+      loadedModelProfile = currentModelProfile;
       captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       updateModelActionAvailability();
