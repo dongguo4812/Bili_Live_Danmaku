@@ -13,6 +13,8 @@
   const modelProfileSelect = document.getElementById("model-profile-select");
   const motionSelect = document.getElementById("model-motion-select");
   const motionPlayButton = document.getElementById("model-motion-play");
+  const motionShortcutsContainer = document.getElementById("model-motion-shortcuts");
+  let motionShortcutBindings = {};
   const expressionSelect = document.getElementById("model-expression-select");
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
@@ -1013,8 +1015,94 @@
       const expressionCount = expressionSelect ? Math.max(0, expressionSelect.options.length - 1) : 0;
       modelActionStatusElement.textContent = modelId + "：读取到 " + motionCount + " 个动作、" + expressionCount + " 个表情。";
     }
+    renderMotionShortcutEditor();
     updateModelActionAvailability();
   }
+
+  function normalizeMotionShortcut(key) {
+    const value = String(key || "").toUpperCase();
+    return /^[A-Z0-9]$/.test(value) || /^F(?:[1-9]|1[0-2])$/.test(value) ? value : "";
+  }
+
+  function renderMotionShortcutEditor() {
+    if (!motionShortcutsContainer || !motionSelect) return;
+    motionShortcutsContainer.replaceChildren();
+    const heading = document.createElement("strong");
+    heading.className = "settings-subtitle";
+    heading.textContent = "动作快捷键";
+    motionShortcutsContainer.appendChild(heading);
+    const hint = document.createElement("p");
+    hint.className = "settings-help";
+    hint.textContent = "点击输入框后按下单个数字、字母或 F1-F12 绑定；同一模型配置内不能重复。";
+    motionShortcutsContainer.appendChild(hint);
+    for (const option of Array.from(motionSelect.options).slice(1)) {
+      const action = option.value;
+      if (!action) continue;
+      const row = document.createElement("div");
+      row.className = "model-motion-shortcut-row";
+      const label = document.createElement("span");
+      label.textContent = option.textContent;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.readOnly = true;
+      input.placeholder = "点击后按键";
+      input.value = motionShortcutBindings[action] || "";
+      input.setAttribute("aria-label", option.textContent + "快捷键");
+      input.addEventListener("keydown", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape" || event.key === "Backspace" || event.key === "Delete") {
+          delete motionShortcutBindings[action];
+          input.value = "";
+          markUnsaved();
+          return;
+        }
+        if (event.ctrlKey || event.altKey || event.metaKey) return;
+        const key = normalizeMotionShortcut(event.key);
+        if (!key) return;
+        const duplicate = Object.entries(motionShortcutBindings).find(([otherAction, otherKey]) => otherAction !== action && otherKey === key);
+        if (duplicate) {
+          setModelActionStatus("快捷键 " + key + " 已绑定到其他动作，请先清除原绑定。", true);
+          return;
+        }
+        motionShortcutBindings[action] = key;
+        input.value = key;
+        markUnsaved();
+      });
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "secondary-button";
+      clear.textContent = "清除";
+      clear.addEventListener("click", () => {
+        delete motionShortcutBindings[action];
+        input.value = "";
+        markUnsaved();
+      });
+      row.append(label, input, clear);
+      motionShortcutsContainer.appendChild(row);
+    }
+  }
+
+  function isShortcutTypingTarget(target) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']"));
+  }
+
+  document.addEventListener("keydown", event => {
+    if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey ||
+        isShortcutTypingTarget(event.target)) return;
+    const key = normalizeMotionShortcut(event.key);
+    if (!key) return;
+    const match = Object.entries(motionShortcutBindings).find(([, bound]) => bound === key);
+    if (!match) return;
+    const action = match[0];
+    const option = motionSelect && Array.from(motionSelect.options).find(item => item.value === action);
+    if (!option || !loadedModelId || !modelSelect || modelSelect.value !== loadedModelId || !statusSent) return;
+    motionSelect.value = action;
+    updateModelActionAvailability();
+    event.preventDefault();
+    playSelectedModelMotion();
+  });
 
   async function loadModelActionConfig(modelId, token = null) {
     const url = modelConfigUrl(modelId);
@@ -1161,6 +1249,7 @@
     return {
       model: modelSelect.value,
       profile: currentModelProfile,
+      motion_shortcuts: motionShortcutBindings,
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
@@ -1330,6 +1419,7 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
+    motionShortcutBindings = p.motion_shortcuts && typeof p.motion_shortcuts === "object" ? { ...p.motion_shortcuts } : {};
     populateModelProfiles(data.profiles, p.profile);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
@@ -1733,6 +1823,7 @@
       const data = await response.json();
       if (token !== modelSwitchToken) return;
       const p = data.preferences || {};
+      motionShortcutBindings = p.motion_shortcuts && typeof p.motion_shortcuts === "object" ? { ...p.motion_shortcuts } : {};
       populateModelProfiles(data.profiles, p.profile);
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
