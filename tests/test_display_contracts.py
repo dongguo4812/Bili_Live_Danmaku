@@ -396,7 +396,7 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         self.assertIn('@app.get("/api/models")', main)
         self.assertIn('"moc3_runtime":', main)
         self.assertIn('if version == "moc2":', main)
-        self.assertIn('MOC3 的缩放和位置由统一展示页实时变换 iframe', main)
+        self.assertIn('MOC3 的缩放和位置由 Cubism 5 Runtime 的模型矩阵实时处理', main)
         self.assertTrue((root / "static/js/live2d/moc3/runtime.js").is_file())
         self.assertTrue((root / "static/js/live2d/moc3/Core/live2dcubismcore.min.js").is_file())
         self.assertTrue((root / "static/js/live2d/moc3/Framework/Shaders/WebGL/vertshadersrc.vert").is_file())
@@ -410,12 +410,12 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         self.assertIn('type:"moc3-model-loaded"', bundle)
         self.assertNotIn("window.setInterval(()=>{Ma()},700);", bundle)
 
-    def test_moc3_size_position_and_crop_use_live_iframe_transform(self):
+    def test_moc3_size_position_and_crop_use_runtime_model_matrix(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "static/js/display.js").read_text(encoding="utf-8")
         self.assertIn('runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y)', script)
         self.assertNotIn('moc3Frame.style.transform =', script)
-        self.assertIn('window.live2dSetModelTransform=', (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf--8"))
+        self.assertIn('window.live2dSetModelTransform=', (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8"))
         self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
         self.assertIn('applyLive2DCrop();\n    applyLive2DTransform();', script)
 
