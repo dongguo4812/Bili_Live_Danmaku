@@ -745,26 +745,51 @@
     showMessage("正在加载 Cubism 5 MOC3 模型：" + modelId + "…");
     await reportState("loading", "正在加载 Cubism 5 R5 模型：" + modelId);
     await new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        moc3Frame.removeEventListener("load", onLoad);
-        reject(new Error("MOC3 运行时页面加载超时。"));
-      }, 20000);
-      const onLoad = () => {
+      let frameLoaded = false;
+      let modelLoaded = false;
+      const expectedUrl = modelConfigUrl(modelId);
+      const cleanup = () => {
         window.clearTimeout(timeout);
-        resolve();
+        moc3Frame.removeEventListener("load", onLoad);
+        window.removeEventListener("message", onMessage);
+      };
+      const finish = () => {
+        if (frameLoaded && modelLoaded) {
+          cleanup();
+          resolve();
+        }
+      };
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("MOC3 模型加载超时；请检查模型资源和浏览器控制台。"));
+      }, 45000);
+      const onLoad = () => {
+        const runtimeWindow = moc3Frame.contentWindow;
+        if (!runtimeWindow || typeof runtimeWindow.live2dLoadModel !== "function" ||
+            typeof runtimeWindow.live2dSetMouthOpen !== "function") {
+          cleanup();
+          reject(new Error("Cubism 5 R5 运行时未能完成初始化。"));
+          return;
+        }
+        frameLoaded = true;
+        finish();
+      };
+      const onMessage = event => {
+        if (event.origin !== window.location.origin ||
+            event.source !== moc3Frame.contentWindow ||
+            !event.data || event.data.type !== "moc3-model-loaded" ||
+            event.data.modelUrl !== expectedUrl) return;
+        modelLoaded = true;
+        finish();
       };
       moc3Frame.addEventListener("load", onLoad, { once: true });
+      window.addEventListener("message", onMessage);
       moc3Frame.src = "/live2d/moc3/runtime/" + encodeURIComponent(modelId);
     });
-    const runtimeWindow = moc3Frame.contentWindow;
-    if (!runtimeWindow || typeof runtimeWindow.live2dLoadModel !== "function" ||
-        typeof runtimeWindow.live2dSetMouthOpen !== "function") {
-      throw new Error("Cubism 5 R5 运行时未能完成初始化。");
-    }
     loadedModelId = modelId;
     showMessage("");
     if (placeholder) placeholder.style.display = "none";
-    await reportState("loaded", modelId + " 已交由 Cubism 5 R5 Framework 加载。");
+    await reportState("loaded", modelId + " 已由 Cubism 5 R5 Framework 完成模型和纹理加载。");
   }
 
   function setSaveStatus(message, isError = false) {

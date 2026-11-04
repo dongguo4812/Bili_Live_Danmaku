@@ -394,6 +394,7 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/live2d/moc3/runtime/<model_id>")', main)
         self.assertIn('@app.get("/api/models")', main)
+        self.assertIn('layout_key = "layout" if version == "moc2" else "Layout"', main)
         self.assertTrue((root / "static/js/live2d/moc3/runtime.js").is_file())
         self.assertTrue((root / "static/js/live2d/moc3/Core/live2dcubismcore.min.js").is_file())
         self.assertTrue((root / "static/js/live2d/moc3/Framework/Shaders/WebGL/vertshadersrc.vert").is_file())
@@ -404,5 +405,6 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         bundle = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
         self.assertIn("/static/js/live2d/moc3/Framework/Shaders/WebGL/", bundle)
+        self.assertIn('type:"moc3-model-loaded"', bundle)
         self.assertNotIn("window.setInterval(()=>{Ma()},700);", bundle)
 
