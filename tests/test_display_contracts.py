@@ -11,6 +11,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
     def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _is_combined_display_browser_url(value: Any) -> bool:", main)
+        self.assertIn("def _open_obs_websocket() -> Any:", main)
+        self.assertIn("ws = _open_obs_websocket()", main)
         self.assertIn('path == "/display/combined"', main)
         self.assertIn('path.startswith("/display/combined/")', main)
         self.assertIn('"propertyName": "refreshnocache"', main)
