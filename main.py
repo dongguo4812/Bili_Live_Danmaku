@@ -231,9 +231,12 @@ def _default_model_id(version: str = "moc2") -> str:
     version = _normalize_live2d_version(version)
     live2d = CONFIG.get("live2d", {})
     configured = live2d.get("default_model_moc2", live2d.get("default_model", DEFAULT_MODEL)) if version == "moc2" else live2d.get("default_model_moc3", "")
-    if isinstance(configured, str) and _safe_model_dir(configured, version):
+    if isinstance(configured, str) and configured and _safe_model_dir(configured, version):
         return configured
-    return DEFAULT_MODEL if version == "moc2" else ""
+    if version == "moc3":
+        available = _available_models("moc3")
+        return available[0]["id"] if available else ""
+    return DEFAULT_MODEL
 
 
 def _load_user_settings() -> dict[str, Any]:
