@@ -96,8 +96,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("#danmaku-bubble", live2d_mode_css)
         self.assertNotIn("#danmaku-preview", live2d_mode_css)
         self.assertIn('displayMode === "live2d" || displayMode === "danmaku"', script)
-        self.assertIn('return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled())', main)
-        self.assertIn('return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled())', main)
+        self.assertIn('return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())', main)
+        self.assertIn('live2d_version="moc2"', main)
         self.assertIn('const showLive2D =', script)
         self.assertIn('const showDanmaku =', script)
         self.assertIn('const showTts =', script)
@@ -363,3 +363,23 @@ class Live2DVersionIsolationContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Live2DRuntimeSelectionContractTests(unittest.TestCase):
+    def test_runtime_version_has_a_persistent_api_and_manager_selector(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('@app.post("/api/modules/live2d/version")', main)
+        self.assertIn('config["runtime_version"] = version', main)
+        self.assertIn('id="live2d-version"', page)
+        self.assertIn('"/api/modules/live2d/version"', page)
+
+    def test_moc3_never_falls_back_to_cubism2_loader(self):
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("live2d_version|default('moc2') == 'moc2'", template)
+        self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
+        self.assertIn("Cubism 5 Framework/Core 尚未集成", script)
+
