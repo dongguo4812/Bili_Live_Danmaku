@@ -12,8 +12,18 @@
       overflow: hidden;
       background: #00ff00 !important;
     }
+    #probe-viewport {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: transparent !important;
+    }
+    #probe-viewport.with-clip {
+      clip-path: inset(0% 0% 0% 0%);
+      -webkit-clip-path: inset(0% 0% 0% 0%);
+    }
     #probe-frame {
-      position: fixed;
+      position: absolute;
       inset: 0;
       display: block;
       width: 100%;
@@ -36,7 +46,21 @@
 </head>
 <body>
   <div id="probe-label">MOC3 iframe 透明合成测试：模型外区域应显示绿色</div>
-  <iframe id="probe-frame" title="MOC3 alpha probe" allow="autoplay" allowtransparency="true"
-          src="{{ runtime_url }}"></iframe>
+  <div id="probe-viewport">
+    <iframe id="probe-frame" title="MOC3 alpha probe" allow="autoplay" allowtransparency="true"
+            src="{{ runtime_url }}"></iframe>
+  </div>
+  <script>
+    // Reproduce display.js applyLive2DCrop(): clip the viewport even when all crop values are zero.
+    const withClip = new URLSearchParams(window.location.search).get("clip") === "1";
+    const viewport = document.getElementById("probe-viewport");
+    const label = document.getElementById("probe-label");
+    if (withClip) {
+      viewport.classList.add("with-clip");
+      label.textContent = "MOC3 iframe 测试：已启用 display.js 同款零值 clip-path";
+    } else {
+      label.textContent = "MOC3 iframe 测试：未启用 clip-path（对照组）";
+    }
+  </script>
 </body>
 </html>
