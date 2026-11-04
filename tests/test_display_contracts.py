@@ -363,6 +363,33 @@ class Live2DVersionIsolationContractTests(unittest.TestCase):
 
 
 
+class Live2DModelProfileContractTests(unittest.TestCase):
+    def test_moc2_model_profiles_are_discovered_and_validated(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('def _model_profiles(model_id: str, version: str = "moc2")', main)
+        self.assertIn('directory.glob("model*.json")', main)
+        self.assertIn('data.get("textures")', main)
+        self.assertIn('"model.default.json"', main)
+        self.assertIn('profile: str | None = None', main)
+        self.assertIn('_read_model_config(model_id, version, profile)', main)
+
+    def test_live2d_display_can_select_and_persist_a_model_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('"profiles": profiles', main)
+        self.assertIn('request.args.get("profile")', main)
+        self.assertIn('preferences["profile"] = profile', main)
+        self.assertIn('id="model-profile-select"', page)
+        self.assertIn('function populateModelProfiles(', script)
+        self.assertIn('modelProfileSelect.addEventListener("change", handleModelChange)', script)
+        self.assertIn('"&profile=" + encodeURIComponent(modelProfileSelect.value)', script)
+        self.assertIn('profile: currentModelProfile', script)
+        self.assertIn('?profile=" + encodeURIComponent(profile)', script)
+
+
 class Live2DRuntimeSelectionContractTests(unittest.TestCase):
     def test_runtime_version_has_a_persistent_api_and_manager_selector(self):
         root = Path(__file__).resolve().parents[1]
