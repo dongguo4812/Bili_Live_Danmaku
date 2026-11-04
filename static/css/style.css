@@ -311,3 +311,29 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   outline: 2px solid var(--accent, #6b9cff);
   outline-offset: 1px;
 }
+
+
+/* Live2D model capability diagnostics */
+.model-capabilities {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0;
+}
+.model-capability-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 34%) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.12));
+  border-radius: 7px;
+  font-size: 12px;
+}
+.model-capability-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-text, #aaa);
+}
+.model-capability-row > span[data-state="ok"] { color: #70c995; }
+.model-capability-row > span[data-state="warn"] { color: #e7b65c; }
+.model-capability-row > span[data-state="checking"] { color: #82b6ee; }
