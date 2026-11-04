@@ -78,6 +78,7 @@
   let currentModelProfile = "";
   let selectedModelConfig = null;
   let loadedModelId = null;
+  let loadedModelProfile = "";
   let live2dTransformBase = null;
   let modelSwitchPromise = Promise.resolve();
   let modelSwitchToken = 0;
@@ -1571,6 +1572,7 @@
 
   async function switchModelInPlace(modelId, token, modelPreferences) {
     const previousModelId = loadedModelId;
+    const previousModelProfile = loadedModelProfile;
     let modelReplaced = false;
     statusSent = false;
     if (live2dRuntimeVersion === "moc3") setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking");
@@ -1592,6 +1594,7 @@
       await waitForRenderedPixels();
 
       loadedModelId = modelId;
+      loadedModelProfile = currentModelProfile;
       captureLive2DTransformBase();
       applyLive2DTransform(currentPreferences());
       statusSent = true;
@@ -1607,11 +1610,12 @@
       let restored = false;
       if (modelReplaced && previousModelId) {
         try {
-          const previousUrl = modelConfigUrl(previousModelId);
+          const previousUrl = modelConfigUrl(previousModelId, previousModelProfile);
           await verifyAssets(previousUrl);
           replaceLive2DModel(previousUrl);
           await waitForRenderedPixels();
           loadedModelId = previousModelId;
+          loadedModelProfile = previousModelProfile;
           statusSent = true;
           restored = true;
           await reportState("loaded", "新模型加载失败，已恢复原模型：" + previousModelId);
