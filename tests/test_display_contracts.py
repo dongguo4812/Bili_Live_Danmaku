@@ -512,7 +512,7 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         self.assertIn('blendFunc(e.ONE,e.ONE_MINUS_SRC_ALPHA)', runtime)
         self.assertIn('reportAlphaDiagnostic(e)', runtime)
         self.assertIn('e.readPixels(f,p,1,1,e.RGBA,e.UNSIGNED_BYTE,m)', runtime)
-        self.assertIn('postMessage(u,window.location.origin)', runtime)
+        self.assertIn('postMessage(p,window.location.origin)', runtime)
         self.assertIn('console.info("[MOC3 alpha diagnostic]",u)', runtime)
         self.assertNotIn('postMessage(a,window.location.origin)', runtime)
         self.assertIn('this._gear&&this._gear.isHit(n,r)', runtime)
