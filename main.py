@@ -1277,6 +1277,23 @@ def live2d_moc3_runtime_page(model_id: str):
     )
 
 
+@app.get("/live2d/moc3/alpha-probe/<model_id>")
+def live2d_moc3_alpha_probe(model_id: str):
+    """Minimal green-parent test to isolate transparent iframe compositing."""
+    if not _live2d_enabled() or not _moc3_runtime_available():
+        abort(404)
+    if _safe_model_dir(model_id, "moc3") is None:
+        abort(404)
+    assets_ok, missing, _ = _model_assets(model_id, "moc3")
+    if not assets_ok:
+        abort(404)
+    return render_template(
+        "live2d_moc3_alpha_probe.html",
+        runtime_url=f"/live2d/moc3/runtime/{model_id}",
+        model_id=model_id,
+    )
+
+
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
     # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
