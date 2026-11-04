@@ -20,6 +20,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("_shutdown_obs_live2d_sources", main)
         self.assertNotIn("SetSceneItemEnabled", main)
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
+        self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
         root = Path(__file__).resolve().parents[1]
