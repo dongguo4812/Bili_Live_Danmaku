@@ -7,6 +7,30 @@ import unittest
 from pathlib import Path
 
 
+
+class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
+    def test_music_and_video_widgets_embed_their_independent_display_pages(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('frame.src="/music/display?embedded=1"', combined)
+        self.assertIn('frame.src="/video/display?embedded=1"', combined)
+        self.assertNotIn('MediaDisplay.render(body,"music"', combined)
+        self.assertNotIn('MediaDisplay.render(body,"video"', combined)
+        self.assertIn('!["live2d","music_widget","music","video"].includes(item.type)', combined)
+
+    def test_music_and_video_pages_hide_content_when_modules_are_stopped(self):
+        root = Path(__file__).resolve().parents[1]
+        music = (root / "templates" / "music_display.html").read_text(encoding="utf-8")
+        video = (root / "templates" / "video_display.html").read_text(encoding="utf-8")
+        for page, module in ((music, "music"), (video, "video")):
+            self.assertIn('fetch("/api/modules?t="+Date.now()', page)
+            self.assertIn('state==="running"||state==="paused"', page)
+            self.assertIn('body.offline{visibility:hidden!important}', page)
+            self.assertIn('data.modules.' + module, page)
+        self.assertIn('body.embedded{padding:0}', music)
+        self.assertIn('body.embedded{padding:0}', video)
+
+
 class CombinedDisplayContractTests(unittest.TestCase):
     def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
