@@ -1513,10 +1513,13 @@ def _serve_model_config(model_id: str, version: str):
     preferences = _model_preferences(settings, model_id, version)
     if version == "moc2":
         data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))
-    layout = data.get("layout")
+    # MOC2 使用 model.json 的小写 layout；Cubism 5 model3.json 使用顶层大写 Layout，
+    # 但其内部布局键仍为 width / height / center_x / center_y。
+    layout_key = "layout" if version == "moc2" else "Layout"
+    layout = data.get(layout_key)
     if not isinstance(layout, dict):
         layout = {}
-        data["layout"] = layout
+        data[layout_key] = layout
     original_width = layout.get("width", 2.0)
     original_height = layout.get("height")
     try:
