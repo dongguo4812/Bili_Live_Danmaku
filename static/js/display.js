@@ -52,6 +52,7 @@
 
   const displayMode = document.documentElement.dataset.displayMode || "all";
   const live2dEnabledAtLoad = document.documentElement.dataset.live2dEnabled !== "0";
+  const live2dRuntimeVersion = document.documentElement.dataset.live2dVersion || "moc2";
   const showLive2D = live2dEnabledAtLoad && (displayMode === "all" || displayMode === "live2d");
   const showDanmaku = displayMode === "all" || displayMode === "live2d" || displayMode === "danmaku";
   const showTts = displayMode === "all" || displayMode === "tts";
@@ -717,7 +718,17 @@
   }
 
   function showMessage(message) {
-    if (placeholder) placeholder.textContent = message;
+    if (placeholder) {
+      placeholder.textContent = message;
+      placeholder.style.display = message ? "block" : "none";
+    }
+  }
+
+  function modelConfigUrl(modelId) {
+    const encodedId = encodeURIComponent(modelId);
+    return live2dRuntimeVersion === "moc2"
+      ? "/models/" + encodedId + "/model.json"
+      : "/models/" + live2dRuntimeVersion + "/" + encodedId + "/model.json";
   }
 
   function setSaveStatus(message, isError = false) {
@@ -828,7 +839,7 @@
   }
 
   async function loadModelActionConfig(modelId) {
-    const url = "/models/" + encodeURIComponent(modelId) + "/model.json";
+    const url = modelConfigUrl(modelId);
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取模型动作配置（HTTP " + response.status + "）。");
     const config = await response.json();
@@ -1060,7 +1071,7 @@
       const response = await fetch("/api/live2d/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...preferences, refresh_obs: false })
+        body: JSON.stringify({ ...preferences, version: live2dRuntimeVersion, refresh_obs: false })
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "保存失败。");
@@ -1090,7 +1101,7 @@
   }
 
   async function loadDisplaySettings() {
-    const response = await fetch("/api/live2d/settings", { cache: "no-store" });
+    const response = await fetch("/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion), { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取展示设置（HTTP " + response.status + "）。");
     const data = await response.json();
     if (!data.ok || !Array.isArray(data.models) || data.models.length === 0) {
@@ -1351,7 +1362,7 @@
     await reportState("loading", "正在局部切换 Live2D 模型：" + modelId);
 
     try {
-      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+      const modelUrl = modelConfigUrl(modelId);
       const modelConfig = await verifyAssets(modelUrl);
       if (token !== modelSwitchToken) return false;
       if (!window.__live2dManager || !gl) {
@@ -1379,7 +1390,7 @@
       let restored = false;
       if (modelReplaced && previousModelId) {
         try {
-          const previousUrl = "/models/" + encodeURIComponent(previousModelId) + "/model.json";
+          const previousUrl = modelConfigUrl(previousModelId);
           await verifyAssets(previousUrl);
           replaceLive2DModel(previousUrl);
           await waitForRenderedPixels();
@@ -1412,10 +1423,16 @@
   }
 
   async function start() {
+    if (live2dRuntimeVersion === "moc3") {
+      const message = "当前已选择 MOC3。Cubism 5 Framework/Core 尚未集成，暂时无法显示模型；MOC2 模型不会被错误加载。";
+      showMessage(message);
+      await reportState("not_started", message);
+      return;
+    }
     try {
       showMessage("正在读取展示设置…");
       const modelId = await loadDisplaySettings();
-      const modelUrl = "/models/" + encodeURIComponent(modelId) + "/model.json";
+      const modelUrl = modelConfigUrl(modelId);
       showMessage("正在检查 " + modelId + " 模型资源…");
       await reportState("loading", "正在检查模型配置和资源文件：" + modelId);
       const modelConfig = await verifyAssets(modelUrl);
@@ -1471,7 +1488,7 @@
     const selectedModelId = modelSelect.value;
     const token = ++modelSwitchToken;
     try {
-      const response = await fetch("/api/live2d/settings?model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
+      const response = await fetch("/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion) + "&model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
       if (token !== modelSwitchToken) return;
