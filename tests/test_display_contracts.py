@@ -379,7 +379,7 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn("live2d_version|default('moc2') == 'moc2'", template)
         self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
-        self.assertIn("loadMoc3Model(modelId)", script)
+        self.assertIn("async function loadMoc3Model(modelId, token = null)", script)
         self.assertIn('typeof runtimeWindow.live2dSetMouthOpen === "function"', script)
         self.assertIn('id="moc3-runtime-frame"', template)
 
