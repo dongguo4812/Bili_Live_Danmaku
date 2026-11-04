@@ -29,10 +29,12 @@ class ApplicationRuntime:
     def register_module(
         self, name: str, module: Any, initial_state: str = "stopped",
         auto_start_on_connect: bool = False,
+        requires_connection: bool = True,
     ) -> None:
         self.modules.register(
             name, module, initial_state=initial_state,
             auto_start_on_connect=auto_start_on_connect,
+            requires_connection=requires_connection,
         )
 
     def publish_event(self, event: dict[str, Any]) -> None:
