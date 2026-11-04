@@ -1413,6 +1413,12 @@ def model_asset(filename: str):
 
 @app.get("/api/live2d/status")
 def get_live2d_status():
+    if not _live2d_enabled():
+        return jsonify({
+            "ok": True,
+            "state": "not_started",
+            "message": "Live2D 运行时已停用。",
+        })
     with RUNTIME_STATE_LOCK:
         state = dict(RUNTIME_STATE)
     return jsonify({"ok": True, **state})
