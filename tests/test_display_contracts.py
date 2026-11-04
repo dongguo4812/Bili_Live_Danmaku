@@ -15,7 +15,9 @@ class CombinedDisplayContractTests(unittest.TestCase):
 
         self.assertNotIn("editor-sidebar", combined)
         self.assertIn('.editor-mode .toolbar{left:0}', combined)
-        self.assertIn('.editor-mode #stage{top:58px;left:0;', combined)
+        self.assertIn('.editor-mode #stage{top:96px;left:0;', combined)
+        self.assertIn('class="toolbar-row toolbar-row-layout"', combined)
+        self.assertIn('class="toolbar-row toolbar-row-adjust"', combined)
         self.assertIn('<a href="/dashboard" target="_blank" rel="noopener">综合展示</a>', index)
 
     def test_live2d_api_uses_only_canonical_prefix(self):
