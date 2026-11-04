@@ -355,6 +355,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
         "bubble_max_items": integer("bubble_max_items", 5, 1, 12),
         "bubble_duration": integer("bubble_duration", 10, 2, 60),
         "bubble_font_size": integer("bubble_font_size", 20, 12, 40),
+        "profile": raw.get("profile") if isinstance(raw.get("profile"), str) else "",
     }
 
 
@@ -1445,13 +1446,21 @@ def get_display_settings():
         model_id = requested_model
     if not any(item["id"] == model_id for item in available):
         model_id = available[0]["id"] if available else ""
+    preferences = _model_preferences(settings, model_id, version) if model_id else {}
+    profiles = _model_profiles(model_id, version) if model_id else []
+    requested_profile = request.args.get("profile")
+    valid_profile_ids = {item["id"] for item in profiles}
+    if requested_profile in valid_profile_ids:
+        preferences["profile"] = requested_profile
+    elif preferences.get("profile") not in valid_profile_ids:
+        preferences["profile"] = profiles[0]["id"] if profiles else ""
     return jsonify({
         "ok": True,
         "version": version,
         "model": model_id,
         "models": available,
-        "preferences": _model_preferences(settings, model_id, version) if model_id else {},
-        "profiles": _model_profiles(model_id, version) if model_id else [],
+        "preferences": preferences,
+        "profiles": profiles,
         "enabled": _live2d_enabled(),
     })
 
