@@ -1163,7 +1163,7 @@
     const expressionEntries = Array.isArray(expressions) ? expressions.map(item => item && (item.File || item.file)).filter(Boolean) : [];
     const validExpressions = await Promise.all(expressionEntries.map(checkAsset));
     const modelFiles = refs
-      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Physics, refs.Pose, refs.UserData].filter(Boolean)
+      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Pose, refs.UserData].filter(Boolean)
       : [config.model, ...(Array.isArray(config.textures) ? config.textures : []), config.pose].filter(Boolean);
     const modelFileChecks = await Promise.all(modelFiles.map(async file => ({ file, valid: await checkAsset(file) })));
     const physicsFile = refs ? refs.Physics : config.physics;
