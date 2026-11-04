@@ -15,6 +15,7 @@
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
+  const mouthSyncStatusElement = document.getElementById("moc3-mouth-sync-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
   const bubble = document.getElementById("danmaku-bubble");
@@ -763,6 +764,7 @@
     if (!moc3Frame) throw new Error("MOC3 展示框架不存在。");
     if (!modelId) throw new Error("尚未选择有效的 MOC3 模型。");
     const isStale = () => token !== null && token !== modelSwitchToken;
+    setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking");
     showMessage("正在加载 Cubism 5 MOC3 模型：" + modelId + "…");
     await reportState("loading", "正在加载 Cubism 5 R5 模型：" + modelId);
     const loaded = await new Promise((resolve, reject) => {
@@ -884,6 +886,39 @@
     modelActionStatusElement.textContent = message;
     modelActionStatusElement.classList.toggle("error", isError);
   }
+
+  function setMouthSyncStatus(message, state = "checking") {
+    if (!mouthSyncStatusElement) return;
+    mouthSyncStatusElement.textContent = message;
+    mouthSyncStatusElement.dataset.state = state;
+    mouthSyncStatusElement.classList.toggle("error", state === "unsupported");
+  }
+
+  window.addEventListener("message", event => {
+    if (live2dRuntimeVersion !== "moc3" || !moc3Frame ||
+        event.origin !== window.location.origin || event.source !== moc3Frame.contentWindow ||
+        !event.data || event.data.type !== "moc3-mouth-sync-status") return;
+    const currentModelId = modelSelect && modelSelect.value;
+    if (!currentModelId || event.data.modelUrl !== modelConfigUrl(currentModelId)) return;
+    if (event.data.supported) {
+      const ids = Array.isArray(event.data.parameterIds) ? event.data.parameterIds : [];
+      const source = event.data.source === "model3-lipsync"
+        ? "模型配置 LipSync 参数组"
+        : "兼容嘴型参数检测";
+      let message = "支持 TTS 嘴型同步（" + source + "：" + ids.join("、") + "）。";
+      const invalid = Array.isArray(event.data.invalidDeclaredIds) ? event.data.invalidDeclaredIds : [];
+      if (invalid.length) message += " 以下配置参数未通过验证，已跳过：" + invalid.join("、") + "。";
+      setMouthSyncStatus(message, "supported");
+    } else {
+      const declared = Array.isArray(event.data.declaredIds) ? event.data.declaredIds : [];
+      const invalid = Array.isArray(event.data.invalidDeclaredIds) ? event.data.invalidDeclaredIds : [];
+      let detail = event.data.reason || "未找到可用的嘴型参数。";
+      if (declared.length) detail = "模型声明了 LipSync 参数 " + declared.join("、") + "，但这些参数未能通过实际参数验证；" + detail;
+      else detail = "模型没有声明 LipSync 参数组；" + detail;
+      if (invalid.length) detail += " 无效参数：" + invalid.join("、") + "。";
+      setMouthSyncStatus("当前模型无法进行 TTS 嘴型同步。" + detail, "unsupported");
+    }
+  });
 
   function updateModelActionAvailability() {
     const sameModel = Boolean(loadedModelId && modelSelect && modelSelect.value === loadedModelId);
@@ -1512,6 +1547,7 @@
     const previousModelId = loadedModelId;
     let modelReplaced = false;
     statusSent = false;
+    if (live2dRuntimeVersion === "moc3") setMouthSyncStatus("正在检测当前模型的 TTS 嘴型同步参数…", "checking");
     updateModelActionAvailability();
     showMessage("正在切换 Live2D 模型：" + modelId + "…");
     await reportState("loading", "正在局部切换 Live2D 模型：" + modelId);
