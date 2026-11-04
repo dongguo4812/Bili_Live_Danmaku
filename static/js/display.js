@@ -1198,9 +1198,9 @@
     ];
     const rows = [
       { label: "Idle 动作", value: idle.length ? (idle.some(item => item.valid) ? "存在且资源可读取" : "已声明，但动作文件无效") : "未配置", state: idle.length && idle.some(item => item.valid) ? "ok" : "warn" },
-      { label: "可播放动作", value: validMotions.filter(item => item.valid).length + " / " + motionEntries.length + " 个动作资源有效", state: validMotions.some(item => item.valid) ? "ok" : "warn" },
+      { label: "可播放动作", value: motionEntries.length ? validMotions.filter(item => item.valid).length + " / " + motionEntries.length + " 个动作资源有效" : "未配置", state: validMotions.some(item => item.valid) ? "ok" : "warn" },
       { label: "模型主体 / 贴图", value: modelFileChecks.filter(item => item.valid).length + " / " + modelFileChecks.length + " 个资源可读取", state: modelFileChecks.length && modelFileChecks.every(item => item.valid) ? "ok" : "warn" },
-      { label: "表情", value: validExpressions.filter(Boolean).length + " / " + expressionEntries.length + " 个表情资源有效", state: expressionEntries.length && validExpressions.every(Boolean) ? "ok" : "warn" },
+      { label: "表情", value: expressionEntries.length ? validExpressions.filter(Boolean).length + " / " + expressionEntries.length + " 个表情资源有效" : "未配置", state: expressionEntries.length && validExpressions.every(Boolean) ? "ok" : "warn" },
       { label: "物理配置", value: physicsState, state: physicsState === "有效配置" ? "ok" : physicsFile ? "warn" : "info" },
       { label: "触摸区域", value: touchNames.length ? touchNames.map(item => item).join("、") + "；可识别 " + validTouchCount + " / " + touchNames.length + (invalidTouchMappings.length ? "；未映射：" + invalidTouchMappings.map(item => item.name + "→" + item.group).join("、") : "") : "未配置", state: touchNames.length && validTouchCount === touchNames.length ? "ok" : "warn" },
       { label: "TTS 嘴型同步", value: moc3 ? "等待 Cubism 运行时参数检测" : "等待 MOC2 模型参数检测", state: "checking" },
