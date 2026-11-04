@@ -488,6 +488,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         body:JSON.stringify({layout_id:layoutId,layout})
       });
       layout=data.layout;
+      // The server returns a new normalized layout object. Rebuild the editor so
+      // pointer handlers close over the same objects that the next save submits.
+      renderLayout();
       setMessage(data.message||"布局已保存。");
     }catch(error){setMessage("保存失败："+error.message,true);}
   }
