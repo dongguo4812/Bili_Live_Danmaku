@@ -21,6 +21,7 @@ class ModuleRecord:
     error: str = ""
     operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     auto_start_on_connect: bool = False
+    requires_connection: bool = True
 
 
 class ModuleManager:
@@ -45,6 +46,7 @@ class ModuleManager:
         module: Any,
         initial_state: str = "stopped",
         auto_start_on_connect: bool = False,
+        requires_connection: bool = True,
     ) -> None:
         if not name or module is None:
             raise ValueError("模块名称和实例不能为空。")
@@ -62,6 +64,7 @@ class ModuleManager:
                 instance=module,
                 state=initial_state,
                 auto_start_on_connect=bool(auto_start_on_connect),
+                requires_connection=bool(requires_connection),
             )
 
     def list_status(self) -> dict[str, dict[str, str]]:
@@ -77,7 +80,7 @@ class ModuleManager:
             if record is None:
                 raise KeyError(f"未知模块：{name}")
             state = record.state
-            if not self._connection_active:
+            if record.requires_connection and not self._connection_active:
                 raise RuntimeError("B站直播尚未完成 WebSocket 认证，不能启动模块。")
         if state in {"running", "starting", "resuming"}:
             return
@@ -106,7 +109,7 @@ class ModuleManager:
                 raise KeyError(f"未知模块：{name}")
             if record.state in {"stopped", "running", "starting", "resuming", "closing"}:
                 return
-            if not self._connection_active:
+            if record.requires_connection and not self._connection_active:
                 raise RuntimeError("B站直播尚未完成 WebSocket 认证，不能恢复模块。")
         await self._operate(name, "resume", "running", manual=True)
 
