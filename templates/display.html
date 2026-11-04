@@ -42,29 +42,40 @@
     html[data-live2d-version="moc3"][data-live2d-enabled="1"] #moc3-runtime-frame { display: block; }
   </style>
   <script>
-    // Temporary end-to-end alpha probe: paint the entire parent document behind
-    // the MOC3 iframe green. Remove the query parameter to restore normal styling.
+    // Temporary end-to-end alpha probe. Run after body/viewport exist and
+    // sample again after runtime iframe initialization.
     if (new URLSearchParams(window.location.search).get("moc3_alpha_probe") === "1") {
-      const paint = (selector, color) => {
-        const el = document.querySelector(selector);
-        if (el) {
-          el.style.setProperty("background", color, "important");
-          el.style.setProperty("background-color", color, "important");
+      const applyProbe = (stage) => {
+        const targets = [
+          ["html", document.documentElement],
+          ["body", document.body],
+          ["viewport", document.getElementById("live2d-viewport")],
+          ["iframe-element", document.getElementById("moc3-runtime-frame")]
+        ];
+        const result = {};
+        for (const [name, el] of targets) {
+          if (!el) { result[name] = "missing"; continue; }
+          el.style.setProperty("background", "rgb(0, 255, 0)", "important");
+          el.style.setProperty("background-color", "rgb(0, 255, 0)", "important");
+          result[name] = {
+            inline: el.style.backgroundColor,
+            computed: getComputedStyle(el).backgroundColor,
+            rect: (() => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()
+          };
         }
+        console.info("[MOC3 parent alpha probe]", {stage, targets: result});
       };
-      paint("html", "rgb(0, 255, 0)");
-      paint("body", "rgb(0, 255, 0)");
-      paint("#live2d-viewport", "rgb(0, 255, 0)");
-      console.info("[MOC3 parent alpha probe]", {
-        enabled: true,
-        html: getComputedStyle(document.documentElement).backgroundColor,
-        body: getComputedStyle(document.body).backgroundColor,
-        viewport: getComputedStyle(document.getElementById("live2d-viewport")).backgroundColor,
-        frame: (() => {
-          const frame = document.getElementById("moc3-runtime-frame");
-          return frame ? getComputedStyle(frame).backgroundColor : null;
-        })()
-      });
+      const startProbe = () => {
+        applyProbe("DOMContentLoaded");
+        const frame = document.getElementById("moc3-runtime-frame");
+        if (frame) frame.addEventListener("load", () => applyProbe("runtime-iframe-load"), {once: true});
+        [250, 1000, 3000].forEach(ms => setTimeout(() => applyProbe("+" + ms + "ms"), ms));
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", startProbe, {once: true});
+      } else {
+        startProbe();
+      }
     }
   </script>
   <script>
