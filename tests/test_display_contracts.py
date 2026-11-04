@@ -342,3 +342,24 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Live2DVersionIsolationContractTests(unittest.TestCase):
+    def test_live2d_versions_use_separate_model_roots_and_config_formats(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('def _normalize_live2d_version(', source)
+        self.assertIn('(MODEL_ROOT / version).resolve()', source)
+        self.assertIn('f"{model_id}.model3.json"', source)
+        self.assertIn('refs.get("Moc")', source)
+        self.assertIn('@app.get("/models/<version>/<model_id>/model.json")', source)
+
+    def test_live2d_model_selection_and_preferences_are_version_scoped(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('"model_by_version"', source)
+        self.assertIn('settings.setdefault("models", {})[f"{version}:{model_id}"]', source)
+        self.assertIn('models.get(model_id, {}) if model_version == "moc2" else {}', source)
+        self.assertIn('_available_models(version)', source)
+
+    def test_live2d_runtime_defaults_to_moc2(self):
+        defaults = json.loads((Path(__file__).resolve().parents[1] / "config" / "default" / "live2d.json").read_text(encoding="utf-8"))
+        self.assertEqual(defaults["runtime_version"], "moc2")
