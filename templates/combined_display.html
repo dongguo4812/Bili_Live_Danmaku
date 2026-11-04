@@ -422,7 +422,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       const widget=make("section","widget "+item.type);
       widget.dataset.widget=item.type;
       positionWidget(widget,item);
-      const header=make("header","widget-header",labels[item.type]||item.type);
+      const header=make("header","widget-header");
+      const title=make("span","widget-title",labels[item.type]||item.type);
+      if(item.type==="music"||item.type==="video") title.hidden=true;
+      header.appendChild(title);
       const actions=make("div","widget-actions");
       if(!displayMode){
         const remove=make("button","","移除");
