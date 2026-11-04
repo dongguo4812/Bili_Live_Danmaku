@@ -13,10 +13,14 @@
   const modelProfileSelect = document.getElementById("model-profile-select");
   const motionSelect = document.getElementById("model-motion-select");
   const motionPlayButton = document.getElementById("model-motion-play");
+  const motionShortcutsContainer = document.getElementById("model-motion-shortcuts");
+  let motionShortcutBindings = {};
   const expressionSelect = document.getElementById("model-expression-select");
   const expressionApplyButton = document.getElementById("model-expression-apply");
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
+  const modelCapabilitiesElement = document.getElementById("model-capabilities");
+  let lastMoc3MouthSyncStatus = null;
   const mouthSyncStatusElement = document.getElementById("moc3-mouth-sync-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
@@ -925,6 +929,16 @@
         !event.data || event.data.type !== "moc3-mouth-sync-status") return;
     const currentModelId = modelSelect && modelSelect.value;
     if (!currentModelId || event.data.modelUrl !== modelConfigUrl(currentModelId)) return;
+    lastMoc3MouthSyncStatus = event.data;
+    const capabilityRows = modelCapabilitiesElement ? Array.from(modelCapabilitiesElement.querySelectorAll(".model-capability-row")) : [];
+    const mouthCapability = capabilityRows.find(item => item.firstElementChild && item.firstElementChild.textContent === "TTS 嘴型同步");
+    if (mouthCapability && mouthCapability.lastElementChild) {
+      const invalidIds = event.data.invalidDeclaredIds || [];
+      mouthCapability.lastElementChild.textContent = event.data.supported
+        ? "支持；检测到参数 " + (event.data.parameterIds || []).join("、") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "")
+        : "不支持；" + (event.data.reason || "没有可用嘴型参数") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "");
+      mouthCapability.lastElementChild.dataset.state = event.data.supported ? "ok" : "warn";
+    }
     if (event.data.supported) {
       const ids = Array.isArray(event.data.parameterIds) ? event.data.parameterIds : [];
       const source = event.data.source === "model3-lipsync"
@@ -1013,7 +1027,212 @@
       const expressionCount = expressionSelect ? Math.max(0, expressionSelect.options.length - 1) : 0;
       modelActionStatusElement.textContent = modelId + "：读取到 " + motionCount + " 个动作、" + expressionCount + " 个表情。";
     }
+    renderMotionShortcutEditor();
     updateModelActionAvailability();
+  }
+
+  function normalizeMotionShortcut(key) {
+    const value = String(key || "").toUpperCase();
+    return /^[A-Z0-9]$/.test(value) || /^F(?:[1-9]|1[0-2])$/.test(value) ? value : "";
+  }
+
+  function renderMotionShortcutEditor() {
+    if (!motionShortcutsContainer || !motionSelect) return;
+    motionShortcutsContainer.replaceChildren();
+    const heading = document.createElement("strong");
+    heading.className = "settings-subtitle";
+    heading.textContent = "动作快捷键";
+    motionShortcutsContainer.appendChild(heading);
+    const hint = document.createElement("p");
+    hint.className = "settings-help";
+    hint.textContent = "点击输入框后按下单个数字、字母或 F1-F12 绑定；同一模型配置内不能重复，完成后点击下方“保存设置”。";
+    motionShortcutsContainer.appendChild(hint);
+    for (const option of Array.from(motionSelect.options).slice(1)) {
+      const action = option.value;
+      if (!action) continue;
+      const row = document.createElement("div");
+      row.className = "model-motion-shortcut-row";
+      const label = document.createElement("span");
+      label.textContent = option.textContent;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.readOnly = true;
+      input.placeholder = "点击后按键";
+      input.value = motionShortcutBindings[action] || "";
+      input.setAttribute("aria-label", option.textContent + "快捷键");
+      input.addEventListener("keydown", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === "Escape" || event.key === "Backspace" || event.key === "Delete") {
+          delete motionShortcutBindings[action];
+          input.value = "";
+          markUnsaved();
+          return;
+        }
+        if (event.ctrlKey || event.altKey || event.metaKey) return;
+        const key = normalizeMotionShortcut(event.key);
+        if (!key) return;
+        const duplicate = Object.entries(motionShortcutBindings).find(([otherAction, otherKey]) => otherAction !== action && otherKey === key);
+        if (duplicate) {
+          setModelActionStatus("快捷键 " + key + " 已绑定到其他动作，请先清除原绑定。", true);
+          return;
+        }
+        motionShortcutBindings[action] = key;
+        input.value = key;
+        markUnsaved();
+      });
+      const clear = document.createElement("button");
+      clear.type = "button";
+      clear.className = "secondary-button";
+      clear.textContent = "清除";
+      clear.addEventListener("click", () => {
+        delete motionShortcutBindings[action];
+        input.value = "";
+        markUnsaved();
+      });
+      row.append(label, input, clear);
+      motionShortcutsContainer.appendChild(row);
+    }
+  }
+
+  function isShortcutTypingTarget(target) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']"));
+  }
+
+  document.addEventListener("keydown", event => {
+    if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey ||
+        isShortcutTypingTarget(event.target)) return;
+    const key = normalizeMotionShortcut(event.key);
+    if (!key) return;
+    const match = Object.entries(motionShortcutBindings).find(([, bound]) => bound === key);
+    if (!match) return;
+    const action = match[0];
+    const option = motionSelect && Array.from(motionSelect.options).find(item => item.value === action);
+    if (!option || !loadedModelId || !modelSelect || modelSelect.value !== loadedModelId || !statusSent) return;
+    motionSelect.value = action;
+    updateModelActionAvailability();
+    event.preventDefault();
+    playSelectedModelMotion();
+  });
+
+  function renderModelCapabilityRows(rows) {
+    if (!modelCapabilitiesElement) return;
+    modelCapabilitiesElement.replaceChildren();
+    for (const row of rows) {
+      const item = document.createElement("div");
+      item.className = "model-capability-row";
+      const label = document.createElement("strong");
+      label.textContent = row.label;
+      const value = document.createElement("span");
+      value.textContent = row.value;
+      value.dataset.state = row.state || "info";
+      item.append(label, value);
+      modelCapabilitiesElement.appendChild(item);
+    }
+  }
+
+  async function diagnoseModelCapabilities(config, modelId, token = null) {
+    if (!modelCapabilitiesElement) return;
+    const isStale = () => token !== null && token !== modelSwitchToken;
+    const moc3 = live2dRuntimeVersion === "moc3";
+    const refs = moc3 && config.FileReferences && typeof config.FileReferences === "object"
+      ? config.FileReferences : null;
+    const motions = refs ? (refs.Motions || {}) : (config.motions || {});
+    const expressions = refs ? (refs.Expressions || []) : (config.expressions || []);
+    const hitAreas = refs ? (config.HitAreas || []) : (config.hit_areas || config.hitAreas || []);
+    const baseUrl = modelConfigUrl(modelId);
+    const assetUrl = file => new URL(String(file || ""), new URL(baseUrl, window.location.href)).href;
+    const checkAsset = async file => {
+      if (typeof file !== "string" || !file) return false;
+      try {
+        const response = await fetch(assetUrl(file), { method: "HEAD", cache: "no-store" });
+        return response.ok;
+      } catch (_) { return false; }
+    };
+    const motionEntries = [];
+    for (const [group, items] of Object.entries(motions || {})) {
+      if (!Array.isArray(items)) continue;
+      items.forEach((item, index) => {
+        const file = item && (item.File || item.file);
+        if (file) motionEntries.push({ group, index, file });
+      });
+    }
+    const validMotions = await Promise.all(motionEntries.map(async item => ({ ...item, valid: await checkAsset(item.file) })));
+    const idle = validMotions.filter(item => item.group.toLowerCase() === "idle");
+    const expressionEntries = Array.isArray(expressions) ? expressions.map(item => item && (item.File || item.file)).filter(Boolean) : [];
+    const validExpressions = await Promise.all(expressionEntries.map(checkAsset));
+    const modelFiles = refs
+      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Pose, refs.UserData].filter(Boolean)
+      : [config.model, ...(Array.isArray(config.textures) ? config.textures : []), config.pose].filter(Boolean);
+    const modelFileChecks = await Promise.all(modelFiles.map(async file => ({ file, valid: await checkAsset(file) })));
+    const physicsFile = refs ? refs.Physics : config.physics;
+    let physicsState = "未配置";
+    if (physicsFile) {
+      try {
+        const response = await fetch(assetUrl(physicsFile), { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = await response.json();
+        const valid = moc3
+          ? Array.isArray(data.PhysicsSettings) && data.PhysicsSettings.length > 0
+          : Boolean(data && typeof data === "object" && Object.keys(data).length > 0);
+        physicsState = valid ? "有效配置" : "文件存在，但没有有效物理设置";
+      } catch (error) {
+        physicsState = "资源无效：" + error.message;
+      }
+    }
+    const touchNames = Array.isArray(hitAreas) ? hitAreas.map(item => item && (item.Name || item.name)).filter(name => typeof name === "string" && name) : [];
+    const mappedTouchNames = touchNames.map(name => {
+      const group = name.startsWith("Touch") ? "Tap" + name : name === "Body" ? "TapBody" : "";
+      const exists = validMotions.some(item => item.group === group && item.valid);
+      return { name, group, exists };
+    });
+    const validTouchCount = mappedTouchNames.filter(item => item.exists || item.name === "Head" || (item.name === "Body" && validMotions.some(motion => motion.group === "TapBody" && motion.valid))).length;
+    const invalidTouchMappings = mappedTouchNames.filter(item => item.name.startsWith("Touch") && !item.exists);
+    const invalidAssets = [
+      ...modelFileChecks.filter(item => !item.valid).map(item => item.file),
+      ...validMotions.filter(item => !item.valid).map(item => item.file),
+      ...expressionEntries.filter((file, index) => !validExpressions[index]),
+      ...(physicsFile && physicsState !== "有效配置" ? [physicsFile + "（" + physicsState + "）"] : []),
+      ...invalidTouchMappings.map(item => "HitArea " + item.name + " → Motion Group " + item.group)
+    ];
+    const rows = [
+      { label: "Idle 动作", value: idle.length ? (idle.some(item => item.valid) ? "存在且资源可读取" : "已声明，但动作文件无效") : "未配置", state: idle.length && idle.some(item => item.valid) ? "ok" : "warn" },
+      { label: "可播放动作", value: motionEntries.length ? validMotions.filter(item => item.valid).length + " / " + motionEntries.length + " 个动作资源有效" : "未配置", state: validMotions.some(item => item.valid) ? "ok" : "warn" },
+      { label: "模型主体 / 贴图", value: modelFileChecks.filter(item => item.valid).length + " / " + modelFileChecks.length + " 个资源可读取", state: modelFileChecks.length && modelFileChecks.every(item => item.valid) ? "ok" : "warn" },
+      { label: "表情", value: expressionEntries.length ? validExpressions.filter(Boolean).length + " / " + expressionEntries.length + " 个表情资源有效" : "未配置", state: expressionEntries.length && validExpressions.every(Boolean) ? "ok" : "warn" },
+      { label: "物理配置", value: physicsState, state: physicsState === "有效配置" ? "ok" : physicsFile ? "warn" : "info" },
+      { label: "触摸区域", value: touchNames.length ? touchNames.map(item => item).join("、") + "；可识别 " + validTouchCount + " / " + touchNames.length + (invalidTouchMappings.length ? "；未映射：" + invalidTouchMappings.map(item => item.name + "→" + item.group).join("、") : "") : "未配置", state: touchNames.length && validTouchCount === touchNames.length ? "ok" : "warn" },
+      { label: "TTS 嘴型同步", value: moc3 ? "等待 Cubism 运行时参数检测" : "等待 MOC2 模型参数检测", state: "checking" },
+      { label: "无效资源", value: invalidAssets.length ? [...new Set(invalidAssets)].join("、") : "未发现已声明资源缺失", state: invalidAssets.length ? "warn" : "ok" }
+    ];
+    if (isStale()) return;
+    renderModelCapabilityRows(rows);
+    if (moc3 && lastMoc3MouthSyncStatus && lastMoc3MouthSyncStatus.modelUrl === modelConfigUrl(modelId)) {
+      const mouth = rows.find(row => row.label === "TTS 嘴型同步");
+      if (mouth) {
+        const invalidIds = lastMoc3MouthSyncStatus.invalidDeclaredIds || [];
+        mouth.value = lastMoc3MouthSyncStatus.supported
+          ? "支持；检测到参数 " + (lastMoc3MouthSyncStatus.parameterIds || []).join("、") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "")
+          : "不支持；" + (lastMoc3MouthSyncStatus.reason || "没有可用嘴型参数") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "");
+        mouth.state = lastMoc3MouthSyncStatus.supported ? "ok" : "warn";
+        renderModelCapabilityRows(rows);
+      }
+    }
+    if (!moc3) {
+      const model = window.__live2dManager && window.__live2dManager.getModel(0);
+      const liveModel = model && model.live2DModel;
+      const candidates = Array.isArray(config.lip_sync) ? config.lip_sync : ["PARAM_MOUTH_OPEN_Y"];
+      const parameter = liveModel && typeof liveModel.getParamIndex === "function"
+        ? candidates.find(id => liveModel.getParamIndex(id) >= 0) : null;
+      const mouth = rows.find(row => row.label === "TTS 嘴型同步");
+      if (mouth) {
+        mouth.value = parameter ? "支持；检测到参数 " + parameter : "未检测到可用嘴型参数";
+        mouth.state = parameter ? "ok" : "warn";
+        renderModelCapabilityRows(rows);
+      }
+    }
+    return { motionEntries, validMotions, expressionEntries, validExpressions, touchNames, mappedTouchNames, invalidAssets };
   }
 
   async function loadModelActionConfig(modelId, token = null) {
@@ -1023,7 +1242,8 @@
     const config = await response.json();
     if (token !== null && token !== modelSwitchToken) return false;
     populateModelActions(config, modelId);
-    return true;
+    await diagnoseModelCapabilities(config, modelId, token);
+    return token === null || token === modelSwitchToken;
   }
 
   async function playSelectedModelMotion() {
@@ -1161,6 +1381,7 @@
     return {
       model: modelSelect.value,
       profile: currentModelProfile,
+      motion_shortcuts: motionShortcutBindings,
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
@@ -1288,8 +1509,17 @@
       hasUnsavedChanges = false;
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存，正在刷新展示页面。" + (obs.message ? " " + obs.message : ""));
-      // 让页面从服务器重新读取已保存配置，确保刷新后看到持久化后的最终效果。
-      window.setTimeout(() => window.location.reload(), 350);
+      // MOC3 展示页包含独立 runtime iframe。使用带缓存隔离参数的顶层导航，
+      // 确保保存后重新创建整个展示页及 runtime，而不只是保留旧 iframe。
+      window.setTimeout(() => {
+        if (live2dRuntimeVersion === "moc3") {
+          const refreshUrl = new URL(window.location.href);
+          refreshUrl.searchParams.set("_live2d_refresh", String(Date.now()));
+          window.location.replace(refreshUrl.toString());
+          return;
+        }
+        window.location.reload();
+      }, 350);
 
       // 保存只负责持久化；不要重置当前模型的原始矩阵基准。
     } catch (error) {
@@ -1330,6 +1560,7 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
+    motionShortcutBindings = p.motion_shortcuts && typeof p.motion_shortcuts === "object" ? { ...p.motion_shortcuts } : {};
     populateModelProfiles(data.profiles, p.profile);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
@@ -1733,6 +1964,7 @@
       const data = await response.json();
       if (token !== modelSwitchToken) return;
       const p = data.preferences || {};
+      motionShortcutBindings = p.motion_shortcuts && typeof p.motion_shortcuts === "object" ? { ...p.motion_shortcuts } : {};
       populateModelProfiles(data.profiles, p.profile);
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
