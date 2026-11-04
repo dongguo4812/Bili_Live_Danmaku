@@ -39,6 +39,22 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertIn('lifecycle.disabled = busy', self.page)
         self.assertIn('pause.disabled = busy || !["running", "paused"].includes(state)', self.page)
 
+
+    def test_module_statuses_have_distinct_color_states(self):
+        root = Path(__file__).resolve().parents[1]
+        css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
+        for state in ("running", "enabled", "paused", "stopped", "disabled", "error", "starting", "unknown"):
+            with self.subTest(state=state):
+                self.assertIn(f'data-state="{state}"', self.page + css)
+                self.assertIn(f'.status-pill[data-state="{state}"]', css)
+
+    def test_detailed_module_sections_do_not_duplicate_lifecycle_controls(self):
+        details = self.page[self.page.index("<h2>歌曲点播模块</h2>"):]
+        for module in ("music", "video", "voice"):
+            with self.subTest(module=module):
+                self.assertNotIn(f'id="{module}-toggle-lifecycle"', details)
+                self.assertNotIn(f'id="{module}-toggle-pause"', details)
+
     def test_control_panel_has_no_duplicate_element_ids(self):
         ids = re.findall(r'\bid="([^"]+)"', self.page)
         self.assertEqual(len(ids), len(set(ids)))
