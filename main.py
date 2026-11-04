@@ -224,8 +224,14 @@ def _model_profiles(model_id: str, version: str = "moc2") -> list[dict[str, str]
         path = _model_config_path(directory, model_id, version)
         return [{"id": path.name, "name": "默认配置"}] if path else []
     candidates = []
-    for path in directory.glob("model*.json"):
-        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
+    candidate_paths = list(directory.glob("model*.json"))
+    # _model_config_path also supports "<model_id>.model.json" as the
+    # canonical MOC2 config, so include it in the profile list as well.
+    named_config = directory / f"{model_id}.model.json"
+    if named_config.is_file() and named_config not in candidate_paths:
+        candidate_paths.append(named_config)
+    for path in candidate_paths:
+        if path.name != f"{model_id}.model.json" and not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
