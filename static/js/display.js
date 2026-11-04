@@ -1193,7 +1193,7 @@
       ...modelFileChecks.filter(item => !item.valid).map(item => item.file),
       ...validMotions.filter(item => !item.valid).map(item => item.file),
       ...expressionEntries.filter((file, index) => !validExpressions[index]),
-      ...(physicsFile && physicsState.startsWith("资源无效") ? [physicsFile] : []),
+      ...(physicsFile && physicsState !== "有效配置" ? [physicsFile + "（" + physicsState + "）"] : []),
       ...invalidTouchMappings.map(item => "HitArea " + item.name + " → Motion Group " + item.group)
     ];
     const rows = [
