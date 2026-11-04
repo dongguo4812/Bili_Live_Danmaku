@@ -25,15 +25,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .editor-control input[type=range]{width:110px}
 .editor-control output{min-width:42px;color:#ffd66b;font-variant-numeric:tabular-nums}
 #stage{position:absolute;inset:0;overflow:hidden;background:transparent}
-/* 编辑画布固定为 OBS 目标画面 1960×1080 的比例；按可用视口等比缩放并居中，不拉伸。 */
+/* 编辑画布固定为 OBS 目标画面 1920×1080 的比例；按可用视口等比缩放并居中，不拉伸。 */
 .editor-mode #stage{
   top:96px;
   left:50%;
   right:auto;
   bottom:auto;
-  width:min(100vw,calc((100vh - 96px) * 1960 / 1080));
-  height:min(calc(100vh - 96px),calc(100vw * 1080 / 1960));
-  aspect-ratio:1960 / 1080;
+  width:min(100vw,calc((100vh - 96px) * 1920 / 1080));
+  height:min(calc(100vh - 96px),calc(100vw * 1080 / 1920));
+  aspect-ratio:1920 / 1080;
   transform:translateX(-50%);
   background-color:#111722;
   background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
