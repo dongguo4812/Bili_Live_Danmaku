@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" class="display-root" data-display-mode="{{ display_mode|default('all') }}">
+<html lang="zh-CN" class="display-root" data-display-mode="{{ display_mode|default('all') }}" data-live2d-enabled="{{ '1' if live2d_enabled|default(true) else '0' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -157,7 +157,9 @@
   <div id="display-placeholder" role="status">正在初始化 Live2D 模型…</div>
 
   <!-- This bundle exposes the legacy Cubism 2 loadlive2d(canvasId, modelJsonUrl) API. -->
+  {% if live2d_enabled|default(true) %}
   <script src="/static/js/live2d.min.js?v=20261102-tts-mouth-sync"></script>
+  {% endif %}
   <script src="/static/js/display.js?v=20261103-live2d-preview-transform-metadata"></script>
 </body>
 </html>
