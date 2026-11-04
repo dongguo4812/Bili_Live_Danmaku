@@ -419,3 +419,140 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .status-grid strong[data-state="error"] {
   color: #ef6262;
 }
+
+/* Access center: module-owned links and operation availability */
+.module-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px 18px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255,255,255,.09);
+}
+.module-links a {
+  color: #9fc0ff;
+  font-size: 13px;
+  text-decoration: none;
+}
+.module-links a:hover { color: #d5e3ff; text-decoration: underline; }
+.module-operation-controls button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+  filter: saturate(.35);
+}
+.module-operation-message {
+  min-height: 24px;
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border-left: 3px solid #65a9ed;
+  border-radius: 4px;
+  background: rgba(101,169,237,.08);
+  color: #a9c9e8;
+  font-size: 13px;
+}
+.module-operation-message[data-blocked="true"] {
+  border-left-color: #9aa3af;
+  background: rgba(154,163,175,.08);
+  color: #b5bdc8;
+}
+#music-state[data-state="running"], #video-state[data-state="running"],
+#live2d-module-state[data-state="running"], #voice-module-state[data-state="running"] {
+  color: #36b978;
+}
+#music-state[data-state="paused"], #video-state[data-state="paused"],
+#live2d-module-state[data-state="paused"], #voice-module-state[data-state="paused"] {
+  color: #e5a93d;
+}
+#music-state[data-state="stopped"], #video-state[data-state="stopped"],
+#live2d-module-state[data-state="stopped"], #voice-module-state[data-state="stopped"] {
+  color: #9aa3af;
+}
+#music-state[data-state="error"], #video-state[data-state="error"],
+#live2d-module-state[data-state="error"], #voice-module-state[data-state="error"] {
+  color: #ef6262;
+}
+#music-state[data-state="starting"], #music-state[data-state="pausing"],
+#music-state[data-state="resuming"], #music-state[data-state="closing"],
+#video-state[data-state="starting"], #video-state[data-state="pausing"],
+#video-state[data-state="resuming"], #video-state[data-state="closing"],
+#live2d-module-state[data-state="starting"], #live2d-module-state[data-state="pausing"],
+#live2d-module-state[data-state="resuming"], #live2d-module-state[data-state="closing"],
+#voice-module-state[data-state="starting"], #voice-module-state[data-state="pausing"],
+#voice-module-state[data-state="resuming"], #voice-module-state[data-state="closing"] {
+  color: #65a9ed;
+}
+@media(max-width:620px) {
+  .module-links { gap: 9px 14px; }
+  .module-operation-message { line-height: 1.55; }
+}
+
+
+/* Consistent colored runtime badges on every access-center module card. */
+#music-state,
+#video-state,
+#live2d-module-state,
+#voice-module-state {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 700;
+}
+#music-state[data-state="running"],
+#video-state[data-state="running"],
+#live2d-module-state[data-state="running"],
+#voice-module-state[data-state="running"],
+#live2d-module-state[data-state="enabled"] {
+  color: #36b978;
+  background: rgba(54,185,120,.12);
+}
+#music-state[data-state="paused"],
+#video-state[data-state="paused"],
+#live2d-module-state[data-state="paused"],
+#voice-module-state[data-state="paused"] {
+  color: #e5a93d;
+  background: rgba(229,169,61,.12);
+}
+#music-state[data-state="stopped"],
+#video-state[data-state="stopped"],
+#live2d-module-state[data-state="stopped"],
+#voice-module-state[data-state="stopped"],
+#live2d-module-state[data-state="disabled"] {
+  color: #9aa3af;
+  background: rgba(154,163,175,.12);
+}
+#music-state[data-state="error"],
+#video-state[data-state="error"],
+#live2d-module-state[data-state="error"],
+#voice-module-state[data-state="error"] {
+  color: #ef6262;
+  background: rgba(239,98,98,.12);
+}
+#music-state[data-state="starting"],
+#music-state[data-state="pausing"],
+#music-state[data-state="resuming"],
+#music-state[data-state="closing"],
+#music-state[data-state="unknown"],
+#video-state[data-state="starting"],
+#video-state[data-state="pausing"],
+#video-state[data-state="resuming"],
+#video-state[data-state="closing"],
+#video-state[data-state="unknown"],
+#live2d-module-state[data-state="starting"],
+#live2d-module-state[data-state="pausing"],
+#live2d-module-state[data-state="resuming"],
+#live2d-module-state[data-state="closing"],
+#live2d-module-state[data-state="unknown"],
+#voice-module-state[data-state="starting"],
+#voice-module-state[data-state="pausing"],
+#voice-module-state[data-state="resuming"],
+#voice-module-state[data-state="closing"],
+#voice-module-state[data-state="unknown"] {
+  color: #65a9ed;
+  background: rgba(101,169,237,.12);
+}

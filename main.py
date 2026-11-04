@@ -198,7 +198,12 @@ def _model_config_path(directory: Path, model_id: str, version: str = "moc2", pr
     """查找指定版本和服装配置；profile 仅允许当前模型目录内的 model*.json 文件名。"""
     version = _normalize_live2d_version(version)
     if version == "moc2" and profile:
-        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile):
+        # 兼容标准 model*.json 配置，以及 "<model_id>.model.json" 命名配置。
+        valid_profile = (
+            re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile)
+            or profile == f"{model_id}.model.json"
+        )
+        if not valid_profile:
             return None
         candidate = directory / profile
         try:
@@ -224,8 +229,14 @@ def _model_profiles(model_id: str, version: str = "moc2") -> list[dict[str, str]
         path = _model_config_path(directory, model_id, version)
         return [{"id": path.name, "name": "默认配置"}] if path else []
     candidates = []
-    for path in directory.glob("model*.json"):
-        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
+    candidate_paths = list(directory.glob("model*.json"))
+    # _model_config_path also supports "<model_id>.model.json" as the
+    # canonical MOC2 config, so include it in the profile list as well.
+    named_config = directory / f"{model_id}.model.json"
+    if named_config.is_file() and named_config not in candidate_paths:
+        candidate_paths.append(named_config)
+    for path in candidate_paths:
+        if path.name != f"{model_id}.model.json" and not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -1321,6 +1332,13 @@ def live2d_display_page():
     # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
     return render_template("display.html", display_mode="live2d", live2d_enabled=_live2d_enabled(), live2d_version="moc2")
 
+@app.get("/live2d/moc3/display")
+def live2d_moc3_display_page():
+    # MOC3 综合展示页：沿用完整展示模板，固定选择 MOC3 运行时。
+    if not _moc3_runtime_available():
+        abort(404)
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version="moc3")
+
 
 @app.get("/danmaku/display")
 def danmaku_display_page():
@@ -1334,7 +1352,8 @@ def tts_display_page():
 
 @app.get("/live2d")
 def live2d_settings_page():
-    return redirect("/#live2d-settings")
+    # 独立 Live2D 配置入口；展示模板内提供模型、动作、表情和画面参数设置。
+    return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())
 
 
 @app.get("/dashboard")

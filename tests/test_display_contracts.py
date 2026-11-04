@@ -8,6 +8,21 @@ from pathlib import Path
 
 
 class CombinedDisplayContractTests(unittest.TestCase):
+    def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        index = (root / "templates" / "index.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("editor-sidebar", combined)
+        self.assertIn('.editor-mode .toolbar{left:0}', combined)
+        self.assertIn('top:96px;', combined)
+        self.assertIn('width:min(100vw,calc((100vh - 96px) * 1920 / 1080))', combined)
+        self.assertIn('height:min(calc(100vh - 96px),calc(100vw * 1080 / 1920))', combined)
+        self.assertIn('aspect-ratio:1920 / 1080', combined)
+        self.assertIn('class="toolbar-row toolbar-row-layout"', combined)
+        self.assertIn('class="toolbar-row toolbar-row-adjust"', combined)
+        self.assertIn('<a href="/dashboard" target="_blank" rel="noopener">综合展示</a>', index)
+
     def test_live2d_api_uses_only_canonical_prefix(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
@@ -369,6 +384,9 @@ class Live2DModelProfileContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('def _model_profiles(model_id: str, version: str = "moc2")', main)
         self.assertIn('directory.glob("model*.json")', main)
+        self.assertIn('named_config = directory / f"{model_id}.model.json"', main)
+        self.assertIn('candidate_paths.append(named_config)', main)
+        self.assertIn('or profile == f"{model_id}.model.json"', main)
         self.assertIn('data.get("textures")', main)
         self.assertIn('"model.default.json"', main)
         self.assertIn('profile: str | None = None', main)

@@ -60,18 +60,18 @@ class AccessCenterModuleControlTests(unittest.TestCase):
                 self.assertIn(f'data-state="{state}"', self.page + css)
                 self.assertIn(f'.status-pill[data-state="{state}"]', css)
 
-    def test_connection_and_runtime_statuses_have_distinct_colors(self):
+    def test_login_and_connection_statuses_have_distinct_colors(self):
         self.assertIn('id="login-state" data-state="unknown"', self.page)
         self.assertIn('id="connection-state" data-state="unknown"', self.page)
-        self.assertIn('id="runtime-state" data-state="unknown"', self.page)
+        # The former top-level OBS/Live2D runtime status was intentionally removed;
+        # Live2D runtime state is shown in its own module section instead.
+        self.assertNotIn('id="runtime-state"', self.page)
         self.assertIn('dataset.state = data.bilibili.logged_in ? "logged_in" : "logged_out"', self.page)
         self.assertIn('data.bilibili.connected ? "connected"', self.page)
-        self.assertIn('not_started: "waiting"', self.page)
-        self.assertIn('loaded: "loaded"', self.page)
         root = Path(__file__).resolve().parents[1]
         css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
-        for state in ("logged_in", "logged_out", "connected", "disconnected", "connecting",
-                      "reconnecting", "stopping", "waiting", "loading", "loaded", "disabled", "error"):
+        for state in ("logged_in", "logged_out", "connected", "disconnected",
+                      "connecting", "reconnecting", "stopping"):
             with self.subTest(state=state):
                 self.assertIn(f'.status-grid strong[data-state="{state}"]', css)
 
