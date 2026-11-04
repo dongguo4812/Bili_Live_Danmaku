@@ -674,8 +674,8 @@ def _read_obs_password() -> str:
         return ""
 
 
-def _refresh_obs_browser_sources() -> dict[str, Any]:
-    """尝试通过 OBS WebSocket 刷新指向 /live2d/display 的浏览器源；失败时不影响设置保存。"""
+def _open_obs_websocket() -> Any:
+    """按统一 OBS 配置和凭据完成 WebSocket v5 握手并返回已认证连接。"""
     obs_config = CONFIG.get("obs_websocket", {})
     if not isinstance(obs_config, dict):
         obs_config = {}
@@ -685,14 +685,13 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
     except (TypeError, ValueError):
         port, timeout = 4455, 2.5
-    ws = None
+
+    ws = websocket.create_connection(
+        f"ws://{host}:{port}",
+        timeout=timeout,
+        suppress_origin=True,
+    )
     try:
-        password = _read_obs_password()
-        ws = websocket.create_connection(
-            f"ws://{host}:{port}",
-            timeout=timeout,
-            suppress_origin=True,
-        )
         hello = json.loads(ws.recv())
         if hello.get("op") != 0:
             raise RuntimeError("OBS WebSocket 未返回 Hello 握手。")
@@ -700,8 +699,9 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         identify: dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}
         authentication = hello_data.get("authentication")
         if authentication:
+            password = _read_obs_password()
             if not password:
-                raise RuntimeError("OBS WebSocket 已启用密码验证，但密码文件为空或未配置有效密码。")
+                raise RuntimeError("OBS WebSocket 已启用密码验证，但未配置有效密码。")
             secret = base64.b64encode(
                 hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
             ).decode("ascii")
@@ -712,7 +712,20 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         identified = json.loads(ws.recv())
         if identified.get("op") != 2:
             raise RuntimeError("OBS WebSocket 身份验证未成功。")
+        return ws
+    except Exception:
+        try:
+            ws.close()
+        except Exception:
+            pass
+        raise
 
+
+def _refresh_obs_browser_sources() -> dict[str, Any]:
+    """尝试通过 OBS WebSocket 刷新指向 /live2d/display 的浏览器源；失败时不影响设置保存。"""
+    ws = None
+    try:
+        ws = _open_obs_websocket()
         response = _obs_ws_request(ws, "GetInputList")
         refreshed = 0
         for item in response.get("inputs", []):
