@@ -810,6 +810,7 @@
     });
     if (!loaded || isStale()) return false;
     loadedModelId = modelId;
+    applyLive2DTransform();
     showMessage("");
     if (placeholder) placeholder.style.display = "none";
     await reportState("loaded", modelId + " 已由 Cubism 5 R5 Framework 完成模型和纹理加载。");
@@ -1454,11 +1455,9 @@
     const current = transformSnapshot(preferences);
     if (live2dRuntimeVersion === "moc3" && moc3Frame) {
       if (!Number.isFinite(current.scale) || current.scale <= 0) return false;
-      const translateX = current.x * window.innerWidth * 0.5;
-      const translateY = -current.y * window.innerHeight * 0.5;
-      moc3Frame.style.transformOrigin = "50% 50%";
-      moc3Frame.style.transform = "translate3d(" + translateX + "px, " + translateY + "px, 0) scale(" + current.scale + ")";
-      return true;
+      const runtimeWindow = moc3Frame.contentWindow;
+      if (!runtimeWindow || typeof runtimeWindow.live2dSetModelTransform !== "function") return false;
+      return runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y) !== false;
     }
     const base = live2dTransformBase;
     if (!base || !base.matrix) return false;
