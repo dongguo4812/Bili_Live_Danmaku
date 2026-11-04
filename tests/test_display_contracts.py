@@ -330,14 +330,14 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))', main)
         self.assertIn('@app.get("/models/<path:filename>")', main)
 
-    def test_moc3_directory_is_reserved_without_changing_moc2_runtime(self):
+    def test_moc3_model_directory_is_isolated_from_moc2_runtime(self):
         root = Path(__file__).resolve().parents[1]
         self.assertTrue((root / "models" / "moc3" / ".gitkeep").is_file())
         self.assertTrue((root / "models" / "moc2").is_dir())
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
-        self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
+        self.assertIn('if version == "moc2" else BASE_DIR / "static" / "live2d" / "moc3" / "Core" / "live2dcubismcore.min.js"', main)
 
 
 class Live2DVersionIsolationContractTests(unittest.TestCase):
