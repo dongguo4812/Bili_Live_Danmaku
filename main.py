@@ -1277,16 +1277,17 @@ def _connect_saved_room(source: str) -> tuple[bool, str]:
 
 
 def _restore_saved_live_connection() -> None:
-    """启动时检查登录状态并恢复房间号显示，但必须由用户手动发起连接。"""
-    with SETTINGS_LOCK:
-        settings = _load_user_settings()
-    room_id = int(settings["bilibili"]["room_id"])
+    """启动时使用已保存的有效登录凭据自动连接已保存的直播间。"""
+    connected, message = _connect_saved_room("系统启动")
     with BILIBILI_STATE_LOCK:
-        BILIBILI_STATE["room_id"] = room_id
-    valid, message, _ = _login_status()
+        room_id = BILIBILI_STATE["room_id"]
+        connection_state = BILIBILI_STATE["connection_state"]
+        # 未发起连接时展示具体原因；连接线程启动后由状态回调负责更新提示。
+        if not connected and connection_state == "disconnected":
+            BILIBILI_STATE["message"] = message
     logger.info(
-        "启动检查完成：登录有效=%s，已保存房间号=%s；不会在程序启动时自动连接直播间。%s",
-        valid, room_id, message,
+        "启动自动连接检查完成：已保存房间号=%s，连接任务已启动=%s，当前状态=%s。%s",
+        room_id, connected, connection_state, message,
     )
 
 

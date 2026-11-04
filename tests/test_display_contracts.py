@@ -733,3 +733,24 @@ class Live2DMoc3MotionMetadataRecoveryTests(unittest.TestCase):
         self.assertIn("type===1", runtime)
         self.assertIn("index+6>=segments.length", runtime)
         self.assertIn("return{buffer,byteLength}", runtime)
+
+class BilibiliStartupAutoConnectTests(unittest.TestCase):
+    def test_startup_reuses_saved_room_authenticated_connection_flow(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        start = main.index("def _restore_saved_live_connection() -> None:")
+        end = main.index("\n\n@app.get(\"/\")", start)
+        startup = main[start:end]
+
+        self.assertIn('_connect_saved_room("系统启动")', startup)
+        self.assertIn("已保存房间号", startup)
+        self.assertNotIn("不会在程序启动时自动连接", startup)
+
+        connect_start = main.index("def _connect_saved_room(source: str)")
+        connect_end = main.index("\n\ndef _restore_saved_live_connection", connect_start)
+        connect_flow = main[connect_start:connect_end]
+        self.assertIn("validate_cookie_file", main)
+        self.assertIn("LIVE_CLIENT.start(room_id, cookies)", connect_flow)
+        self.assertIn("if room_id <= 0:", connect_flow)
+        self.assertIn('current_state in {"connected", "connecting", "reconnecting"}', connect_flow)
+
