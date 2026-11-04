@@ -22,7 +22,7 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertIn('connectionActive ? "断开连接" : "连接直播间"', self.page)
         self.assertIn('["connecting", "reconnecting", "stopping"].includes(data.bilibili.connection_state)', self.page)
         self.assertIn('stopping: "断开连接中"', self.page)
-        self.assertRegex(self.page, r'connectionStopping\\s*\\? "断开连接中…"', self.page)
+        self.assertRegex(self.page, r'connectionStopping\s*\? "断开连接中…"', self.page)
         self.assertIn('button.dataset.active === "true"', self.page)
         self.assertIn('api("/api/bilibili/connect"', self.page)
         self.assertIn('api("/api/bilibili/disconnect"', self.page)
@@ -118,7 +118,7 @@ class AccessCenterModuleControlTests(unittest.TestCase):
                 self.assertIn(entry, entries)
 
     def test_control_panel_has_no_duplicate_element_ids(self):
-        ids = re.findall(r'\\bid="([^"]+)"', self.page)
+        ids = re.findall(r'\bid="([^"]+)"', self.page)
         self.assertEqual(len(ids), len(set(ids)))
 
 
