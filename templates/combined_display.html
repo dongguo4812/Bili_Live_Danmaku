@@ -128,13 +128,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     <label class="editor-control">当前模块
       <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
     </label>
-    <label class="editor-control" id="font-scale-control">字体大小
-      <input id="font-scale" type="range" min="50" max="200" step="5" value="100">
-      <output id="font-scale-value">100%</output>
-    </label>
-    <label class="editor-control" id="content-scale-control" hidden>整体缩放
-      <input id="content-scale" type="range" min="50" max="200" step="5" value="100">
-      <output id="content-scale-value">100%</output>
+    <label class="editor-control" id="overall-scale-control">整体缩放
+      <input id="overall-scale" type="range" min="50" max="200" step="5" value="100">
+      <output id="overall-scale-value">100%</output>
     </label>
     <span id="layout-message">拖动模块内部移动；拖动边缘调整单一方向，拖动角点同时调整宽高。</span>
   </div>
@@ -247,33 +243,25 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     selectedWidgetType=type||"";
     const item=layout.widgets.find(w=>w.type===selectedWidgetType);
     const select=document.getElementById("selected-widget");
-    const fontControl=document.getElementById("font-scale-control");
-    const overallControl=document.getElementById("content-scale-control");
-    const fontSlider=document.getElementById("font-scale");
-    const overallSlider=document.getElementById("content-scale");
+    const overallSlider=document.getElementById("overall-scale");
+    const overallValue=document.getElementById("overall-scale-value");
     if(select) select.value=selectedWidgetType;
-    const fontEnabled=!!item && ["music","video","danmaku","voice"].includes(item.type);
-    const overallEnabled=!!item && item.type==="music_widget";
-    if(fontControl) fontControl.hidden=!fontEnabled;
-    if(overallControl) overallControl.hidden=!overallEnabled;
-    if(fontSlider) fontSlider.value=String(item?.font_scale??100);
-    if(overallSlider) overallSlider.value=String(item?.content_scale??100);
-    const fontValue=document.getElementById("font-scale-value");
-    const overallValue=document.getElementById("content-scale-value");
-    if(fontValue) fontValue.textContent=(item?.font_scale??100)+"%";
-    if(overallValue) overallValue.textContent=(item?.content_scale??100)+"%";
+    const scale=item ? Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100 : 100;
+    if(overallSlider) overallSlider.value=String(scale);
+    if(overallValue) overallValue.textContent=scale+"%";
   }
 
   function applyContentScale(item){
     const widget=stage.querySelector('[data-widget="'+item.type+'"]');
     if(widget) positionWidget(widget,item);
     const body=widget?.querySelector(".widget-body");
-    if(item.type==="music_widget" && body){
-      const frame=body.querySelector("iframe");
-      if(frame){
-        const scale=(Number(item.content_scale)||100)/100;
-        frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
-      }
+    const frame=body?.querySelector("iframe");
+    if(!frame) return;
+    const scale=(Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100)/100;
+    if(item.type==="music_widget"){
+      frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
+    }else if(item.type==="music"||item.type==="video"){
+      frame.contentWindow?.postMessage({type:"combined-display-scale",scale},window.location.origin);
     }
   }
 
@@ -324,7 +312,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     setMessage("布局已调整；点击“保存当前布局”写入本地配置。");
   }
 
-  function renderMusic(body){
+  function renderMusic(body,item){
     // Embed the module's own display page so rendering and refresh remain independent.
     const frame=document.createElement("iframe");
     frame.src="/music/display?embedded=1";
@@ -332,6 +320,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -343,10 +332,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency", "true");
     frame.style.background = "transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
-  function renderVideo(body){
+  function renderVideo(body,item){
     // Embed the module's own display page and its independent refresh lifecycle.
     const frame=document.createElement("iframe");
     frame.src="/video/display?embedded=1";
@@ -354,6 +344,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -411,8 +402,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         renderLive2DPreview(body);
       }
     }else if(type==="music_widget") renderMusicWidget(body,item);
-    else if(type==="music") renderMusic(body);
-    else if(type==="video") renderVideo(body);
+    else if(type==="music") renderMusic(body,item);
+    else if(type==="video") renderVideo(body,item);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
   }
@@ -563,18 +554,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   });
   const selectedWidgetSelect=document.getElementById("selected-widget");
   if(selectedWidgetSelect) selectedWidgetSelect.addEventListener("change",()=>selectWidget(selectedWidgetSelect.value));
-  const fontScaleSlider=document.getElementById("font-scale");
-  if(fontScaleSlider) fontScaleSlider.addEventListener("input",()=>{
+  const overallScaleSlider=document.getElementById("overall-scale");
+  if(overallScaleSlider) overallScaleSlider.addEventListener("input",()=>{
     const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
-    item.font_scale=Number(fontScaleSlider.value);
-    const value=document.getElementById("font-scale-value"); if(value)value.textContent=item.font_scale+"%";
-    applyContentScale(item);
-  });
-  const contentScaleSlider=document.getElementById("content-scale");
-  if(contentScaleSlider) contentScaleSlider.addEventListener("input",()=>{
-    const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
-    item.content_scale=Number(contentScaleSlider.value);
-    const value=document.getElementById("content-scale-value"); if(value)value.textContent=item.content_scale+"%";
+    const scale=Number(overallScaleSlider.value);
+    if(item.type==="music_widget") item.content_scale=scale;
+    else item.font_scale=scale;
+    const value=document.getElementById("overall-scale-value"); if(value)value.textContent=scale+"%";
     applyContentScale(item);
   });
   const saveButton=document.getElementById("save-layout");
