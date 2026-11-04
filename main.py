@@ -1277,22 +1277,6 @@ def live2d_moc3_runtime_page(model_id: str):
     )
 
 
-@app.get("/live2d/moc3/alpha-probe/<model_id>")
-def live2d_moc3_alpha_probe(model_id: str):
-    """Minimal green-parent test to isolate transparent iframe compositing."""
-    if not _live2d_enabled() or not _moc3_runtime_available():
-        abort(404)
-    if _safe_model_dir(model_id, "moc3") is None:
-        abort(404)
-    assets_ok, missing, _ = _model_assets(model_id, "moc3")
-    if not assets_ok:
-        abort(404)
-    return render_template(
-        "live2d_moc3_alpha_probe.html",
-        runtime_url=f"/live2d/moc3/runtime/{model_id}",
-        model_id=model_id,
-    )
-
 
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
@@ -1339,21 +1323,6 @@ def system_settings_page():
 def credentials_page():
     return render_template("credentials.html")
 
-
-@app.get("/display/combined-alpha-probe/<layout_id>")
-def combined_display_alpha_probe_page(layout_id: str):
-    """Embed the real combined display over green to test its final alpha output."""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id):
-        abort(404)
-    try:
-        _find_display_layout(_load_display_layout_store(), layout_id)
-    except Exception:
-        abort(404)
-    return render_template(
-        "combined_display_alpha_probe.html",
-        combined_url=f"/display/combined/{layout_id}",
-        layout_id=layout_id,
-    )
 
 
 @app.get("/display/combined")
