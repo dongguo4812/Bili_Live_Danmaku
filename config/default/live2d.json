@@ -1,4 +1,5 @@
 {
   "format": "MOC2",
-  "default_model": "live_uu"
+  "default_model": "live_uu",
+  "enabled": true
 }
