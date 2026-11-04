@@ -39,6 +39,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
   background-size:24px 24px;
 }
+.widget[hidden]{display:none!important}
 .widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(15,20,30,.82);box-shadow:0 8px 24px rgba(0,0,0,.2);backdrop-filter:blur(7px);display:flex;flex-direction:column}
 .display-mode .widget{border-color:transparent;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .widget-header{flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:rgba(255,255,255,.07);font-size:12px;font-weight:800;cursor:move;user-select:none;touch-action:none}
@@ -488,6 +489,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         body:JSON.stringify({layout_id:layoutId,layout})
       });
       layout=data.layout;
+      // The server returns a new normalized layout object. Rebuild the editor so
+      // pointer handlers close over the same objects that the next save submits.
+      renderLayout();
       setMessage(data.message||"布局已保存。");
     }catch(error){setMessage("保存失败："+error.message,true);}
   }
@@ -502,7 +506,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       latestData.music=music;
       latestData.video=video;
       latestData.voice=voice;
-      latestData.voice.module_state=(modules.modules.voice||{}).state||"stopped";
+      latestData.modules=modules.modules||{};
+      latestData.voice.module_state=(latestData.modules.voice||{}).state||"stopped";
 
       // 首次只读取当前最新事件游标，不回放断线前缓存的旧弹幕；之后只取游标之后的新事件。
       if(!danmakuCursorReady){
@@ -520,7 +525,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       }
 
       layout.widgets.forEach(item=>{
-        const node=stage.querySelector('[data-widget="'+item.type+'"] .widget-body');
+        const widget=stage.querySelector('[data-widget="'+item.type+'"]');
+        if(!widget) return;
+        // The combined output follows each module's lifecycle; a stopped module
+        // is hidden without affecting the other widgets or the module runtime.
+        if(displayMode && (item.type==="music" || item.type==="video")){
+          const moduleState=(latestData.modules[item.type]||{}).state||"stopped";
+          widget.hidden=moduleState==="stopped";
+        }
+        const node=widget.querySelector(".widget-body");
         if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type,item);
       });
     }catch(error){

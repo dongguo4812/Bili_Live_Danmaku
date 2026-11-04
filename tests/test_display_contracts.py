@@ -8,6 +8,36 @@ from pathlib import Path
 
 
 class CombinedDisplayContractTests(unittest.TestCase):
+    def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
+        main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def _is_combined_display_browser_url(value: Any) -> bool:", main)
+        self.assertIn("def _display_service_address() -> tuple[str, int]:", main)
+        self.assertIn("expected_host, expected_port = _display_service_address()", main)
+        self.assertIn("def _open_obs_websocket() -> Any:", main)
+        self.assertIn("ws = _open_obs_websocket()", main)
+        self.assertIn('path == "/display/combined"', main)
+        self.assertIn('path.startswith("/display/combined/")', main)
+        self.assertIn('"propertyName": "refreshnocache"', main)
+        self.assertIn("def _obs_combined_display_refresh_watchdog() -> None:", main)
+        self.assertIn("target=_obs_combined_display_refresh_watchdog", main)
+        self.assertNotIn("_obs_live2d_watchdog", main)
+        self.assertNotIn("_shutdown_obs_live2d_sources", main)
+        self.assertNotIn("SetSceneItemEnabled", main)
+        self.assertNotIn("OBS_DISPLAY_SHOWN", main)
+        self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
+
+    def test_saving_combined_layout_triggers_non_blocking_obs_refresh(self):
+        main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        start = main.index('@app.post("/api/display/layout")')
+        end = main.index('\n\n@app.get("/api/danmaku")', start)
+        route = main[start:end]
+        self.assertIn("_save_display_layout_store(store)", route)
+        self.assertIn('target=_refresh_obs_combined_display_sources', route)
+        self.assertIn('name="obs-layout-save-refresh"', route)
+        self.assertIn("daemon=True", route)
+        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("target=_refresh_obs_combined_display_sources"))
+
+
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
@@ -789,3 +819,31 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CombinedLayoutSaveRebindRegressionTests(unittest.TestCase):
+    def test_successful_save_rebuilds_editor_against_server_returned_layout(self):
+        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        start = source.index("  async function saveLayout()")
+        end = source.index("\n  async function refreshData()", start)
+        save_function = source[start:end]
+        replace_layout = save_function.index("layout=data.layout;")
+        rerender = save_function.index("renderLayout();", replace_layout)
+        success_message = save_function.index('setMessage(data.message||"布局已保存。");', rerender)
+        self.assertLess(replace_layout, rerender)
+        self.assertLess(rerender, success_message)
+
+
+class CombinedModuleVisibilityRegressionTests(unittest.TestCase):
+    def test_stopped_music_and_video_modules_are_hidden_only_in_combined_output(self):
+        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        start = source.index("  async function refreshData()")
+        end = source.index("\n  document.querySelectorAll(\"[data-add]\")", start)
+        refresh_function = source[start:end]
+
+        self.assertIn('api("/api/modules")', refresh_function)
+        self.assertIn("latestData.modules=modules.modules||{}", refresh_function)
+        self.assertIn('if(displayMode && (item.type==="music" || item.type==="video"))', refresh_function)
+        self.assertIn('const moduleState=(latestData.modules[item.type]||{}).state||"stopped"', refresh_function)
+        self.assertIn('widget.hidden=moduleState==="stopped"', refresh_function)
+        self.assertIn('.widget[hidden]{display:none!important}', source)

@@ -674,8 +674,8 @@ def _read_obs_password() -> str:
         return ""
 
 
-def _refresh_obs_browser_sources() -> dict[str, Any]:
-    """尝试通过 OBS WebSocket 刷新指向 /live2d/display 的浏览器源；失败时不影响设置保存。"""
+def _open_obs_websocket() -> Any:
+    """按统一 OBS 配置和凭据完成 WebSocket v5 握手并返回已认证连接。"""
     obs_config = CONFIG.get("obs_websocket", {})
     if not isinstance(obs_config, dict):
         obs_config = {}
@@ -685,14 +685,13 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
     except (TypeError, ValueError):
         port, timeout = 4455, 2.5
-    ws = None
+
+    ws = websocket.create_connection(
+        f"ws://{host}:{port}",
+        timeout=timeout,
+        suppress_origin=True,
+    )
     try:
-        password = _read_obs_password()
-        ws = websocket.create_connection(
-            f"ws://{host}:{port}",
-            timeout=timeout,
-            suppress_origin=True,
-        )
         hello = json.loads(ws.recv())
         if hello.get("op") != 0:
             raise RuntimeError("OBS WebSocket 未返回 Hello 握手。")
@@ -700,8 +699,9 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         identify: dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}
         authentication = hello_data.get("authentication")
         if authentication:
+            password = _read_obs_password()
             if not password:
-                raise RuntimeError("OBS WebSocket 已启用密码验证，但密码文件为空或未配置有效密码。")
+                raise RuntimeError("OBS WebSocket 已启用密码验证，但未配置有效密码。")
             secret = base64.b64encode(
                 hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
             ).decode("ascii")
@@ -712,7 +712,20 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
         identified = json.loads(ws.recv())
         if identified.get("op") != 2:
             raise RuntimeError("OBS WebSocket 身份验证未成功。")
+        return ws
+    except Exception:
+        try:
+            ws.close()
+        except Exception:
+            pass
+        raise
 
+
+def _refresh_obs_browser_sources() -> dict[str, Any]:
+    """尝试通过 OBS WebSocket 刷新指向 /live2d/display 的浏览器源；失败时不影响设置保存。"""
+    ws = None
+    try:
+        ws = _open_obs_websocket()
         response = _obs_ws_request(ws, "GetInputList")
         refreshed = 0
         for item in response.get("inputs", []):
@@ -752,75 +765,34 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
 
 
 
-# OBS Live2D 来源自动控制。一个独立锁保证 watcher、设置刷新和退出清理不并发操作同一 WebSocket。
+# OBS WebSocket 连接后只刷新综合展示源，不改变任何场景项的可见状态。
 OBS_DISPLAY_LOCK = threading.RLock()
-OBS_DISPLAY_STOP = threading.Event()
-OBS_DISPLAY_SHOWN = False
-OBS_DISPLAY_SHUTDOWN = False
-
-
-def _open_obs_websocket(timeout_override: float | None = None):
-    """连接并完成 OBS WebSocket v5 身份验证。"""
-    obs_config = CONFIG.get("obs_websocket", {})
-    if not isinstance(obs_config, dict):
-        obs_config = {}
-    host = str(obs_config.get("host", "127.0.0.1")).strip() or "127.0.0.1"
-    try:
-        port = int(obs_config.get("port", 4455))
-        timeout = max(0.5, min(5.0, float(obs_config.get("timeout", 2.5))))
-    except (TypeError, ValueError):
-        port, timeout = 4455, 2.5
-
-    password = _read_obs_password()
-    if timeout_override is not None:
-        timeout = max(0.3, min(timeout, float(timeout_override)))
-    ws = websocket.create_connection(
-        f"ws://{host}:{port}", timeout=timeout, suppress_origin=True
-    )
-    try:
-        hello = json.loads(ws.recv())
-        if hello.get("op") != 0:
-            raise RuntimeError("OBS WebSocket 未返回 Hello 握手。")
-        hello_data = hello.get("d", {})
-        identify: dict[str, Any] = {"rpcVersion": 1, "eventSubscriptions": 0}
-        authentication = hello_data.get("authentication")
-        if authentication:
-            if not password:
-                raise RuntimeError("OBS WebSocket 已启用密码验证，但未配置有效密码。")
-            secret = base64.b64encode(
-                hashlib.sha256((password + authentication["salt"]).encode("utf-8")).digest()
-            ).decode("ascii")
-            identify["authentication"] = base64.b64encode(
-                hashlib.sha256((secret + authentication["challenge"]).encode("utf-8")).digest()
-            ).decode("ascii")
-        ws.send(json.dumps({"op": 1, "d": identify}))
-        identified = json.loads(ws.recv())
-        if identified.get("op") != 2:
-            raise RuntimeError("OBS WebSocket 身份验证未成功。")
-        return ws
-    except Exception:
-        try:
-            ws.close()
-        except Exception:
-            pass
-        raise
+OBS_COMBINED_REFRESH_STOP = threading.Event()
+OBS_COMBINED_DISPLAY_REFRESHED = False
 
 
 def _display_service_address() -> tuple[str, int]:
-    """读取本程序 HTTP 服务的 IP 和端口，作为 OBS 浏览器源匹配基准。"""
+    """返回本地展示服务绑定地址；通配绑定地址允许匹配 OBS 使用的实际访问主机。"""
     app_config = CONFIG.get("app", {})
     if not isinstance(app_config, dict):
         app_config = {}
-    host = str(app_config.get("host", "127.0.0.1")).strip().lower() or "127.0.0.1"
+    host = str(app_config.get("host", "127.0.0.1") or "127.0.0.1").strip().lower()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    # 0.0.0.0 / :: 表示监听所有网卡，不能拿它与浏览器源 URL 的主机名直接比较。
+    if host in {"", "0.0.0.0", "::"}:
+        host = ""
     try:
         port = int(app_config.get("port", 8768))
+        if not 1 <= port <= 65535:
+            raise ValueError
     except (TypeError, ValueError):
         port = 8768
     return host, port
 
 
-def _is_display_browser_url(value: Any) -> bool:
-    """只匹配当前程序 IP、端口和 /live2d/display 路径。"""
+def _is_combined_display_browser_url(value: Any) -> bool:
+    """匹配当前程序地址下的默认综合展示页或指定布局展示页。"""
     if not isinstance(value, str) or not value.strip():
         return False
     try:
@@ -831,109 +803,60 @@ def _is_display_browser_url(value: Any) -> bool:
         if actual_port is None:
             actual_port = 443 if parsed.scheme.lower() == "https" else 80
         loopbacks = {"localhost", "127.0.0.1", "::1"}
-        same_host = actual_host == expected_host or (
+        same_host = not expected_host or actual_host == expected_host or (
             actual_host in loopbacks and expected_host in loopbacks
         )
-        return parsed.scheme.lower() in {"http", "https"} and same_host and (
-            actual_port == expected_port and parsed.path.rstrip("/") == "/live2d/display"
+        path = parsed.path.rstrip("/")
+        is_combined_path = path == "/display/combined" or (
+            path.startswith("/display/combined/") and bool(path.removeprefix("/display/combined/"))
+        )
+        return (
+            parsed.scheme.lower() in {"http", "https"}
+            and same_host
+            and actual_port == expected_port
+            and is_combined_path
         )
     except (TypeError, ValueError):
         return False
 
 
-def _obs_set_display_sources_enabled(
-    enabled: bool,
-    refresh: bool = False,
-    shutdown_mode: bool = False,
-) -> dict[str, Any]:
-    """在 OBS 所有场景（含嵌套组）中启用或隐藏全部 /live2d/display 浏览器源。"""
+def _refresh_obs_combined_display_sources() -> dict[str, Any]:
+    """刷新 OBS 中指向综合展示页面的浏览器源；不操作场景项显隐。"""
     with OBS_DISPLAY_LOCK:
         ws = None
         try:
-            ws = _open_obs_websocket(timeout_override=1.0 if shutdown_mode else None)
-            input_response = _obs_ws_request(ws, "GetInputList")
-            matching_inputs: set[str] = set()
-            for item in input_response.get("inputs", []):
+            ws = _open_obs_websocket()
+            inputs = _obs_ws_request(ws, "GetInputList").get("inputs", [])
+            refreshed = 0
+            for item in inputs:
                 if item.get("inputKind") != "browser_source":
                     continue
                 input_name = item.get("inputName")
                 if not isinstance(input_name, str) or not input_name:
                     continue
-                source_info = _obs_ws_request(ws, "GetInputSettings", {"inputName": input_name})
+                source_info = _obs_ws_request(
+                    ws, "GetInputSettings", {"inputName": input_name}
+                )
                 settings = source_info.get("inputSettings") or {}
-                if _is_display_browser_url(settings.get("url")):
-                    matching_inputs.add(input_name)
-
-            if not matching_inputs:
-                return {
-                    "ok": False,
-                    "matched_inputs": 0,
-                    "scene_items": 0,
-                    "message": "未找到 URL 指向 /live2d/display 的浏览器源。",
-                }
-
-            if enabled and refresh:
-                for input_name in sorted(matching_inputs):
-                    _obs_ws_request(ws, "PressInputPropertiesButton", {
-                        "inputName": input_name,
-                        "propertyName": "refreshnocache",
-                    })
-
-            scene_response = _obs_ws_request(ws, "GetSceneList")
-            scenes = scene_response.get("scenes", [])
-            targets: list[tuple[str, int]] = []
-            visited_groups: set[str] = set()
-
-            def collect_items(container_name: str, items: list[dict[str, Any]]) -> None:
-                for scene_item in items:
-                    source_name = scene_item.get("sourceName")
-                    scene_item_id = scene_item.get("sceneItemId")
-                    if source_name in matching_inputs and isinstance(scene_item_id, int):
-                        targets.append((container_name, scene_item_id))
-                    if scene_item.get("isGroup") and isinstance(source_name, str):
-                        group_key = source_name
-                        if group_key in visited_groups:
-                            continue
-                        visited_groups.add(group_key)
-                        group_response = _obs_ws_request(
-                            ws, "GetGroupSceneItemList", {"sceneName": group_key}
-                        )
-                        collect_items(group_key, group_response.get("sceneItems", []))
-
-            for scene in scenes:
-                scene_name = scene.get("sceneName")
-                if not isinstance(scene_name, str) or not scene_name:
+                if not _is_combined_display_browser_url(settings.get("url")):
                     continue
-                scene_items = _obs_ws_request(
-                    ws, "GetSceneItemList", {"sceneName": scene_name}
-                ).get("sceneItems", [])
-                collect_items(scene_name, scene_items)
-
-            changed = 0
-            for scene_name, scene_item_id in targets:
-                _obs_ws_request(ws, "SetSceneItemEnabled", {
-                    "sceneName": scene_name,
-                    "sceneItemId": scene_item_id,
-                    "sceneItemEnabled": bool(enabled),
+                _obs_ws_request(ws, "PressInputPropertiesButton", {
+                    "inputName": input_name,
+                    "propertyName": "refreshnocache",
                 })
-                changed += 1
+                refreshed += 1
 
-            action = "显示" if enabled else "隐藏"
-            message = (
-                f"已{action} {changed} 个 /live2d/display 场景项，"
-                f"匹配到 {len(matching_inputs)} 个浏览器源。"
-            )
-            logger.info("OBS Live2D 自动控制：%s", message)
-            return {
-                "ok": True,
-                "matched_inputs": len(matching_inputs),
-                "scene_items": changed,
-                "message": message,
-            }
+            if refreshed:
+                message = f"OBS WebSocket 已连接，已刷新 {refreshed} 个综合展示浏览器源。"
+                logger.info("%s", message)
+                return {"ok": True, "refreshed": refreshed, "message": message}
+            message = "OBS WebSocket 已连接，但未找到综合展示浏览器源；稍后继续检查。"
+            logger.info("%s", message)
+            return {"ok": False, "refreshed": 0, "message": message}
         except Exception as exc:
-            message = f"OBS Live2D 来源{('显示' if enabled else '隐藏')}失败：{exc}"
-            logger.warning("%s", message)
-            return {"ok": False, "matched_inputs": 0, "scene_items": 0, "message": message}
+            message = f"OBS WebSocket 不可用，已跳过本次综合展示源刷新：{exc}"
+            logger.info("%s", message)
+            return {"ok": False, "refreshed": 0, "message": message}
         finally:
             if ws is not None:
                 try:
@@ -942,71 +865,16 @@ def _obs_set_display_sources_enabled(
                     pass
 
 
-def _obs_live2d_watchdog() -> None:
-    """B 站 WebSocket 真实连接成功后，刷新并显示所有匹配来源；失败则每 3 秒重试。"""
-    global OBS_DISPLAY_SHOWN
-    while not OBS_DISPLAY_STOP.wait(3.0):
-        with BILIBILI_STATE_LOCK:
-            bilibili_connected = BILIBILI_STATE.get("connection_state") == "connected"
-        # 不等待 /live2d/display 报告模型加载：展示页由 OBS 浏览器源自己加载。
-        if not bilibili_connected:
-            continue
-        if OBS_DISPLAY_SHOWN:
-            continue
-        result = _obs_set_display_sources_enabled(True, refresh=True)
-        if result.get("ok") and result.get("matched_inputs", 0) > 0:
-            OBS_DISPLAY_SHOWN = True
-        # OBS 未启动或尚未添加匹配源时不置位，下一轮继续重试。
-
-
-def _shutdown_obs_live2d_sources() -> None:
-    """程序退出或 Windows 关闭 CMD 时，隐藏所有匹配的 OBS 浏览器源。"""
-    global OBS_DISPLAY_SHUTDOWN
-    with OBS_DISPLAY_LOCK:
-        if OBS_DISPLAY_SHUTDOWN:
-            return
-        OBS_DISPLAY_STOP.set()
-        result = _obs_set_display_sources_enabled(
-            False, refresh=False, shutdown_mode=True
-        )
-        if result.get("ok"):
-            OBS_DISPLAY_SHUTDOWN = True
-        else:
-            # 清理失败时允许 atexit/finally 再尝试一次。
-            logger.warning("程序退出时未能隐藏全部匹配的 OBS 浏览器源：%s", result.get("message"))
-
-
-# CMD 窗口关闭事件（右上角 X）需要独立于 atexit/finally 处理。
-OBS_CONSOLE_HANDLER = None
-
-
-def _handle_windows_console_event(event_type: int) -> bool:
-    if event_type not in {2, 5, 6}:  # CTRL_CLOSE_EVENT / CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT
-        return False
-    try:
-        logger.info("检测到 Windows 控制台关闭事件，正在隐藏 OBS Live2D 来源……")
-        _shutdown_obs_live2d_sources()
-    except Exception:
-        pass
-    return True
-
-
-def _register_windows_console_handler() -> None:
-    global OBS_CONSOLE_HANDLER
-    if os.name != "nt":
-        return
-    try:
-        import ctypes
-        handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
-        OBS_CONSOLE_HANDLER = handler_type(_handle_windows_console_event)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        if not kernel32.SetConsoleCtrlHandler(OBS_CONSOLE_HANDLER, True):
-            error_code = ctypes.get_last_error()
-            OBS_CONSOLE_HANDLER = None
-            raise OSError(error_code, "SetConsoleCtrlHandler 注册失败")
-        logger.info("已注册 Windows CMD 关闭事件处理。")
-    except Exception as exc:
-        logger.warning("注册 Windows CMD 关闭事件处理失败：%s", exc)
+def _obs_combined_display_refresh_watchdog() -> None:
+    """OBS WebSocket 可用且找到综合展示源后刷新一次；不依赖 B 站连接状态。"""
+    global OBS_COMBINED_DISPLAY_REFRESHED
+    while not OBS_COMBINED_REFRESH_STOP.wait(3.0):
+        if OBS_COMBINED_DISPLAY_REFRESHED:
+            break
+        result = _refresh_obs_combined_display_sources()
+        if result.get("ok") and result.get("refreshed", 0) > 0:
+            OBS_COMBINED_DISPLAY_REFRESHED = True
+            break
 
 
 def _available_models(version: str = "moc2") -> list[dict[str, str]]:
@@ -2536,6 +2404,13 @@ def save_combined_display_layout():
             item = _find_display_layout(store, layout_id or None)
             item["layout"] = layout
             _save_display_layout_store(store)
+
+        # 布局落盘后异步刷新 OBS 综合展示源；OBS 未连接时不影响保存结果。
+        threading.Thread(
+            target=_refresh_obs_combined_display_sources,
+            name="obs-layout-save-refresh",
+            daemon=True,
+        ).start()
         return jsonify({"ok": True, "layout_id": item["id"], "layout": layout,
                         "message": "布局“{}”已保存。".format(item["name"])})
     except Exception as exc:
@@ -2610,13 +2485,11 @@ if __name__ == "__main__":
     debug = bool(CONFIG["app"].get("debug", False))
     APPLICATION_RUNTIME.start()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
-    atexit.register(_shutdown_obs_live2d_sources)
     atexit.register(APPLICATION_RUNTIME.shutdown)
-    _register_windows_console_handler()
     _restore_saved_live_connection()
     threading.Thread(
-        target=_obs_live2d_watchdog,
-        name="obs-live2d-watchdog",
+        target=_obs_combined_display_refresh_watchdog,
+        name="obs-combined-display-refresh",
         daemon=True,
     ).start()
     logger.info("Starting local management server at http://%s:%s", host, port)
@@ -2625,5 +2498,5 @@ if __name__ == "__main__":
     finally:
         # 先停止唯一的 B 站 WebSocket 连接，再统一关闭业务模块和异步运行时。
         LIVE_CLIENT.stop()
-        _shutdown_obs_live2d_sources()
+        OBS_COMBINED_REFRESH_STOP.set()
         APPLICATION_RUNTIME.shutdown()
