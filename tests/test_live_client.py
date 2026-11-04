@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest.mock import patch
 
 from bilibili_client import BilibiliClientError, LiveRoomClient
 
@@ -62,6 +63,38 @@ class LiveRoomClientLifecycleTests(unittest.TestCase):
         finally:
             release_worker.set()
             thread.join(timeout=1)
+
+
+class LiveRoomClientStopRaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_during_room_creation_does_not_start_websocket(self):
+        states = []
+        client = LiveRoomClient(
+            on_event=lambda _event: None,
+            on_state=lambda state, message: states.append((state, message)),
+        )
+
+        class FakeRoom:
+            def __init__(self):
+                self.connect_called = False
+
+            def on(self, _event_name):
+                return lambda callback: callback
+
+            async def connect(self):
+                self.connect_called = True
+
+        room = FakeRoom()
+
+        def create_room(*_args, **_kwargs):
+            # 模拟 stop() 在 room 创建完成前后设置停止标记。
+            client.stop_event.set()
+            return room
+
+        with patch("bilibili_client.LiveDanmaku", side_effect=create_room):
+            await client._run()
+
+        self.assertFalse(room.connect_called)
+        self.assertEqual(states[-1][0], "disconnected")
 
 
 if __name__ == "__main__":

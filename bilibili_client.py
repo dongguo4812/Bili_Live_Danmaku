@@ -403,6 +403,10 @@ class LiveRoomClient:
                     if not self.stop_event.is_set():
                         self.on_state("disconnected", "B 站 WebSocket 已断开。")
 
+                # stop() 可能恰好发生在 room 创建期间；停止请求已到达时，
+                # 不再启动新的 WebSocket 连接，避免无意义地进入 connect()。
+                if self.stop_event.is_set():
+                    break
                 await room.connect()
                 if not self.stop_event.is_set():
                     self.on_state("disconnected", "B 站 WebSocket 连接结束。")
