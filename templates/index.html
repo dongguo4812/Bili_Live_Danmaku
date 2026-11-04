@@ -162,7 +162,7 @@
       <p class="muted">模型目录随版本分别位于 <code>models/moc2/</code> 和 <code>models/moc3/</code>。</p>
       <p class="muted">请自行放入具有合法使用授权的模型文件；模型资源不会随项目自动分发。</p>
       <div class="module-links">
-        <a href="/live2d/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
+        <a id="live2d-display-link" href="/live2d/moc2/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
       </div>
     </section>
 
@@ -434,6 +434,8 @@
         $("model-state").textContent = !live2dEnabled ? "运行时已停用" : (data.live2d.config_exists ? "已找到配置" : "缺少模型配置");
         $("model-name").textContent = data.live2d.name || "尚未选择模型";
         $("live2d-version").value = data.live2d.version || "moc2";
+        const live2dRuntime = ["moc2", "moc3"].includes(data.live2d.version) ? data.live2d.version : "moc2";
+        $("live2d-display-link").href = "/live2d/" + live2dRuntime + "/display";
         $("live2d-version-message").textContent = data.live2d.version === "moc3" && !data.live2d.runtime_supported
           ? "MOC3 已选中，但 Cubism 5 R5 运行时文件缺失或不完整；不会回退到 MOC2。"
           : "";
