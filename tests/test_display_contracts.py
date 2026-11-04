@@ -658,3 +658,22 @@ class Live2DMotionShortcutFeatureTests(unittest.TestCase):
         self.assertIn('快捷键 " + key + " 已绑定到其他动作', script)
         self.assertIn('delete motionShortcutBindings[action]', script)
         self.assertIn('event.ctrlKey || event.altKey || event.metaKey', script)
+
+
+class Live2DHitAreaMotionMappingTests(unittest.TestCase):
+    def test_moc3_custom_hit_areas_resolve_motion_group_by_convention(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("getHitAreasCount()", runtime)
+        self.assertIn("getHitAreaName(i)", runtime)
+        self.assertIn("n.hitTest(a,e,t)", runtime)
+        self.assertIn("a.startsWith(`Touch`)?`Tap${a}`", runtime)
+        self.assertIn("getMotionCount(o)>0", runtime)
+        self.assertIn("n.startRandomMotion(o,2,this.finishedMotion,this.beganMotion)", runtime)
+
+    def test_standard_head_and_body_tap_fallbacks_remain(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn('if(a===`Head`)', runtime)
+        self.assertIn('n.setRandomExpression()', runtime)
+        self.assertIn('if(a===`Body`)', runtime)
