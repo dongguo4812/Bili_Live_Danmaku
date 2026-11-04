@@ -945,7 +945,7 @@
     return true;
   }
 
-  function playSelectedModelMotion() {
+  async function playSelectedModelMotion() {
     if (!loadedModelId || !modelSelect || modelSelect.value !== loadedModelId) {
       setModelActionStatus("模型正在加载，完成后即可操作动作和表情。", true);
       return;
@@ -962,8 +962,8 @@
           setModelActionStatus("MOC3 动作接口尚未就绪。", true);
           return;
         }
-        const result = runtimeWindow.live2dPlayMotion(group, index);
-        if (result === false || result === -1) throw new Error("运行时拒绝播放该动作。");
+        const result = await runtimeWindow.live2dPlayMotion(group, index);
+        if (result === false || result === -1) throw new Error("运行时未能启动该动作，请检查动作资源和运行时缓存。");
       } else {
         const model = window.__live2dManager && window.__live2dManager.getModel(0);
         if (!model || !model.initialized || typeof model.startMotion !== "function") {
