@@ -339,9 +339,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ version })
         });
-        message.textContent = data.runtime_supported
-          ? data.message
-          : data.message + " MOC3 运行时文件缺失或不完整；不会回退到 MOC2。";
+        message.textContent = data.message;
         await refreshStatus();
       } catch (error) {
         message.textContent = "版本切换失败：" + error.message;
