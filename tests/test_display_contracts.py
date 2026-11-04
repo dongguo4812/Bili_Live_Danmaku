@@ -311,23 +311,23 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
     def test_model_scan_uses_only_versioned_moc2_directory(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('root = (MODEL_ROOT / "moc2").resolve()', main)
+        self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
         self.assertIn('moc2_root = MODEL_ROOT / "moc2"', main)
         self.assertIn('for directory in sorted(moc2_root.iterdir()', main)
         self.assertNotIn('roots = (MODEL_ROOT / "moc2", MODEL_ROOT)', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
         self.assertIn('"version": "moc2"', main)
         self.assertIn('models.get(f"{model_version}:{model_id}"', main)
-        self.assertIn('[f"moc2:{model_id}"] = preferences', main)
+        self.assertIn('[f"{version}:{model_id}"] = preferences', main)
 
     def test_versioned_model_assets_are_served_from_their_new_directory(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
-        self.assertIn('def _model_asset_prefix(directory: Path) -> str:', main)
-        self.assertIn('"/models/moc2/" + relative.as_posix().rstrip("/") + "/"', main)
+        self.assertIn('def _model_asset_prefix(directory: Path, version: str = "moc2") -> str:', main)
+        self.assertIn('f"/models/{version}/" + relative.as_posix().rstrip("/") + "/"', main)
         self.assertIn('relative_prefix = "../" + prefix.removeprefix("/models/")', main)
         self.assertIn('return relative_prefix + value.lstrip("./")', main)
-        self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))', main)
+        self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))', main)
         self.assertIn('@app.get("/models/<path:filename>")', main)
 
     def test_moc3_directory_is_reserved_without_changing_moc2_runtime(self):
@@ -338,10 +338,6 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('root = (MODEL_ROOT / "moc2").resolve()', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
         self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Live2DVersionIsolationContractTests(unittest.TestCase):
@@ -363,3 +359,7 @@ class Live2DVersionIsolationContractTests(unittest.TestCase):
     def test_live2d_runtime_defaults_to_moc2(self):
         defaults = json.loads((Path(__file__).resolve().parents[1] / "config" / "default" / "live2d.json").read_text(encoding="utf-8"))
         self.assertEqual(defaults["runtime_version"], "moc2")
+
+
+if __name__ == "__main__":
+    unittest.main()
