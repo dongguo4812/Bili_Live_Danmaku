@@ -70,6 +70,41 @@ class AccessCenterModuleControlTests(unittest.TestCase):
                 self.assertNotIn(f'id="{module}-toggle-lifecycle"', details)
                 self.assertNotIn(f'id="{module}-toggle-pause"', details)
 
+    def test_voice_detail_page_has_no_duplicate_lifecycle_controls(self):
+        root = Path(__file__).resolve().parents[1]
+        voice_page = (root / "templates" / "voice.html").read_text(encoding="utf-8")
+        self.assertNotIn("data-module-action", voice_page)
+        self.assertNotIn("/api/modules/voice/", voice_page)
+        self.assertIn("功能启停控制", voice_page)
+        self.assertIn("/api/voice/tts/settings", voice_page)
+        self.assertIn("/api/voice/tts/synthesize", voice_page)
+
+    def test_access_center_has_no_obsolete_lifecycle_handlers(self):
+        for obsolete in ("videoModuleAction", "musicModuleAction", "window.moduleAction", "async function moduleAction"):
+            with self.subTest(obsolete=obsolete):
+                self.assertNotIn(obsolete, self.page)
+
+    def test_unused_legacy_live2d_preview_assets_are_removed(self):
+        root = Path(__file__).resolve().parents[1]
+        preview = root / "static" / "live2d_preview"
+        self.assertFalse((preview / "chiaki_kitty.json").exists())
+        self.assertFalse((preview / "chiaki_kitty.png").exists())
+        for folder in (root / "templates", root / "static", root / "main.py"):
+            files = [folder] if folder.is_file() else folder.rglob("*")
+            for path in files:
+                if path.is_file() and path.suffix.lower() in {".html", ".js", ".css", ".py"}:
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    self.assertNotIn("chiaki_kitty", content)
+
+    def test_gitignore_keeps_secret_rules_without_duplicate_entries(self):
+        root = Path(__file__).resolve().parents[1]
+        lines = (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+        entries = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+        self.assertEqual(len(entries), len(set(entries)))
+        for entry in ("credentials/", "bili_cookie.txt", "obs_config.txt", "uid.txt", "chrome_profile/"):
+            with self.subTest(entry=entry):
+                self.assertIn(entry, entries)
+
     def test_control_panel_has_no_duplicate_element_ids(self):
         ids = re.findall(r'\bid="([^"]+)"', self.page)
         self.assertEqual(len(ids), len(set(ids)))

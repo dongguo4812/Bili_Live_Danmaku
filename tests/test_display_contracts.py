@@ -308,7 +308,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('if not _live2d_enabled():', main)
         self.assertIn('"enabled": enabled', main)
 
-    def test_model_scan_uses_only_versioned_moc2_directory(self):
+    def test_model_scan_uses_only_versioned_model_directories(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
@@ -330,14 +330,14 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('data = _prefix_model_asset_paths(data, _model_asset_prefix(directory, version))', main)
         self.assertIn('@app.get("/models/<path:filename>")', main)
 
-    def test_moc3_directory_is_reserved_without_changing_moc2_runtime(self):
+    def test_moc3_model_directory_is_isolated_from_moc2_runtime(self):
         root = Path(__file__).resolve().parents[1]
         self.assertTrue((root / "models" / "moc3" / ".gitkeep").is_file())
         self.assertTrue((root / "models" / "moc2").is_dir())
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
-        self.assertIn('runtime_file = BASE_DIR / "static" / "js" / "live2d.min.js"', main)
+        self.assertIn('if version == "moc2" else BASE_DIR / "static" / "live2d" / "moc3" / "Core" / "live2dcubismcore.min.js"', main)
 
 
 class Live2DVersionIsolationContractTests(unittest.TestCase):
@@ -411,8 +411,22 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         self.assertIn('id="moc3-runtime-frame"', template)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_moc3_status_messages_describe_runtime_file_availability(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        index = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        for stale in (
+            "Cubism 5 Framework/Core 尚未集成",
+            "MOC3 渲染运行时将在下一阶段接入",
+            "MOC3 展示暂不可用",
+        ):
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, main + index)
+        self.assertIn("Cubism 5 R5 运行时文件缺失或不完整", main)
+        self.assertIn("Cubism 5 R5 运行时文件缺失或不完整", index)
+
+
+
 
 
 class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
@@ -754,3 +768,6 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
         self.assertIn("if room_id <= 0:", connect_flow)
         self.assertIn('current_state in {"connected", "connecting", "reconnecting"}', connect_flow)
 
+
+if __name__ == "__main__":
+    unittest.main()

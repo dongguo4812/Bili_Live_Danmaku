@@ -28,14 +28,13 @@ py -3 -m venv .venv
 
 1. Enter your live-room ID in the management page and save it. The value is stored in `config/local/live.json`.
 2. Click **扫码登录** and scan the QR code with the Bilibili mobile app.
-3. After the login is confirmed, the server captures the login cookies from Bilibili's QR-login response and stores them atomically in \`credentials/bilibili.json\`.
-4. The server validates the saved login on startup and again before starting a live-room connection. Anonymous connections are rejected.
-5. Click **连接直播间**. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event.
-6. Unexpected disconnects are retried using the reconnect settings in `config/local/live.json`. Use **断开连接** to stop the connection.
+3. After login is confirmed, the server captures the cookies from Bilibili's WEB QR-login flow and stores them in `credentials/bilibili.json`.
+4. If a valid saved credential and room ID are present, the application automatically attempts to connect to that room on startup.
+5. Completing QR login also triggers an automatic connection when a room ID has already been saved.
+6. The page reports connected only after the LiveDanmaku WebSocket receives Bilibili's verification-success event. Unexpected disconnects are retried using the reconnect settings.
+7. Use **断开连接** to stop the live-room connection manually.
 
-The credential directory and local settings file are excluded by \`.gitignore\`. Do not share \`credentials/bilibili.json\`; it contains account login credentials. If the Bilibili QR-login flow changes, a successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check.
-
-The WEB QR login implementation explicitly follows Bilibili's cross-domain ticket URL after a successful poll. This is necessary for the newer QR-login response format, where login cookies are delivered through response headers rather than the old URL query parameters.
+Anonymous connections are rejected. A successful QR scan is not treated as a successful login until the resulting cookies pass the authenticated navigation API check. The QR-login implementation follows Bilibili's cross-domain ticket URL so it can capture cookies delivered through response headers.
 
 ## Danmaku settings
 
@@ -58,25 +57,24 @@ OBS WebSocket ordinary settings are stored in `config/local/obs.json`. Enter the
 
 System settings: `http://127.0.0.1:8768/settings`. Enable the OBS WebSocket server in OBS under **工具 → WebSocket 服务器设置**.
 
-## Default Live2D model
+## Live2D model runtimes
 
-The default model is \`live_uu\`:
+The application supports two isolated Live2D runtimes:
 
-- Model setting: \`models/live_uu/model.json\` (or \`models/<model-id>/<model-id>.model.json\`)
-- Cubism 2 runtime bundle: \`static/js/live2d.min.js\`
-- OBS display controller: \`static/js/display.js\`
+| Runtime | Model directory | Model entry | Runtime assets |
+|---|---|---|---|
+| MOC2 | `models/moc2/<model-id>/` | `model.json` or `<directory-name>.model.json` | `static/js/live2d.min.js` |
+| MOC3 | `models/moc3/<model-id>/` | `<directory-name>.model3.json` | Cubism 5 R5 Core / Framework under `static/js/live2d/moc3/` |
 
-The display page calls the legacy runtime API \`loadlive2d(canvasId, modelJsonUrl)\`. Flask serves model assets through \`/models/<path>\`. The page checks referenced model files before starting the renderer and reports success only after detecting rendered pixels in the WebGL drawing buffer.
+The full display page at `/live2d/display` loads the selected runtime from `config/local/live2d.json`. Model directories, selections and per-model preferences are kept separate between MOC2 and MOC3. The configured default MOC2 model ID is `live_uu`; if it is not installed locally, select an installed model in the display settings or add a properly licensed model under the MOC2 directory. When no MOC3 default is configured, the first available MOC3 model is selected.
 
-Add the OBS Browser Source URL:
+The model capability panel checks model files, textures, motions, expressions, physics, HitArea mappings and TTS mouth parameters. MOC3 motions, expressions, keyboard shortcuts and custom hit-area mappings are handled by the Cubism 5 runtime. Availability still depends on the features declared by each model.
 
-\`\`\`text
-http://127.0.0.1:8768/live2d/display
-\`\`\`
+TTS mouth synchronization is driven by the audio actually played in the display page. Models with a usable LipSync group or compatible mouth parameter can synchronize. A model with neither is reported as unsupported; this is a model-resource limitation, not a runtime loading failure.
 
-For best clarity, set the OBS Browser Source resolution to the intended output resolution (normally 1920×1080) rather than stretching a small source.
+Add model assets only when their licenses permit their use, and ensure all referenced textures, motions, expressions and physics files are present.
 
-## MOC2 rendering quality
+## Live2D rendering quality
 
 Rendering quality is a first-class requirement. The implementation:
 
@@ -89,36 +87,49 @@ MagicalDanmaku is a visual-quality reference only. This project does not copy, p
 
 ## Unified modules and combined display
 
-The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the access center, Live2D, danmaku settings, voice, music, video, system settings and the combined display editor.
+The management center is available at `http://127.0.0.1:8768/`. The access center provides one **功能启停控制** panel below the Bilibili login and live-room connection section:
 
-- Music and video have independent lifecycle controls, queues and configuration. They do not pause or resume each other.
-- Music and video start closed after each application launch.
-- The music module searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to pre-saved source candidates.
-- The video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. Web fullscreen is attempted only after playback progress is detected; the module has no LX Music control calls.
-- The combined layout editor is `/dashboard`. It supports multiple named layouts; each layout has its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
+- Music, video and voice each have a start/close toggle and a pause/resume toggle. Live2D has one enable/disable toggle.
+- The panel reports actual module states with consistent colors: green for healthy/running/connected/enabled, yellow for paused, blue for waiting or transitioning, gray for stopped/disabled/disconnected, and red for errors.
+- Module detail pages retain their own queue, skip, request-switch, configuration and audio-test actions. Lifecycle controls are centralized in the access center.
+- Music and video are independent; lifecycle actions on one do not change the other's state or playback.
+- Music and video start closed on each application launch. Voice starts automatically after the first authenticated Bilibili WebSocket connection. Live2D has its own enable/disable setting and does not require a live-room connection.
+- On a live-room disconnect, music, video and voice are paused. After reconnection, only modules that were running before the disconnect and were not manually changed are resumed.
+- Music searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to saved source candidates.
+- Video uses Chrome/Selenium, validates BV IDs, monitors playback and controls OBS source visibility. Web fullscreen is attempted only after playback progress is detected; video has no LX Music control calls.
+- Music settings: `/music/settings`; video settings: `/video/settings`. Stop the corresponding module before changing its configuration.
+- Music and video share the system administrator UID list configured on `/settings`.
+- Display URLs: full Live2D/danmaku/TTS display `/live2d/display`; MOC2-only display `/live2d/moc2/display`; danmaku `/danmaku/display`; voice `/voice/display`; music queue `/music/display`; video queue `/video/display`; music widget `/music/widget`.
+- Live2D settings APIs use the `/api/live2d/` namespace. The module lifecycle API is shared by the access-center controls.
+- The combined layout editor is `/dashboard`. It supports multiple named layouts, and each layout can use its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
-- Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
-- Dedicated transparent display URLs: the complete Live2D + danmaku + TTS display is `/live2d/display`; the MOC2-only display is `/live2d/moc2/display`; standalone danmaku and voice displays are `/danmaku/display` and `/voice/display`. Music queue, video queue and music-widget displays are `/music/display`, `/video/display` and `/music/widget`.
-- Live2D settings APIs use the `/api/live2d/` namespace.
+
+GitHub Actions runs Python compilation, configuration and offline regression tests on Ubuntu, plus real DPAPI and retired-configuration checks on Windows. Passing CI does not mean every device has completed manual integration testing; music and video still need local validation with LX Music, Chrome, OBS WebSocket and a real live room.
 
 ## Current scope
 
 - Bilibili WEB QR-code login and local credential storage
-- Login validation before connecting
+- Saved-credential validation and automatic connection to the saved live room on startup
 - Live-room WebSocket connection, reconnection and event reception
 - Danmaku, gift and Super Chat event display in the Live2D speech bubble
 - Edge TTS speech for danmaku, gifts and Super Chat, with independent switches
 - Configurable Chinese voice, speech rate, volume, queue limit and minimum gift value
 - Super Chat and gifts share the high-priority speech tier; ordinary danmaku is lower priority
 - When the waiting queue is full, the oldest waiting ordinary-danmaku speech is discarded first; current playback is never interrupted
-- Audio-level-driven mouth synchronization through the Cubism 2 MOC2 runtime
-- Per-model speech-bubble positioning and sizing controls
-- Transparent OBS Live2D display
+- Audio-level-driven mouth synchronization through the selected MOC2 or MOC3 runtime, when the model exposes a compatible mouth parameter
+- MOC2/MOC3 model separation, per-model speech-bubble positioning and sizing controls
+- MOC3 motion/expression playback, keyboard shortcuts, custom HitArea mappings and model capability checks
+- Transparent OBS Live2D display through the selected MOC2 or MOC3 runtime
 
 Configure Edge TTS on the `/voice` management page. The `/live2d/display` page keeps only the runtime needed to play speech and synchronize the model mouth. The display page automatically attempts to initialize and resume Web Audio, then processes the speech queue after the live-room connection is established. Browser or OBS autoplay policies may still affect playback; if audio does not start, check the OBS Browser Source audio/autoplay settings. The **生成并试听** control on `/voice` remains available to diagnose audio output and mouth synchronization. Generated MP3 files are kept in a temporary system folder; files older than one hour are removed during a later synthesis request.
+
+## Verification status
+
+The maintainer has manually verified saved-room startup connection, access-center module controls and status colors, MOC2/MOC3 switching and model isolation, MOC3 actions/expressions/shortcuts/HitArea mappings, and model capability reporting. TTS mouth synchronization works on models with compatible mouth parameters; models without those parameters are correctly reported as unsupported. Gift and Super Chat event paths still need a separate complete end-to-end check. Music and video playback must be validated with the local LX Music, Chrome, OBS and live-room environment.
 
 ## Development principles
 
 - Keep modules small and independently testable.
 - Do not report a feature as implemented until it is actually working.
-- Keep credentials and model assets out of version control unless their licenses permit it.
+- Never commit credentials, passwords or local user configuration.
+- Only include model assets when their licenses explicitly permit repository storage and redistribution.
