@@ -506,6 +506,7 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
         runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
         display_html = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn('getContext(`webgl2`,{alpha:!0,premultipliedAlpha:!0,preserveDrawingBuffer:!1})', runtime)
         self.assertIn('e.clearColor(0,0,0,0)', runtime)
         self.assertIn('blendFunc(e.ONE,e.ONE_MINUS_SRC_ALPHA)', runtime)
