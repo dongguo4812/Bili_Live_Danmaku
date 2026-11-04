@@ -42,6 +42,32 @@
     html[data-live2d-version="moc3"][data-live2d-enabled="1"] #moc3-runtime-frame { display: block; }
   </style>
   <script>
+    // Temporary end-to-end alpha probe: paint the entire parent document behind
+    // the MOC3 iframe green. Remove the query parameter to restore normal styling.
+    if (new URLSearchParams(window.location.search).get("moc3_alpha_probe") === "1") {
+      const paint = (selector, color) => {
+        const el = document.querySelector(selector);
+        if (el) {
+          el.style.setProperty("background", color, "important");
+          el.style.setProperty("background-color", color, "important");
+        }
+      };
+      paint("html", "rgb(0, 255, 0)");
+      paint("body", "rgb(0, 255, 0)");
+      paint("#live2d-viewport", "rgb(0, 255, 0)");
+      console.info("[MOC3 parent alpha probe]", {
+        enabled: true,
+        html: getComputedStyle(document.documentElement).backgroundColor,
+        body: getComputedStyle(document.body).backgroundColor,
+        viewport: getComputedStyle(document.getElementById("live2d-viewport")).backgroundColor,
+        frame: (() => {
+          const frame = document.getElementById("moc3-runtime-frame");
+          return frame ? getComputedStyle(frame).backgroundColor : null;
+        })()
+      });
+    }
+  </script>
+  <script>
     // Hide interactive controls only when explicitly embedded by another display page.
     if (new URLSearchParams(window.location.search).get("embedded") === "1") {
       document.documentElement.classList.add("embedded-live2d");
