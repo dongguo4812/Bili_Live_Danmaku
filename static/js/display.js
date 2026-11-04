@@ -20,6 +20,7 @@
   const expressionResetButton = document.getElementById("model-expression-reset");
   const modelActionStatusElement = document.getElementById("model-action-status");
   const modelCapabilitiesElement = document.getElementById("model-capabilities");
+  let lastMoc3MouthSyncStatus = null;
   const mouthSyncStatusElement = document.getElementById("moc3-mouth-sync-status");
   const saveStatus = document.getElementById("settings-save-status");
   const saveButton = document.getElementById("settings-save-button");
@@ -928,6 +929,7 @@
         !event.data || event.data.type !== "moc3-mouth-sync-status") return;
     const currentModelId = modelSelect && modelSelect.value;
     if (!currentModelId || event.data.modelUrl !== modelConfigUrl(currentModelId)) return;
+    lastMoc3MouthSyncStatus = event.data;
     const capabilityRows = modelCapabilitiesElement ? Array.from(modelCapabilitiesElement.querySelectorAll(".model-capability-row")) : [];
     const mouthCapability = capabilityRows.find(item => item.firstElementChild && item.firstElementChild.textContent === "TTS 嘴型同步");
     if (mouthCapability && mouthCapability.lastElementChild) {
@@ -1197,6 +1199,16 @@
     ];
     if (isStale()) return;
     renderModelCapabilityRows(rows);
+    if (moc3 && lastMoc3MouthSyncStatus && lastMoc3MouthSyncStatus.modelUrl === modelConfigUrl(modelId)) {
+      const mouth = rows.find(row => row.label === "TTS 嘴型同步");
+      if (mouth) {
+        mouth.value = lastMoc3MouthSyncStatus.supported
+          ? "支持；检测到参数 " + (lastMoc3MouthSyncStatus.parameterIds || []).join("、")
+          : "不支持；" + (lastMoc3MouthSyncStatus.reason || "没有可用嘴型参数");
+        mouth.state = lastMoc3MouthSyncStatus.supported ? "ok" : "warn";
+        renderModelCapabilityRows(rows);
+      }
+    }
     if (!moc3) {
       const model = window.__live2dManager && window.__live2dManager.getModel(0);
       const liveModel = model && model.live2DModel;
