@@ -87,17 +87,24 @@ MagicalDanmaku is a visual-quality reference only. This project does not copy, p
 
 ## Unified modules and combined display
 
-The manager is available at `http://127.0.0.1:8768/`. The sidebar links to the access center, Live2D, danmaku settings, voice, music, video, system settings and the combined display editor.
+The management center is available at `http://127.0.0.1:8768/`. The access center provides one **功能启停控制** panel below the Bilibili login and live-room connection section:
 
-- Music and video have independent lifecycle controls, queues and configuration. They do not pause or resume each other.
-- Music and video start closed after each application launch.
-- The music module searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to pre-saved source candidates.
-- The video module retains Chrome/Selenium playback, BV validation, queue management, playback monitoring and OBS source visibility. Web fullscreen is attempted only after playback progress is detected; the module has no LX Music control calls.
-- The combined layout editor is `/dashboard`. It supports multiple named layouts; each layout has its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
+- Music, video and voice each have a start/close toggle and a pause/resume toggle. Live2D has one enable/disable toggle.
+- The panel reports actual module states with consistent colors: green for healthy/running/connected/enabled, yellow for paused, blue for waiting or transitioning, gray for stopped/disabled/disconnected, and red for errors.
+- Module detail pages retain their own queue, skip, request-switch, configuration and audio-test actions. Lifecycle controls are centralized in the access center.
+- Music and video are independent; lifecycle actions on one do not change the other's state or playback.
+- Music and video start closed on each application launch. Voice starts automatically after the first authenticated Bilibili WebSocket connection. Live2D has its own enable/disable setting and does not require a live-room connection.
+- On a live-room disconnect, music, video and voice are paused. After reconnection, only modules that were running before the disconnect and were not manually changed are resumed.
+- Music searches QQ Music, Kugou, NetEase Cloud Music and Kuwo in order, stores matched source IDs at enqueue time, verifies playback for five seconds and falls back only to saved source candidates.
+- Video uses Chrome/Selenium, validates BV IDs, monitors playback and controls OBS source visibility. Web fullscreen is attempted only after playback progress is detected; video has no LX Music control calls.
+- Music settings: `/music/settings`; video settings: `/video/settings`. Stop the corresponding module before changing its configuration.
+- Music and video share the system administrator UID list configured on `/settings`.
+- Display URLs: full Live2D/danmaku/TTS display `/live2d/display`; MOC2-only display `/live2d/moc2/display`; danmaku `/danmaku/display`; voice `/voice/display`; music queue `/music/display`; video queue `/video/display`; music widget `/music/widget`.
+- Live2D settings APIs use the `/api/live2d/` namespace. The module lifecycle API is shared by the access-center controls.
+- The combined layout editor is `/dashboard`. It supports multiple named layouts, and each layout can use its own OBS URL at `/display/combined/<layout-id>`. The legacy `/display/combined` URL continues to show the default layout.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
-- Music and video share the system administrator UID list configured on `/settings`; do not create per-module administrator files.
-- Dedicated transparent display URLs: the complete Live2D + danmaku + TTS display is `/live2d/display`; the MOC2-only display is `/live2d/moc2/display`; standalone danmaku and voice displays are `/danmaku/display` and `/voice/display`. Music queue, video queue and music-widget displays are `/music/display`, `/video/display` and `/music/widget`.
-- Live2D settings APIs use the `/api/live2d/` namespace.
+
+GitHub Actions runs Python compilation, configuration and offline regression tests on Ubuntu, plus real DPAPI and retired-configuration checks on Windows. Passing CI does not mean every device has completed manual integration testing; music and video still need local validation with LX Music, Chrome, OBS WebSocket and a real live room.
 
 ## Current scope
 
