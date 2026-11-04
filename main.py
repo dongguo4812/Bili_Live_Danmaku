@@ -821,7 +821,7 @@ def _refresh_obs_combined_display_sources() -> dict[str, Any]:
             logger.info("%s", message)
             return {"ok": False, "refreshed": 0, "message": message}
         except Exception as exc:
-            message = f"OBS WebSocket 暂不可用，稍后重试综合展示源刷新：{exc}"
+            message = f"OBS WebSocket 不可用，已跳过本次综合展示源刷新：{exc}"
             logger.info("%s", message)
             return {"ok": False, "refreshed": 0, "message": message}
         finally:
@@ -2371,6 +2371,13 @@ def save_combined_display_layout():
             item = _find_display_layout(store, layout_id or None)
             item["layout"] = layout
             _save_display_layout_store(store)
+
+        # 布局落盘后异步刷新 OBS 综合展示源；OBS 未连接时不影响保存结果。
+        threading.Thread(
+            target=_refresh_obs_combined_display_sources,
+            name="obs-layout-save-refresh",
+            daemon=True,
+        ).start()
         return jsonify({"ok": True, "layout_id": item["id"], "layout": layout,
                         "message": "布局“{}”已保存。".format(item["name"])})
     except Exception as exc:
