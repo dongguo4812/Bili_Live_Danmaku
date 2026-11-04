@@ -310,8 +310,6 @@ class LiveRoomClient:
         self.thread: threading.Thread | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.room: LiveDanmaku | None = None
-        self.connect_task: asyncio.Task | None = None
-        self.disconnect_grace_period = 2.0
         self.stop_event = threading.Event()
         self.lock = threading.RLock()
         self.room_id = 0
@@ -342,12 +340,9 @@ class LiveRoomClient:
             self.on_state("stopping", "正在断开直播间连接…")
             loop = self.loop
             room = self.room
-            connect_task = self.connect_task
             if loop and room:
                 try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._disconnect_room(room, connect_task), loop
-                    )
+                    asyncio.run_coroutine_threadsafe(room.disconnect(), loop)
                 except Exception:
                     logger.exception("请求断开 B 站直播连接失败")
 
@@ -364,32 +359,6 @@ class LiveRoomClient:
             self.room = None
             self.on_state("disconnected", "直播间连接任务已停止。")
             return True
-
-    async def _disconnect_room(
-        self, room: LiveDanmaku, connect_task: asyncio.Task | None
-    ) -> None:
-        """先给库自身的 disconnect 留出短暂清理时间，再取消仍阻塞的连接任务。"""
-        disconnect_task = asyncio.create_task(room.disconnect())
-        done, pending = await asyncio.wait(
-            {disconnect_task}, timeout=self.disconnect_grace_period
-        )
-        if pending:
-            logger.warning(
-                "B 站 room.disconnect() 超过 %.1f 秒仍未完成，将取消连接任务",
-                self.disconnect_grace_period,
-            )
-            disconnect_task.cancel()
-        elif disconnect_task in done and not disconnect_task.cancelled():
-            exception = disconnect_task.exception()
-            if exception is not None:
-                logger.warning("B 站 room.disconnect() 执行异常：%s", exception)
-
-        # stop() 与 _run() 可能恰好交错在 connect_task 创建前后；
-        # 在事件循环内重新读取一次，避免漏掉刚创建的连接协程。
-        connect_task = connect_task or self.connect_task
-        if connect_task is not None and not connect_task.done():
-            logger.info("B 站连接协程尚未退出，主动取消以加快关闭")
-            connect_task.cancel()
 
     def _thread_main(self) -> None:
         asyncio.run(self._run())
@@ -434,16 +403,11 @@ class LiveRoomClient:
                     if not self.stop_event.is_set():
                         self.on_state("disconnected", "B 站 WebSocket 已断开。")
 
+                # stop() 可能恰好发生在 room 创建期间；停止请求已到达时，
+                # 不再启动新的 WebSocket 连接，避免无意义地进入 connect()。
                 if self.stop_event.is_set():
                     break
-                self.connect_task = asyncio.create_task(room.connect())
-                try:
-                    await self.connect_task
-                except asyncio.CancelledError:
-                    if not self.stop_event.is_set():
-                        raise
-                finally:
-                    self.connect_task = None
+                await room.connect()
                 if not self.stop_event.is_set():
                     self.on_state("disconnected", "B 站 WebSocket 连接结束。")
             except Exception as exc:
