@@ -414,6 +414,7 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         script = (root / "static/js/display.js").read_text(encoding="utf-8")
         self.assertIn('runtimeWindow.live2dSetModelTransform(current.scale, current.x, current.y)', script)
+        self.assertIn('event.data.type !== "moc3-alpha-diagnostic"', script)
         self.assertNotIn('moc3Frame.style.transform =', script)
         self.assertIn('window.live2dSetModelTransform=', (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8"))
         self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
