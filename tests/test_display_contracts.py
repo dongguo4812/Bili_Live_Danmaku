@@ -624,3 +624,37 @@ class Live2DMoc3MouthSyncSettingsTests(unittest.TestCase):
         self.assertIn("getParameterMinimumValue(n)", runtime)
         self.assertIn("getParameterMaximumValue(n)", runtime)
         self.assertIn("invalidDeclaredIds", runtime)
+
+
+
+class Live2DMotionShortcutFeatureTests(unittest.TestCase):
+    def test_shortcuts_are_persisted_per_model_and_profile(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('"motion_shortcuts_by_profile": raw.get("motion_shortcuts_by_profile")', main)
+        self.assertIn('shortcut_profiles[profile] = preferences.pop("motion_shortcuts", {})', main)
+        self.assertIn('preferences["motion_shortcuts"] = shortcut_profiles.get(preferences["profile"], {})', main)
+        self.assertIn('快捷键不能重复绑定：', main)
+        self.assertIn('F(?:[1-9]|1[0-2])', main)
+
+    def test_display_adds_hotkeys_without_replacing_existing_motion_controls(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('id="model-motion-select"', page)
+        self.assertIn('id="model-motion-play"', page)
+        self.assertIn('id="model-motion-shortcuts"', page)
+        self.assertIn('function renderMotionShortcutEditor()', script)
+        self.assertIn('function normalizeMotionShortcut(key)', script)
+        self.assertIn('function isShortcutTypingTarget(target)', script)
+        self.assertIn('document.addEventListener("keydown"', script)
+        self.assertIn('motion_shortcuts: motionShortcutBindings', script)
+        self.assertIn('await runtimeWindow.live2dPlayMotion(group, index)', script)
+
+    def test_shortcut_editor_has_clear_and_duplicate_protection(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('clear.textContent = "清除"', script)
+        self.assertIn('快捷键 " + key + " 已绑定到其他动作', script)
+        self.assertIn('delete motionShortcutBindings[action]', script)
+        self.assertIn('event.ctrlKey || event.altKey || event.metaKey', script)
