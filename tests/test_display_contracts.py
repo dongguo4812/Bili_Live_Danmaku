@@ -643,6 +643,15 @@ class Live2DMotionShortcutFeatureTests(unittest.TestCase):
         self.assertIn('if (not action_group and version != "moc3")', main)
         self.assertIn('action_group, action_index = action.rsplit("::", 1)', main)
 
+    def test_moc3_save_forces_top_level_display_reload(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates" / "display.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
+        self.assertIn('refreshUrl.searchParams.set("_live2d_refresh"', script)
+        self.assertIn('window.location.replace(refreshUrl.toString())', script)
+        self.assertIn('display.js?v=20261104-moc3-save-refresh', page)
+
     def test_display_adds_hotkeys_without_replacing_existing_motion_controls(self):
         root = Path(__file__).resolve().parents[1]
         page = (root / "templates" / "display.html").read_text(encoding="utf-8")
