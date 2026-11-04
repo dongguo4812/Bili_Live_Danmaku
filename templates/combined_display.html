@@ -514,11 +514,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(refreshInFlight) return;
     refreshInFlight=true;
     try{
-      const [music,video,voice,modules]=await Promise.all([
-        api("/api/music/queue"),api("/api/video/queue"),api("/api/voice/tts/settings"),api("/api/modules")
+      // Music and video data are refreshed by their own embedded display pages.
+      // Keep only the shared voice/module state requests in the layout controller.
+      const [voice,modules]=await Promise.all([
+        api("/api/voice/tts/settings"),api("/api/modules")
       ]);
-      latestData.music=music;
-      latestData.video=video;
       latestData.voice=voice;
       latestData.modules=modules.modules||{};
       latestData.voice.module_state=(latestData.modules.voice||{}).state||"stopped";
@@ -541,12 +541,6 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       layout.widgets.forEach(item=>{
         const widget=stage.querySelector('[data-widget="'+item.type+'"]');
         if(!widget) return;
-        // The combined output follows each module's lifecycle; a stopped module
-        // is hidden without affecting the other widgets or the module runtime.
-        if(displayMode && (item.type==="music" || item.type==="video")){
-          const moduleState=(latestData.modules[item.type]||{}).state||"stopped";
-          widget.hidden=moduleState==="stopped";
-        }
         const node=widget.querySelector(".widget-body");
         // Music and video refresh themselves inside their embedded pages.
         if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
