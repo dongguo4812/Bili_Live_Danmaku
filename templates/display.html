@@ -42,43 +42,6 @@
     html[data-live2d-version="moc3"][data-live2d-enabled="1"] #moc3-runtime-frame { display: block; }
   </style>
   <script>
-    // Temporary end-to-end alpha probe. Run after body/viewport exist and
-    // sample again after runtime iframe initialization.
-    if (new URLSearchParams(window.location.search).get("moc3_alpha_probe") === "1") {
-      const applyProbe = (stage) => {
-        const targets = [
-          ["html", document.documentElement],
-          ["body", document.body],
-          ["viewport", document.getElementById("live2d-viewport")],
-          ["iframe-element", document.getElementById("moc3-runtime-frame")]
-        ];
-        const result = {};
-        for (const [name, el] of targets) {
-          if (!el) { result[name] = "missing"; continue; }
-          el.style.setProperty("background", "rgb(0, 255, 0)", "important");
-          el.style.setProperty("background-color", "rgb(0, 255, 0)", "important");
-          result[name] = {
-            inline: el.style.backgroundColor,
-            computed: getComputedStyle(el).backgroundColor,
-            rect: (() => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })()
-          };
-        }
-        console.info("[MOC3 parent alpha probe]", {stage, targets: result});
-      };
-      const startProbe = () => {
-        applyProbe("DOMContentLoaded");
-        const frame = document.getElementById("moc3-runtime-frame");
-        if (frame) frame.addEventListener("load", () => applyProbe("runtime-iframe-load"), {once: true});
-        [250, 1000, 3000].forEach(ms => setTimeout(() => applyProbe("+" + ms + "ms"), ms));
-      };
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", startProbe, {once: true});
-      } else {
-        startProbe();
-      }
-    }
-  </script>
-  <script>
     // Hide interactive controls only when explicitly embedded by another display page.
     if (new URLSearchParams(window.location.search).get("embedded") === "1") {
       document.documentElement.classList.add("embedded-live2d");
