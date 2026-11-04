@@ -394,6 +394,7 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/live2d/moc3/runtime/<model_id>")', main)
         self.assertIn('@app.get("/api/models")', main)
+        self.assertIn('"moc3_runtime":', main)
         self.assertIn('if version == "moc2":', main)
         self.assertIn('MOC3 的缩放和位置由统一展示页实时变换 iframe', main)
         self.assertTrue((root / "static/js/live2d/moc3/runtime.js").is_file())
