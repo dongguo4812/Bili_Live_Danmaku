@@ -1528,7 +1528,9 @@ def save_display_settings():
             if not isinstance(action, str) or len(action) > 256 or "::" not in action:
                 raise ValueError("动作快捷键对应的动作标识无效。")
             action_group, action_index = action.rsplit("::", 1)
-            if not action_group or len(action_group) > 200 or not action_index.isdigit() or any(ord(char) < 32 for char in action_group):
+            # Cubism 3 model3.json 允许使用空字符串作为默认 Motion Group。
+            # 这类动作在前端以 "::<index>" 标识，必须允许保存；MOC2 仍要求显式动作组。
+            if (not action_group and version != "moc3") or len(action_group) > 200 or not action_index.isdigit() or any(ord(char) < 32 for char in action_group):
                 raise ValueError("动作快捷键对应的动作标识无效。")
             if key in (None, ""):
                 continue
