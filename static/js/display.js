@@ -1424,6 +1424,12 @@
 
   async function start() {
     if (live2dRuntimeVersion === "moc3") {
+      // 先读取 MOC3 独立模型选择和参数，让弹幕布局仍可在统一设置页调整。
+      try {
+        await loadDisplaySettings();
+      } catch (error) {
+        console.warn("MOC3 display settings are not available yet:", error);
+      }
       const message = "当前已选择 MOC3。Cubism 5 Framework/Core 尚未集成，暂时无法显示模型；MOC2 模型不会被错误加载。";
       showMessage(message);
       await reportState("not_started", message);
