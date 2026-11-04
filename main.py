@@ -1587,6 +1587,8 @@ def api_module_action(module_name: str, action: str):
         return jsonify({"ok": False, "error": "不支持的模块操作。"}), 400
     if module_name not in APPLICATION_RUNTIME.modules.list_status():
         return jsonify({"ok": False, "error": "模块不存在或尚未迁移。"}), 404
+    if module_name == "live2d":
+        return jsonify({"ok": False, "error": "Live2D 运行时请通过接入中心的统一开关控制。"}), 409
     if action in {"start", "resume"}:
         with BILIBILI_STATE_LOCK:
             connected = BILIBILI_STATE["connected"]
