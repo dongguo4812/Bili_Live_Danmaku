@@ -1045,7 +1045,7 @@
     motionShortcutsContainer.appendChild(heading);
     const hint = document.createElement("p");
     hint.className = "settings-help";
-    hint.textContent = "点击输入框后按下单个数字、字母或 F1-F12 绑定；同一模型配置内不能重复。";
+    hint.textContent = "点击输入框后按下单个数字、字母或 F1-F12 绑定；同一模型配置内不能重复，完成后点击下方“保存设置”。";
     motionShortcutsContainer.appendChild(hint);
     for (const option of Array.from(motionSelect.options).slice(1)) {
       const action = option.value;
@@ -1163,7 +1163,7 @@
     const expressionEntries = Array.isArray(expressions) ? expressions.map(item => item && (item.File || item.file)).filter(Boolean) : [];
     const validExpressions = await Promise.all(expressionEntries.map(checkAsset));
     const modelFiles = refs
-      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Pose].filter(Boolean)
+      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Physics, refs.Pose, refs.UserData].filter(Boolean)
       : [config.model, ...(Array.isArray(config.textures) ? config.textures : []), config.pose].filter(Boolean);
     const modelFileChecks = await Promise.all(modelFiles.map(async file => ({ file, valid: await checkAsset(file) })));
     const physicsFile = refs ? refs.Physics : config.physics;
