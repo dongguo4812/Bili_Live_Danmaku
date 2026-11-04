@@ -835,27 +835,15 @@ class CombinedLayoutSaveRebindRegressionTests(unittest.TestCase):
 
 
 class CombinedModuleVisibilityRegressionTests(unittest.TestCase):
-    def test_module_visibility_refresh_is_independent_from_media_and_danmaku_requests(self):
+    def test_stopped_music_and_video_modules_are_hidden_only_in_combined_output(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
-        start = source.index("  async function refreshModuleVisibility()")
-        end = source.index("\n  async function refreshData()", start)
-        visibility_function = source[start:end]
-        refresh_start = source.index("  async function refreshData()")
-        refresh_end = source.index("\n  document.querySelectorAll(\"[data-add]\")", refresh_start)
-        refresh_function = source[refresh_start:refresh_end]
+        start = source.index("  async function refreshData()")
+        end = source.index("\n  document.querySelectorAll(\"[data-add]\")", start)
+        refresh_function = source[start:end]
 
-        self.assertIn('api("/api/modules")', visibility_function)
-        self.assertIn("applyModuleVisibility(data.modules||{})", visibility_function)
-        self.assertIn("widget.hidden=state===\"stopped\"", source)
-        self.assertIn('["music","video"].forEach(type=>', source)
-        self.assertIn('if(!displayMode) return;', source)
-        self.assertIn("refreshModuleVisibility();", refresh_function)
-        self.assertNotIn('api("/api/modules")', refresh_function)
-        self.assertNotIn('api("/api/danmaku', visibility_function)
+        self.assertIn('api("/api/modules")', refresh_function)
+        self.assertIn("latestData.modules=modules.modules||{}", refresh_function)
+        self.assertIn('if(displayMode && (item.type==="music" || item.type==="video"))', refresh_function)
+        self.assertIn('const moduleState=(latestData.modules[item.type]||{}).state||"stopped"', refresh_function)
+        self.assertIn('widget.hidden=moduleState==="stopped"', refresh_function)
         self.assertIn('.widget[hidden]{display:none!important}', source)
-
-    def test_running_and_paused_remain_visible_while_stopped_is_hidden(self):
-        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
-        self.assertIn('widget.hidden=state==="stopped"', source)
-        self.assertIn('["music","video"].forEach(type=>', source)
-        self.assertNotIn('item.type==="music_widget"', source[source.index("function applyModuleVisibility"):source.index("async function refreshModuleVisibility")])
