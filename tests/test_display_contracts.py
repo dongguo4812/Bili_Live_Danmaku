@@ -28,7 +28,10 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         for page, module in ((music, "music"), (video, "video")):
             self.assertIn('fetch("/api/modules?t="+Date.now()', page)
             self.assertIn('state==="running"||state==="paused"', page)
-            self.assertIn('body.offline{visibility:hidden!important}', page)
+            self.assertIn('#media-root.offline{visibility:hidden!important}', page)
+            self.assertNotIn('body.offline', page)
+            self.assertIn('root.classList.toggle("offline",!online)', page)
+            self.assertIn('保留当前显示状态', page)
             self.assertIn('data.modules.' + module, page)
         self.assertIn('body.embedded{padding:0}', music)
         self.assertIn('body.embedded{padding:0}', video)
