@@ -145,7 +145,7 @@ def _safe_model_dir(model_id: str, version: str = "moc2") -> Path | None:
         return None
     if not directory.is_dir():
         return None
-    names = ("model.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
+    names = ("model.json", "model.default.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
     return directory if any((directory / name).is_file() for name in names) else None
 
 
@@ -194,10 +194,19 @@ def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, An
     return data
 
 
-def _model_config_path(directory: Path, model_id: str, version: str = "moc2") -> Path | None:
-    """查找指定版本模型的配置文件。"""
+def _model_config_path(directory: Path, model_id: str, version: str = "moc2", profile: str | None = None) -> Path | None:
+    """查找指定版本和服装配置；profile 仅允许当前模型目录内的 model*.json 文件名。"""
     version = _normalize_live2d_version(version)
-    names = ("model.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
+    if version == "moc2" and profile:
+        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", profile):
+            return None
+        candidate = directory / profile
+        try:
+            candidate.resolve().relative_to(directory.resolve())
+        except ValueError:
+            return None
+        return candidate if candidate.is_file() else None
+    names = ("model.json", "model.default.json", f"{model_id}.model.json") if version == "moc2" else (f"{model_id}.model3.json", "model3.json")
     for filename in names:
         candidate = directory / filename
         if candidate.is_file():
@@ -205,14 +214,42 @@ def _model_config_path(directory: Path, model_id: str, version: str = "moc2") ->
     return None
 
 
-def _read_model_config(model_id: str, version: str = "moc2") -> tuple[Path, dict[str, Any]]:
+def _model_profiles(model_id: str, version: str = "moc2") -> list[dict[str, str]]:
+    """列出角色模型的可选配置；MOC3 暂按单配置模型处理。"""
+    version = _normalize_live2d_version(version)
+    directory = _safe_model_dir(model_id, version)
+    if directory is None:
+        return []
+    if version == "moc3":
+        path = _model_config_path(directory, model_id, version)
+        return [{"id": path.name, "name": "默认配置"}] if path else []
+    candidates = []
+    for path in directory.glob("model*.json"):
+        if not re.fullmatch(r"model(?:\.[A-Za-z0-9_-]+)*\.json", path.name):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("model"), str):
+            continue
+        textures = data.get("textures")
+        if not isinstance(textures, list) or not textures or not all(isinstance(item, str) and item for item in textures):
+            continue
+        label = str(data.get("name") or ("默认服装" if path.name in {"model.json", "model.default.json"} else path.stem.removeprefix("model.")))
+        candidates.append({"id": path.name, "name": label})
+    candidates.sort(key=lambda item: (0 if item["id"] in {"model.json", "model.default.json"} else 1, item["id"].casefold()))
+    return candidates
+
+
+def _read_model_config(model_id: str, version: str = "moc2", profile: str | None = None) -> tuple[Path, dict[str, Any]]:
     version = _normalize_live2d_version(version)
     directory = _safe_model_dir(model_id, version)
     if directory is None:
         raise FileNotFoundError(f"{version} 模型目录不存在：{model_id}")
-    config_path = _model_config_path(directory, model_id, version)
+    config_path = _model_config_path(directory, model_id, version, profile)
     if config_path is None:
-        raise FileNotFoundError(f"{version} 模型配置不存在：models/{version}/{model_id}/")
+        raise FileNotFoundError(f"{version} 模型配置不存在或配置版本无效：models/{version}/{model_id}/{profile or ''}")
     data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError(f"{config_path.name} 必须是 JSON 对象")
@@ -1414,6 +1451,7 @@ def get_display_settings():
         "model": model_id,
         "models": available,
         "preferences": _model_preferences(settings, model_id, version) if model_id else {},
+        "profiles": _model_profiles(model_id, version) if model_id else [],
         "enabled": _live2d_enabled(),
     })
 
@@ -1430,6 +1468,12 @@ def save_display_settings():
     model_id = payload.get("model")
     if not isinstance(model_id, str) or not any(item["id"] == model_id for item in _available_models(version)):
         return jsonify({"ok": False, "error": "所选模型不存在或缺少有效模型配置。"}), 400
+    profile = payload.get("profile")
+    available_profiles = _model_profiles(model_id, version)
+    if not available_profiles:
+        return jsonify({"ok": False, "error": "所选模型没有可用配置。"}), 400
+    if not isinstance(profile, str) or not any(item["id"] == profile for item in available_profiles):
+        profile = available_profiles[0]["id"]
 
     def bounded_number(key: str, default: float, low: float, high: float) -> float:
         try:
@@ -1471,6 +1515,7 @@ def save_display_settings():
         settings.setdefault("model_by_version", {})[version] = model_id
         if version == "moc2":
             settings["model"] = model_id
+        preferences["profile"] = profile
         settings.setdefault("models", {})[f"{version}:{model_id}"] = preferences
         _save_user_settings(settings)
 
@@ -1484,6 +1529,7 @@ def save_display_settings():
         "ok": True,
         "version": version,
         "model": model_id,
+        "profile": profile,
         "preferences": preferences,
         "obs_refresh": obs_refresh,
     })
@@ -1506,8 +1552,9 @@ def versioned_model_config_file(version: str, model_id: str):
 def _serve_model_config(model_id: str, version: str):
     if not _live2d_enabled():
         abort(404)
+    profile = request.args.get("profile") if version == "moc2" else None
     try:
-        directory, data = _read_model_config(model_id, version)
+        directory, data = _read_model_config(model_id, version, profile)
     except (FileNotFoundError, ValueError, json.JSONDecodeError):
         abort(404)
     with SETTINGS_LOCK:
