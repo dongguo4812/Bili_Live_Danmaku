@@ -1180,12 +1180,10 @@ def _login_status() -> tuple[bool, str, dict[str, str] | None]:
             BILIBILI_STATE["message"] = message
         elif BILIBILI_STATE["connection_state"] == "disconnected":
             BILIBILI_STATE["message"] = message
-        if not valid and BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting"}:
+        if not valid and BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting", "stopping"}:
             should_stop = True
-            BILIBILI_STATE["connected"] = False
-            BILIBILI_STATE["connection_state"] = "disconnected"
-    if should_stop:
-        LIVE_CLIENT.stop()
+    if should_stop and not LIVE_CLIENT.stop():
+        logger.warning("登录凭据失效后，B站连接线程仍在停止中。")
     return valid, message, cookies
 
 
@@ -1749,8 +1747,13 @@ def connect_live_room():
 
 @app.post("/api/bilibili/disconnect")
 def disconnect_live_room():
-    LIVE_CLIENT.stop()
-    return jsonify({"ok": True, "message": "已请求断开直播连接。"})
+    if not LIVE_CLIENT.stop():
+        return jsonify({
+            "ok": False,
+            "error": "正在断开连接，但 WebSocket 工作线程尚未退出；请稍后查看状态，不要重复启动。",
+            "connection_state": "stopping",
+        }), 409
+    return jsonify({"ok": True, "message": "直播间连接已断开。", "connection_state": "disconnected"})
 
 
 
