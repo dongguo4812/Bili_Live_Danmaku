@@ -1340,6 +1340,22 @@ def credentials_page():
     return render_template("credentials.html")
 
 
+@app.get("/display/combined-alpha-probe/<layout_id>")
+def combined_display_alpha_probe_page(layout_id: str):
+    """Embed the real combined display over green to test its final alpha output."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", layout_id):
+        abort(404)
+    try:
+        _find_display_layout(_load_display_layout_store(), layout_id)
+    except Exception:
+        abort(404)
+    return render_template(
+        "combined_display_alpha_probe.html",
+        combined_url=f"/display/combined/{layout_id}",
+        layout_id=layout_id,
+    )
+
+
 @app.get("/display/combined")
 def combined_display_page():
     return render_template("combined_display.html", display_mode=True, layout_id="")
