@@ -235,7 +235,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     node.style.top=item.y+"%";
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
-    node.style.setProperty("--content-scale",String((Number(item.font_scale)||100)/100));
+    node.style.setProperty("--content-scale","1");
     syncLive2DFrame(node);
   }
 
@@ -247,7 +247,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const overallValue=document.getElementById("overall-scale-value");
     if(select) select.value=selectedWidgetType;
     const scale=item ? Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100 : 100;
-    if(overallSlider) overallSlider.value=String(scale);
+    if(overallSlider){
+      overallSlider.value=String(scale);
+      overallSlider.disabled=!item || item.type==="live2d";
+    }
     if(overallValue) overallValue.textContent=scale+"%";
   }
 
@@ -255,9 +258,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const widget=stage.querySelector('[data-widget="'+item.type+'"]');
     if(widget) positionWidget(widget,item);
     const body=widget?.querySelector(".widget-body");
-    const frame=body?.querySelector("iframe");
-    if(!frame) return;
+    if(!body) return;
     const scale=(Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100)/100;
+    if(item.type==="voice"||item.type==="danmaku"){
+      body.style.zoom=String(scale);
+      body.style.width=(100/scale)+"%";
+      body.style.height=(100/scale)+"%";
+      return;
+    }
+    const frame=body.querySelector("iframe");
+    if(!frame) return;
     if(item.type==="music_widget"){
       frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
     }else if(item.type==="music"||item.type==="video"){
