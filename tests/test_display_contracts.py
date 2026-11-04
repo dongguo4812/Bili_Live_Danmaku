@@ -487,7 +487,7 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         self.assertIn('moc3References.Motions', script)
         self.assertIn('motion.File', script)
         self.assertIn('moc3References ? moc3References.Expressions', script)
-        self.assertIn('await loadModelActionConfig(modelId)', script)
+        self.assertIn('await loadModelActionConfig(modelId, token)', script)
 
     def test_moc3_action_controls_call_the_cubism5_runtime_bridge(self):
         root = Path(__file__).resolve().parents[1]
