@@ -9,6 +9,8 @@
   const toggle = document.getElementById("display-settings-toggle");
   const closeButton = document.getElementById("display-settings-close");
   const modelSelect = document.getElementById("model-select");
+  const modelProfileField = document.getElementById("model-profile-field");
+  const modelProfileSelect = document.getElementById("model-profile-select");
   const motionSelect = document.getElementById("model-motion-select");
   const motionPlayButton = document.getElementById("model-motion-play");
   const expressionSelect = document.getElementById("model-expression-select");
@@ -73,6 +75,7 @@
   let resizePending = false;
   let statusSent = false;
   let currentModel = "live_uu";
+  let currentModelProfile = "";
   let selectedModelConfig = null;
   let loadedModelId = null;
   let live2dTransformBase = null;
@@ -753,11 +756,32 @@
     }
   }
 
-  function modelConfigUrl(modelId) {
+  function modelConfigUrl(modelId, profile = currentModelProfile) {
     const encodedId = encodeURIComponent(modelId);
-    return live2dRuntimeVersion === "moc2"
-      ? "/models/" + encodedId + "/model.json"
-      : "/models/" + live2dRuntimeVersion + "/" + encodedId + "/model.json";
+    if (live2dRuntimeVersion !== "moc2") {
+      return "/models/" + live2dRuntimeVersion + "/" + encodedId + "/model.json";
+    }
+    const base = "/models/" + encodedId + "/model.json";
+    return profile ? base + "?profile=" + encodeURIComponent(profile) : base;
+  }
+
+  function populateModelProfiles(profiles, selectedProfile) {
+    if (!modelProfileSelect || !modelProfileField) return;
+    modelProfileSelect.replaceChildren();
+    const entries = Array.isArray(profiles) ? profiles : [];
+    for (const profile of entries) {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.name && profile.name !== profile.id
+        ? profile.name + "（" + profile.id + "）"
+        : profile.id;
+      modelProfileSelect.appendChild(option);
+    }
+    currentModelProfile = entries.some(item => item.id === selectedProfile)
+      ? selectedProfile
+      : (entries[0] ? entries[0].id : "");
+    modelProfileSelect.value = currentModelProfile;
+    modelProfileField.hidden = live2dRuntimeVersion !== "moc2" || entries.length <= 1;
   }
 
   async function loadMoc3Model(modelId, token = null) {
@@ -1135,6 +1159,7 @@
   function currentPreferences() {
     return {
       model: modelSelect.value,
+      profile: currentModelProfile,
       scale: Number(controls.scale.value) / 100,
       x: Number(controls.x.value) / 100,
       y: Number(controls.y.value) / 100,
@@ -1304,6 +1329,7 @@
       currentModel = modelSelect.value;
     }
     const p = data.preferences || {};
+    populateModelProfiles(data.profiles, p.profile);
     controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
     controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
     controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1694,11 +1720,15 @@
     const selectedModelId = modelSelect.value;
     const token = ++modelSwitchToken;
     try {
-      const response = await fetch("/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion) + "&model=" + encodeURIComponent(selectedModelId), { cache: "no-store" });
+      const query = "/api/live2d/settings?version=" + encodeURIComponent(live2dRuntimeVersion)
+        + "&model=" + encodeURIComponent(selectedModelId)
+        + (modelProfileSelect && modelProfileSelect.value ? "&profile=" + encodeURIComponent(modelProfileSelect.value) : "");
+      const response = await fetch(query, { cache: "no-store" });
       if (!response.ok) throw new Error("无法读取该模型的独立设置。");
       const data = await response.json();
       if (token !== modelSwitchToken) return;
       const p = data.preferences || {};
+      populateModelProfiles(data.profiles, p.profile);
       controls.scale.value = String(Math.round((Number(p.scale) || 1) * 100));
       controls.x.value = String(Math.round((Number(p.x) || 0) * 100));
       controls.y.value = String(Math.round((Number(p.y) || 0) * 100));
@@ -1739,6 +1769,7 @@
   }
 
   if (modelSelect) modelSelect.addEventListener("change", handleModelChange);
+  if (modelProfileSelect) modelProfileSelect.addEventListener("change", handleModelChange);
   if (motionPlayButton) motionPlayButton.addEventListener("click", playSelectedModelMotion);
   if (expressionApplyButton) expressionApplyButton.addEventListener("click", applySelectedModelExpression);
   if (expressionResetButton) expressionResetButton.addEventListener("click", resetSelectedModelExpression);
