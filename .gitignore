@@ -7,7 +7,8 @@ venv/
 .env.*
 credentials/
 !models/.gitkeep
-!models/live_uu/.gitkeep
+!models/moc2/**/.gitkeep
+!models/moc3/.gitkeep
 
 # Local runtime configuration (default templates remain tracked)
 config/local/

@@ -121,15 +121,67 @@ LIVE_CLIENT = LiveRoomClient(
 
 
 def _safe_model_dir(model_id: str) -> Path | None:
+    """解析独立的 MOC2 模型目录。"""
     if not isinstance(model_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", model_id):
         return None
-    root = MODEL_ROOT.resolve()
+
+    root = (MODEL_ROOT / "moc2").resolve()
     directory = (root / model_id).resolve()
     try:
         directory.relative_to(root)
     except ValueError:
         return None
-    return directory if directory.is_dir() else None
+    if not directory.is_dir():
+        return None
+    has_config = any(
+        (directory / filename).is_file()
+        for filename in ("model.json", f"{model_id}.model.json")
+    )
+    return directory if has_config else None
+
+
+def _model_asset_prefix(directory: Path) -> str:
+    """返回版本化 MOC2 模型资源的站点绝对 URL 前缀。"""
+    relative = directory.resolve().relative_to((MODEL_ROOT / "moc2").resolve())
+    return "/models/moc2/" + relative.as_posix().rstrip("/") + "/"
+
+
+def _prefix_model_asset_paths(data: dict[str, Any], prefix: str) -> dict[str, Any]:
+    """为新目录布局中的 MOC2 资源补上稳定 URL，避免相对路径解析发生变化。"""
+    if not prefix:
+        return data
+
+    # 当前 Cubism 2 运行库会把 modelHomeDir 与模型、物理、姿势和动作文件路径直接拼接。
+    # 配置入口仍通过 /models/<model_id>/model.json 提供，因此资源路径必须相对该入口
+    # 回退到真实目录；不能写成 /models/... 绝对路径，否则 .moc 等文件会被重复拼接。
+    relative_prefix = "../" + prefix.removeprefix("/models/")
+
+    def prefixed(value: Any) -> Any:
+        if not isinstance(value, str) or not value:
+            return value
+        if value.startswith(("/", "http://", "https://", "data:")):
+            return value
+        return relative_prefix + value.lstrip("./")
+
+    for key in ("model", "physics", "pose"):
+        if isinstance(data.get(key), str):
+            data[key] = prefixed(data[key])
+    if isinstance(data.get("textures"), list):
+        data["textures"] = [prefixed(item) for item in data["textures"]]
+    if isinstance(data.get("expressions"), list):
+        for item in data["expressions"]:
+            if isinstance(item, dict) and isinstance(item.get("file"), str):
+                item["file"] = prefixed(item["file"])
+    motions = data.get("motions")
+    if isinstance(motions, dict):
+        for group in motions.values():
+            if isinstance(group, list):
+                for item in group:
+                    if isinstance(item, dict):
+                        for asset_key in ("file", "sound"):
+                            if isinstance(item.get(asset_key), str):
+                                item[asset_key] = prefixed(item[asset_key])
+    return data
 
 
 def _model_config_path(directory: Path, model_id: str) -> Path | None:
@@ -148,8 +200,8 @@ def _read_model_config(model_id: str) -> tuple[Path, dict[str, Any]]:
     config_path = _model_config_path(directory, model_id)
     if config_path is None:
         raise FileNotFoundError(
-            f"模型配置不存在：models/{model_id}/model.json 或 "
-            f"models/{model_id}/{model_id}.model.json"
+            f"模型配置不存在：models/moc2/{model_id}/model.json 或 "
+            f"models/moc2/{model_id}/{model_id}.model.json"
         )
     data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
@@ -197,8 +249,12 @@ def _load_user_settings() -> dict[str, Any]:
     }
 
 
-def _model_preferences(settings: dict[str, Any], model_id: str) -> dict[str, Any]:
-    raw = settings.get("models", {}).get(model_id, {})
+def _model_preferences(settings: dict[str, Any], model_id: str, model_version: str = "moc2") -> dict[str, Any]:
+    models = settings.get("models", {})
+    if not isinstance(models, dict):
+        models = {}
+    # 优先读取带版本前缀的新键；旧版纯 model_id 设置作为迁移回退。
+    raw = models.get(f"{model_version}:{model_id}", models.get(model_id, {}))
     if not isinstance(raw, dict):
         raw = {}
 
@@ -867,10 +923,13 @@ def _register_windows_console_handler() -> None:
 
 
 def _available_models() -> list[dict[str, str]]:
+    """只扫描 models/moc2/ 下的 Cubism 2 模型。"""
     result: list[dict[str, str]] = []
-    if not MODEL_ROOT.is_dir():
+    moc2_root = MODEL_ROOT / "moc2"
+    if not moc2_root.is_dir():
         return result
-    for directory in sorted(MODEL_ROOT.iterdir(), key=lambda item: item.name.casefold()):
+
+    for directory in sorted(moc2_root.iterdir(), key=lambda item: item.name.casefold()):
         if not directory.is_dir() or _safe_model_dir(directory.name) is None:
             continue
         config_path = _model_config_path(directory, directory.name)
@@ -882,9 +941,9 @@ def _available_models() -> list[dict[str, str]]:
                 continue
             if not isinstance(data.get("textures"), list) or not data["textures"]:
                 continue
-            result.append({"id": directory.name, "name": str(data.get("name") or directory.name)})
+            result.append({"id": directory.name, "name": str(data.get("name") or directory.name), "version": "moc2"})
         except Exception:
-            logger.warning("跳过无效模型配置：%s", config_path)
+            logger.warning("跳过无效 MOC2 模型配置：%s", config_path)
     return result
 
 
@@ -912,7 +971,12 @@ def _model_assets(model_id: str) -> tuple[bool, list[str], dict[str, Any]]:
     if isinstance(motions, dict):
         for group in motions.values():
             if isinstance(group, list):
-                references.extend(item["file"] for item in group if isinstance(item, dict) and isinstance(item.get("file"), str))
+                for item in group:
+                    if not isinstance(item, dict):
+                        continue
+                    for asset_key in ("file", "sound"):
+                        if isinstance(item.get(asset_key), str) and item[asset_key]:
+                            references.append(item[asset_key])
 
     missing: list[str] = []
     for relative in references:
@@ -1274,7 +1338,7 @@ def save_display_settings():
     with SETTINGS_LOCK:
         settings = _load_user_settings()
         settings["model"] = model_id
-        settings.setdefault("models", {})[model_id] = preferences
+        settings.setdefault("models", {})[f"moc2:{model_id}"] = preferences
         _save_user_settings(settings)
 
     logger.info("已保存 Live2D 展示设置：model=%s bubble_x=%.1f bubble_bottom=%.1f", model_id, preferences["bubble_x"], preferences["bubble_bottom"])
@@ -1300,6 +1364,7 @@ def model_config_file(model_id: str):
     with SETTINGS_LOCK:
         settings = _load_user_settings()
     preferences = _model_preferences(settings, model_id)
+    data = _prefix_model_asset_paths(data, _model_asset_prefix(directory))
     layout = data.get("layout")
     if not isinstance(layout, dict):
         layout = {}
