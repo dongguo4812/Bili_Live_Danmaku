@@ -53,7 +53,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget.live2d .widget-body{position:relative;display:flex;align-items:center;justify-content:center;background:rgba(15,20,30,.35)}
 .editor-mode .widget.live2d .widget-header,.editor-mode .widget.music_widget .widget-header{position:absolute;z-index:10;top:0;left:0;right:0}
 .editor-mode .widget.live2d .widget-body,.editor-mode .widget.music_widget .widget-body{position:absolute;inset:0;width:auto;height:auto;padding:0;overflow:hidden}
-.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
+.widget.live2d iframe,.widget.music_widget iframe,.widget.music iframe,.widget.video iframe{width:100%;height:100%;border:0;background:transparent}
+.widget.music .widget-body,.widget.video .widget-body{padding:0}
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .display-mode .widget.music_widget .widget-header{display:none}
@@ -321,7 +322,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderMusic(body){
-    MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
+    // Embed the module's own display page so rendering and refresh remain independent.
+    const frame=document.createElement("iframe");
+    frame.src="/music/display?embedded=1";
+    frame.title="歌曲点播独立展示页";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    body.appendChild(frame);
   }
 
   function renderMusicWidget(body,item){
@@ -336,8 +344,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   }
 
   function renderVideo(body){
-    // 综合展示仅呈现视频信息，不加载或嵌入实际视频画面。
-    MediaDisplay.render(body,"video",latestData.video||{},{compact:true,showInstruction:false});
+    // Embed the module's own display page and its independent refresh lifecycle.
+    const frame=document.createElement("iframe");
+    frame.src="/video/display?embedded=1";
+    frame.title="点播视频独立展示页";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    body.appendChild(frame);
   }
 
   function renderVoice(body){
@@ -534,7 +548,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
           widget.hidden=moduleState==="stopped";
         }
         const node=widget.querySelector(".widget-body");
-        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type,item);
+        // Music and video refresh themselves inside their embedded pages.
+        if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
       });
     }catch(error){
       if(displayMode) console.debug("综合展示数据刷新失败",error);
