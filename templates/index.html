@@ -151,10 +151,6 @@
         <div>
           <strong id="live2d-module-state">已启用</strong>
           <p class="muted">统一控制 Live2D 运行环境；内部根据模型版本选择对应运行时。</p>
-          <a href="/live2d/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
-          <div class="module-links">
-            <a href="http://127.0.0.1:8768/live2d/display" target="_blank" rel="noopener">综合 OBS 展示页</a>
-          </div>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
@@ -169,16 +165,20 @@
       <p id="live2d-version-message" class="muted" role="status"></p>
       <p class="muted">模型目录随版本分别位于 <code>models/moc2/</code> 和 <code>models/moc3/</code>。</p>
       <p class="muted">请自行放入具有合法使用授权的模型文件；模型资源不会随项目自动分发。</p>
+      <div class="module-links">
+        <a href="/live2d/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
+        <a href="http://127.0.0.1:8768/live2d/display" target="_blank" rel="noopener">综合 OBS 展示页</a>
+      </div>
     </section>
 
     <section class="panel">
       <h2>语音播报模块</h2>
       <div class="model-row">
         <strong id="voice-module-state">运行中</strong>
-        <a href="/voice">语音设置</a>
       </div>
       <p class="muted">语音由 Live2D 浏览器展示页播放；关闭语音模块不会关闭 Live2D 模型。</p>
       <div class="module-links">
+        <a href="/voice" target="_blank" rel="noopener">语音设置</a>
         <a href="/voice/display" target="_blank" rel="noopener">语音 OBS 展示页</a>
       </div>
     </section>
