@@ -1011,8 +1011,6 @@ def _model_assets(model_id: str, version: str = "moc2") -> tuple[bool, list[str]
             if not candidate.is_file():
                 missing.append(relative)
         return not missing, missing, data
-    except Exception as exc:
-        return False, [str(exc)], {}
 
     references: list[str] = []
     for key in ("model", "physics", "pose"):
