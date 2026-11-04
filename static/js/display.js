@@ -51,13 +51,6 @@
   };
   if (!canvas) return;
 
-  window.addEventListener("message", event => {
-    if (event.origin !== window.location.origin ||
-        event.source !== (moc3Frame && moc3Frame.contentWindow) ||
-        !event.data || event.data.type !== "moc3-alpha-diagnostic") return;
-    console.info("[MOC3 alpha diagnostic]", event.data);
-  });
-
   const displayMode = document.documentElement.dataset.displayMode || "all";
   const live2dEnabledAtLoad = document.documentElement.dataset.live2dEnabled !== "0";
   const live2dRuntimeVersion = document.documentElement.dataset.live2dVersion || "moc2";
