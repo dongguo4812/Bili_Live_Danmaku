@@ -41,7 +41,7 @@
         <div><span class="muted">直播连接</span><strong id="connection-state" data-state="unknown">未连接</strong></div>
         <div class="runtime-status-cell">
           <span class="muted">Live2D 运行时</span>
-          <strong id="runtime-state" data-state="unknown">尚未接入</strong>
+          <strong id="runtime-state" data-state="unknown">检查中</strong>
         </div>
       </div>
       <p id="status-message" class="muted">正在读取状态…</p>
@@ -341,7 +341,7 @@
         });
         message.textContent = data.runtime_supported
           ? data.message
-          : data.message + " 当前 MOC3 展示暂不可用；不会回退到 MOC2。";
+          : data.message + " MOC3 运行时文件缺失或不完整；不会回退到 MOC2。";
         await refreshStatus();
       } catch (error) {
         message.textContent = "版本切换失败：" + error.message;
@@ -430,7 +430,7 @@
         $("model-name").textContent = data.live2d.name || "尚未选择模型";
         $("live2d-version").value = data.live2d.version || "moc2";
         $("live2d-version-message").textContent = data.live2d.version === "moc3" && !data.live2d.runtime_supported
-          ? "MOC3 已选中，但 Cubism 5 Framework/Core 尚未集成；当前不会加载 MOC2 模型。"
+          ? "MOC3 已选中，但 Cubism 5 R5 运行时文件缺失或不完整；不会回退到 MOC2。"
           : "";
         $("live2d-module-state").textContent = live2dEnabled ? "已启用" : "已停用";
         $("live2d-toggle").textContent = live2dEnabled ? "停用 Live2D" : "启用 Live2D";
