@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live2D MOC3 Runtime</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent !important;
+    }
+    body { position: relative; }
+    body > canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: transparent;
+    }
+    #moc3-panel-toggle, #moc3-tts-panel, #live2d-bubble { display: none !important; }
+  </style>
+  <script>
+    // The parent page chooses the model; do not restore a stale model from the sample app's localStorage.
+    try { localStorage.removeItem("live2d_moc3_selected_model_v1"); } catch (_) {}
+    const modelParams = new URLSearchParams(window.location.search);
+    modelParams.set("model", {{ model_url|tojson }});
+    window.history.replaceState(null, "", window.location.pathname + "?" + modelParams.toString());
+  </script>
+  <script src="/static/js/live2d/moc3/Core/live2dcubismcore.min.js"></script>
+  <script type="module" crossorigin src="/static/js/live2d/moc3/runtime.js"></script>
+</head>
+<body></body>
+</html>

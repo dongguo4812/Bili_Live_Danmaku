@@ -3,6 +3,7 @@
 
   const canvas = document.getElementById("live2d-canvas");
   const live2dViewport = document.getElementById("live2d-viewport");
+  const moc3Frame = document.getElementById("moc3-runtime-frame");
   const placeholder = document.getElementById("display-placeholder");
   const panel = document.getElementById("display-settings-panel");
   const toggle = document.getElementById("display-settings-toggle");
@@ -271,6 +272,13 @@
 
   function setLive2DMouth(value) {
     try {
+      if (live2dRuntimeVersion === "moc3") {
+        const runtimeWindow = moc3Frame && moc3Frame.contentWindow;
+        if (runtimeWindow && typeof runtimeWindow.live2dSetMouthOpen === "function") {
+          runtimeWindow.live2dSetMouthOpen(Math.max(0, Math.min(1, value)));
+        }
+        return;
+      }
       const manager = window.__live2dManager;
       const model = manager && manager.getModel(0);
       if (!model || !model.initialized || typeof model.getLive2DModel !== "function") return;
@@ -729,6 +737,34 @@
     return live2dRuntimeVersion === "moc2"
       ? "/models/" + encodedId + "/model.json"
       : "/models/" + live2dRuntimeVersion + "/" + encodedId + "/model.json";
+  }
+
+  async function loadMoc3Model(modelId) {
+    if (!moc3Frame) throw new Error("MOC3 展示框架不存在。");
+    if (!modelId) throw new Error("尚未选择有效的 MOC3 模型。");
+    showMessage("正在加载 Cubism 5 MOC3 模型：" + modelId + "…");
+    await reportState("loading", "正在加载 Cubism 5 R5 模型：" + modelId);
+    await new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        moc3Frame.removeEventListener("load", onLoad);
+        reject(new Error("MOC3 运行时页面加载超时。"));
+      }, 20000);
+      const onLoad = () => {
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      moc3Frame.addEventListener("load", onLoad, { once: true });
+      moc3Frame.src = "/live2d/moc3/runtime/" + encodeURIComponent(modelId);
+    });
+    const runtimeWindow = moc3Frame.contentWindow;
+    if (!runtimeWindow || typeof runtimeWindow.live2dLoadModel !== "function" ||
+        typeof runtimeWindow.live2dSetMouthOpen !== "function") {
+      throw new Error("Cubism 5 R5 运行时未能完成初始化。");
+    }
+    loadedModelId = modelId;
+    showMessage("");
+    if (placeholder) placeholder.style.display = "none";
+    await reportState("loaded", modelId + " 已交由 Cubism 5 R5 Framework 加载。");
   }
 
   function setSaveStatus(message, isError = false) {
@@ -1424,15 +1460,15 @@
 
   async function start() {
     if (live2dRuntimeVersion === "moc3") {
-      // 先读取 MOC3 独立模型选择和参数，让弹幕布局仍可在统一设置页调整。
       try {
-        await loadDisplaySettings();
+        const modelId = await loadDisplaySettings();
+        await loadMoc3Model(modelId);
       } catch (error) {
-        console.warn("MOC3 display settings are not available yet:", error);
+        console.error("MOC3 initialization failed:", error);
+        showMessage("MOC3 加载失败：" + error.message);
+        await reportState("error", error.message);
+        setSaveStatus(error.message, true);
       }
-      const message = "当前已选择 MOC3。Cubism 5 Framework/Core 尚未集成，暂时无法显示模型；MOC2 模型不会被错误加载。";
-      showMessage(message);
-      await reportState("not_started", message);
       return;
     }
     try {
@@ -1518,7 +1554,11 @@
       markUnsaved();
 
       // 立即切换当前模型；model ID 仍只会在点击保存时写入用户设置。
-      await queueModelSwitch(selectedModelId, token, p);
+      if (live2dRuntimeVersion === "moc3") {
+        await loadMoc3Model(selectedModelId);
+      } else {
+        await queueModelSwitch(selectedModelId, token, p);
+      }
     } catch (error) {
       setSaveStatus(error.message, true);
     }

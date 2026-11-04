@@ -379,8 +379,30 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
         self.assertIn("live2d_version|default('moc2') == 'moc2'", template)
         self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
-        self.assertIn("Cubism 5 Framework/Core 尚未集成", script)
+        self.assertIn("loadMoc3Model(modelId)", script)
+        self.assertIn('typeof runtimeWindow.live2dSetMouthOpen === "function"', script)
+        self.assertIn('id="moc3-runtime-frame"', template)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
+    def test_moc3_runtime_assets_and_renderer_route_are_present(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/live2d/moc3/runtime/<model_id>")', main)
+        self.assertIn('@app.get("/api/models")', main)
+        self.assertTrue((root / "static/js/live2d/moc3/runtime.js").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Core/live2dcubismcore.min.js").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Framework/Shaders/WebGL/vertshadersrc.vert").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Framework/LICENSE.md").is_file())
+        self.assertTrue((root / "static/js/live2d/moc3/Core/LICENSE.md").is_file())
+
+    def test_moc3_runtime_bundle_uses_local_shader_paths(self):
+        root = Path(__file__).resolve().parents[1]
+        bundle = (root / "static/js/live2d/moc3/runtime.js").read_text(encoding="utf-8")
+        self.assertIn("/static/js/live2d/moc3/Framework/Shaders/WebGL/", bundle)
+        self.assertNotIn("window.setInterval(()=>{Ma()},700);", bundle)
+

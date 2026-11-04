@@ -1056,10 +1056,12 @@ def _live2d_enabled() -> bool:
 
 
 def _moc3_runtime_available() -> bool:
-    """MOC3 Framework/Core 尚未集成时明确返回不可用。"""
-    core = BASE_DIR / "static" / "js" / "live2d" / "moc3" / "Core" / "live2dcubismcore.min.js"
-    framework = BASE_DIR / "static" / "js" / "live2d" / "moc3" / "Framework" / "live2dcubismframework.js"
-    return core.is_file() and framework.is_file()
+    """检查 Cubism 5 R5 Core、Framework bundle 与 WebGL shader 是否齐备。"""
+    runtime_root = BASE_DIR / "static" / "js" / "live2d" / "moc3"
+    core = runtime_root / "Core" / "live2dcubismcore.min.js"
+    framework_bundle = runtime_root / "runtime.js"
+    shader = runtime_root / "Framework" / "Shaders" / "WebGL" / "vertshadersrc.vert"
+    return core.is_file() and framework_bundle.is_file() and shader.is_file()
 
 
 def model_status() -> dict[str, Any]:
@@ -1260,6 +1262,21 @@ def display():
     return render_template("display.html", display_mode="all", live2d_enabled=_live2d_enabled(), live2d_version=_live2d_runtime_version())
 
 
+@app.get("/live2d/moc3/runtime/<model_id>")
+def live2d_moc3_runtime_page(model_id: str):
+    if not _live2d_enabled() or not _moc3_runtime_available():
+        abort(404)
+    if _safe_model_dir(model_id, "moc3") is None:
+        abort(404)
+    assets_ok, missing, _ = _model_assets(model_id, "moc3")
+    if not assets_ok:
+        abort(404)
+    return render_template(
+        "live2d_moc3_runtime.html",
+        model_url=f"/models/moc3/{model_id}/model.json",
+    )
+
+
 @app.get("/live2d/moc2/display")
 def live2d_display_page():
     # 历史 MOC2 独立入口仍固定使用 MOC2；新入口统一使用 /live2d/display。
@@ -1356,6 +1373,22 @@ def video_settings_page():
 @app.get("/video/display")
 def video_display_page():
     return render_template("video_display.html")
+
+
+@app.get("/api/models")
+def api_live2d_models():
+    requested = str(request.args.get("version", "3")).strip().lower()
+    if requested not in {"3", "moc3"}:
+        return jsonify({"ok": False, "error": "该接口仅提供 MOC3 模型列表。"}), 400
+    models = [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "config": f"/models/moc3/{item['id']}/model.json",
+        }
+        for item in _available_models("moc3")
+    ]
+    return jsonify({"ok": True, "models": models})
 
 
 @app.get("/api/live2d/settings")
