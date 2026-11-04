@@ -819,3 +819,16 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CombinedLayoutSaveRebindRegressionTests(unittest.TestCase):
+    def test_successful_save_rebuilds_editor_against_server_returned_layout(self):
+        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        start = source.index("  async function saveLayout()")
+        end = source.index("\n  async function refreshData()", start)
+        save_function = source[start:end]
+        replace_layout = save_function.index("layout=data.layout;")
+        rerender = save_function.index("renderLayout();", replace_layout)
+        success_message = save_function.index('setMessage(data.message||"布局已保存。");', rerender)
+        self.assertLess(replace_layout, rerender)
+        self.assertLess(rerender, success_message)
