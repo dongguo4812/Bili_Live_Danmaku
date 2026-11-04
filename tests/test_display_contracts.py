@@ -8,6 +8,16 @@ from pathlib import Path
 
 
 class CombinedDisplayContractTests(unittest.TestCase):
+    def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        index = (root / "templates" / "index.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("editor-sidebar", combined)
+        self.assertIn('.editor-mode .toolbar{left:0}', combined)
+        self.assertIn('.editor-mode #stage{top:58px;left:0;', combined)
+        self.assertIn('<a href="/dashboard" target="_blank" rel="noopener">综合展示</a>', index)
+
     def test_live2d_api_uses_only_canonical_prefix(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
