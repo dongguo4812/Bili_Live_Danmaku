@@ -20,7 +20,9 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertNotIn('id="connect-live"', self.page)
         self.assertNotIn('id="disconnect-live"', self.page)
         self.assertIn('connectionActive ? "断开连接" : "连接直播间"', self.page)
-        self.assertIn('["connecting", "reconnecting"].includes(data.bilibili.connection_state)', self.page)
+        self.assertIn('["connecting", "reconnecting", "stopping"].includes(data.bilibili.connection_state)', self.page)
+        self.assertIn('stopping: "断开连接中"', self.page)
+        self.assertIn('connectionStopping ? "断开连接中…"', self.page)
         self.assertIn('button.dataset.active === "true"', self.page)
         self.assertIn('api("/api/bilibili/connect"', self.page)
         self.assertIn('api("/api/bilibili/disconnect"', self.page)
@@ -69,7 +71,7 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
         for state in ("logged_in", "logged_out", "connected", "disconnected", "connecting",
-                      "reconnecting", "waiting", "loading", "loaded", "disabled", "error"):
+                      "reconnecting", "stopping", "waiting", "loading", "loaded", "disabled", "error"):
             with self.subTest(state=state):
                 self.assertIn(f'.status-grid strong[data-state="{state}"]', css)
 
