@@ -6,21 +6,21 @@
 <title>歌曲点播展示</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent!important;background-color:transparent!important;background-image:none!important;color:#fff}#media-root,.media-display{background:transparent!important;background-color:transparent!important;background-image:none!important}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#fff}
 body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif}
 body.embedded{padding:0}
-body.offline{visibility:hidden!important}
+#media-root.offline{visibility:hidden!important}
 #media-root{width:100%;height:100%;overflow:auto}
 </style>
 </head>
-<body class="offline{% if request.args.get('embedded') %} embedded{% endif %}">
+<body class="{% if request.args.get('embedded') %}embedded{% endif %}">
 <div id="media-root" class="media-display"></div>
 <script src="{{ url_for('static', filename='display_media.js') }}"></script>
 <script>
 (function(){
   const root=document.getElementById("media-root");
   let inFlight=false,statusInFlight=false;
-  function setOnline(online){document.body.classList.toggle("offline",!online);}
+  function setOnline(online){root.classList.toggle("offline",!online);}
   async function refreshStatus(){
     if(statusInFlight)return;
     statusInFlight=true;
@@ -30,7 +30,7 @@ body.offline{visibility:hidden!important}
       const data=await response.json();
       const state=data&&data.modules&&data.modules.music?data.modules.music.state:"stopped";
       setOnline(state==="running"||state==="paused");
-    }catch(error){setOnline(false);}
+    }catch(error){console.debug("获取歌曲点播模块状态失败，保留当前显示状态：",error);}
     finally{statusInFlight=false;}
   }
   async function refresh(){
