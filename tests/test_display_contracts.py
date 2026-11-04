@@ -298,7 +298,7 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         self.assertIn('requires_connection=False', main)
         self.assertIn('data-live2d-enabled=', display)
         self.assertIn('{% if live2d_enabled|default(true) %}', display)
-        self.assertIn('data-live2d-enabled !== "0"', script)
+        self.assertIn('dataset.live2dEnabled !== "0"', script)
         self.assertIn('Boolean(data.live2d.enabled) !== live2dEnabledAtLoad', script)
         self.assertIn('id="live2d-toggle"', center)
         self.assertIn('/api/modules/live2d/enabled', center)
