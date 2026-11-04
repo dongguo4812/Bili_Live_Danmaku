@@ -325,16 +325,40 @@ class LiveRoomClient:
             self.thread = threading.Thread(target=self._thread_main, name="bili-live-websocket", daemon=True)
             self.thread.start()
 
-    def stop(self) -> None:
-        self.stop_event.set()
-        loop = self.loop
-        room = self.room
-        if loop and room:
-            try:
-                asyncio.run_coroutine_threadsafe(room.disconnect(), loop)
-            except Exception:
-                logger.exception("请求断开 B 站直播连接失败")
-        self.on_state("disconnected", "已请求断开直播间连接。")
+    def stop(self, timeout: float = 10.0) -> bool:
+        """请求断开并等待工作线程退出；超时则保留 stopping 状态，不伪报断开成功。"""
+        with self.lock:
+            thread = self.thread
+            if thread is None or not thread.is_alive():
+                self.stop_event.set()
+                self.loop = None
+                self.room = None
+                self.on_state("disconnected", "直播间连接任务已停止。")
+                return True
+
+            self.stop_event.set()
+            self.on_state("stopping", "正在断开直播间连接…")
+            loop = self.loop
+            room = self.room
+            if loop and room:
+                try:
+                    asyncio.run_coroutine_threadsafe(room.disconnect(), loop)
+                except Exception:
+                    logger.exception("请求断开 B 站直播连接失败")
+
+            if thread is threading.current_thread():
+                logger.warning("直播连接线程正在请求自身停止，无法在当前线程等待退出")
+                return False
+
+            thread.join(timeout=max(0.0, float(timeout)))
+            if thread.is_alive():
+                logger.warning("等待 B 站直播连接线程退出超时（%.1f 秒）", timeout)
+                return False
+
+            self.loop = None
+            self.room = None
+            self.on_state("disconnected", "直播间连接任务已停止。")
+            return True
 
     def _thread_main(self) -> None:
         asyncio.run(self._run())
@@ -376,7 +400,8 @@ class LiveRoomClient:
 
                 @room.on("DISCONNECT")
                 async def disconnected(event: Any) -> None:
-                    self.on_state("disconnected", "B 站 WebSocket 已断开。")
+                    if not self.stop_event.is_set():
+                        self.on_state("disconnected", "B 站 WebSocket 已断开。")
 
                 await room.connect()
                 if not self.stop_event.is_set():

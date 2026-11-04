@@ -376,14 +376,16 @@
         $("login-state").textContent = data.bilibili.logged_in ? "已登录" : "未登录";
         $("login-state").dataset.state = data.bilibili.logged_in ? "logged_in" : "logged_out";
         $("connection-state").textContent = data.bilibili.connected ? "已连接" : ({
-          connecting: "连接中", reconnecting: "等待重连"
+          connecting: "连接中", reconnecting: "等待重连", stopping: "断开连接中"
         }[data.bilibili.connection_state] || "未连接");
         $("connection-state").dataset.state = data.bilibili.connected ? "connected" : ({
-          connecting: "connecting", reconnecting: "reconnecting"
+          connecting: "connecting", reconnecting: "reconnecting", stopping: "stopping"
         }[data.bilibili.connection_state] || "disconnected");
+        const connectionStopping = data.bilibili.connection_state === "stopping";
         const connectionActive = data.bilibili.connected ||
-          ["connecting", "reconnecting"].includes(data.bilibili.connection_state);
-        $("connection-toggle").textContent = connectionActive ? "断开连接" : "连接直播间";
+          ["connecting", "reconnecting", "stopping"].includes(data.bilibili.connection_state);
+        $("connection-toggle").textContent = connectionStopping
+          ? "断开连接中…" : connectionActive ? "断开连接" : "连接直播间";
         $("connection-toggle").dataset.active = String(connectionActive);
         $("runtime-state").textContent = data.live2d.enabled === false ? "已停用" : ({
           not_started: "等待 OBS 展示页",

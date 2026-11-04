@@ -410,6 +410,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 .status-grid strong[data-state="connecting"],
 .status-grid strong[data-state="reconnecting"],
+.status-grid strong[data-state="stopping"],
 .status-grid strong[data-state="waiting"],
 .status-grid strong[data-state="loading"],
 .status-grid strong[data-state="unknown"] {
