@@ -1509,8 +1509,17 @@
       hasUnsavedChanges = false;
       const obs = result.obs_refresh || {};
       setSaveStatus("设置已保存，正在刷新展示页面。" + (obs.message ? " " + obs.message : ""));
-      // 让页面从服务器重新读取已保存配置，确保刷新后看到持久化后的最终效果。
-      window.setTimeout(() => window.location.reload(), 350);
+      // MOC3 展示页包含独立 runtime iframe。使用带缓存隔离参数的顶层导航，
+      // 确保保存后重新创建整个展示页及 runtime，而不只是保留旧 iframe。
+      window.setTimeout(() => {
+        if (live2dRuntimeVersion === "moc3") {
+          const refreshUrl = new URL(window.location.href);
+          refreshUrl.searchParams.set("_live2d_refresh", String(Date.now()));
+          window.location.replace(refreshUrl.toString());
+          return;
+        }
+        window.location.reload();
+      }, 350);
 
       // 保存只负责持久化；不要重置当前模型的原始矩阵基准。
     } catch (error) {
