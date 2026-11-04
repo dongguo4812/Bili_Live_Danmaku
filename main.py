@@ -1532,8 +1532,8 @@ def _serve_model_config(model_id: str, version: str):
             layout["center_y"] = float(layout.get("center_y", 0.0)) + preferences["y"]
         except (TypeError, ValueError):
             abort(500)
-    # MOC3 的缩放和位置由统一展示页实时变换 iframe；这里原样保留 model3.json 的 Layout，
-    # 避免将 Cubism 2 的布局处理重复应用到 MOC3 模型。
+    # MOC3 的缩放和位置由 Cubism 5 Runtime 的模型矩阵实时处理；这里原样保留
+    # model3.json 的 Layout，避免将 Cubism 2 的布局处理重复应用到 MOC3 模型。
     return jsonify(data)
 
 
