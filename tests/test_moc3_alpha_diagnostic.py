@@ -41,6 +41,17 @@ class Moc3AlphaDiagnosticTests(unittest.TestCase):
         self.assertIn('try{this.reportAlphaDiagnostic(e)}catch(t){console.warn("[MOC3 alpha diagnostic] failed; will retry next frame",t)}', runtime)
         self.assertNotIn('catch(t){this._alphaDiagnosticSent=!0,console.warn("[MOC3 alpha diagnostic] failed"', runtime)
 
+    def test_isolated_iframe_alpha_probe_is_available(self):
+        root = Path(__file__).resolve().parents[1]
+        app = (root / "main.py").read_text(encoding="utf-8")
+        template = (root / "templates" / "live2d_moc3_alpha_probe.html").read_text(encoding="utf-8")
+
+        self.assertIn('/live2d/moc3/alpha-probe/<model_id>', app)
+        self.assertIn('live2d_moc3_alpha_probe.html', app)
+        self.assertIn('background: #00ff00 !important', template)
+        self.assertIn('allowtransparency="true"', template)
+        self.assertIn('src="{{ runtime_url }}"', template)
+
 
 if __name__ == "__main__":
     unittest.main()
