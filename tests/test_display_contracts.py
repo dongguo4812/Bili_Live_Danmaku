@@ -312,11 +312,11 @@ class Live2DModelDirectoryContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('root = (MODEL_ROOT / version).resolve()', main)
-        self.assertIn('moc2_root = MODEL_ROOT / "moc2"', main)
-        self.assertIn('for directory in sorted(moc2_root.iterdir()', main)
+        self.assertIn('version_root = MODEL_ROOT / version', main)
+        self.assertIn('for directory in sorted(version_root.iterdir()', main)
         self.assertNotIn('roots = (MODEL_ROOT / "moc2", MODEL_ROOT)', main)
         self.assertNotIn('MODEL_ROOT.iterdir()', main)
-        self.assertIn('"version": "moc2"', main)
+        self.assertIn('"version": version', main)
         self.assertIn('models.get(f"{model_version}:{model_id}"', main)
         self.assertIn('[f"{version}:{model_id}"] = preferences', main)
 
