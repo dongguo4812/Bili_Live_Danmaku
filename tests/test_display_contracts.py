@@ -516,6 +516,8 @@ class Live2DReportedIssueRegressionTests(unittest.TestCase):
         self.assertIn('console.info("[MOC3 alpha diagnostic]",u)', runtime)
         self.assertNotIn('postMessage(a,window.location.origin)', runtime)
         self.assertIn('this._gear&&this._gear.isHit(n,r)', runtime)
+        self.assertIn('try{this.reportAlphaDiagnostic(e)}catch(t)', runtime)
+        self.assertNotIn('}Aa();var ja=!1;', runtime)
         self.assertIn('canvas { background-color: transparent !important; }', runtime_html)
         self.assertIn('background-color: transparent !important;', display_html)
         self.assertIn('allowtransparency="true"', display_html)
