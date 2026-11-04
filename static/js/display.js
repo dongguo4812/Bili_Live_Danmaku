@@ -933,9 +933,10 @@
     const capabilityRows = modelCapabilitiesElement ? Array.from(modelCapabilitiesElement.querySelectorAll(".model-capability-row")) : [];
     const mouthCapability = capabilityRows.find(item => item.firstElementChild && item.firstElementChild.textContent === "TTS 嘴型同步");
     if (mouthCapability && mouthCapability.lastElementChild) {
+      const invalidIds = event.data.invalidDeclaredIds || [];
       mouthCapability.lastElementChild.textContent = event.data.supported
-        ? "支持；检测到参数 " + (event.data.parameterIds || []).join("、")
-        : "不支持；" + (event.data.reason || "没有可用嘴型参数");
+        ? "支持；检测到参数 " + (event.data.parameterIds || []).join("、") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "")
+        : "不支持；" + (event.data.reason || "没有可用嘴型参数") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "");
       mouthCapability.lastElementChild.dataset.state = event.data.supported ? "ok" : "warn";
     }
     if (event.data.supported) {
@@ -1161,6 +1162,10 @@
     const idle = validMotions.filter(item => item.group.toLowerCase() === "idle");
     const expressionEntries = Array.isArray(expressions) ? expressions.map(item => item && (item.File || item.file)).filter(Boolean) : [];
     const validExpressions = await Promise.all(expressionEntries.map(checkAsset));
+    const modelFiles = refs
+      ? [refs.Moc, ...(Array.isArray(refs.Textures) ? refs.Textures : []), refs.Pose].filter(Boolean)
+      : [config.model, ...(Array.isArray(config.textures) ? config.textures : []), config.pose].filter(Boolean);
+    const modelFileChecks = await Promise.all(modelFiles.map(async file => ({ file, valid: await checkAsset(file) })));
     const physicsFile = refs ? refs.Physics : config.physics;
     let physicsState = "未配置";
     if (physicsFile) {
@@ -1182,18 +1187,22 @@
       const exists = validMotions.some(item => item.group === group && item.valid);
       return { name, group, exists };
     });
-    const validTouchCount = mappedTouchNames.filter(item => item.exists || item.name === "Head").length;
+    const validTouchCount = mappedTouchNames.filter(item => item.exists || item.name === "Head" || (item.name === "Body" && validMotions.some(motion => motion.group === "TapBody" && motion.valid))).length;
+    const invalidTouchMappings = mappedTouchNames.filter(item => item.name.startsWith("Touch") && !item.exists);
     const invalidAssets = [
+      ...modelFileChecks.filter(item => !item.valid).map(item => item.file),
       ...validMotions.filter(item => !item.valid).map(item => item.file),
       ...expressionEntries.filter((file, index) => !validExpressions[index]),
-      ...(physicsFile && physicsState.startsWith("资源无效") ? [physicsFile] : [])
+      ...(physicsFile && physicsState.startsWith("资源无效") ? [physicsFile] : []),
+      ...invalidTouchMappings.map(item => "HitArea " + item.name + " → Motion Group " + item.group)
     ];
     const rows = [
       { label: "Idle 动作", value: idle.length ? (idle.some(item => item.valid) ? "存在且资源可读取" : "已声明，但动作文件无效") : "未配置", state: idle.length && idle.some(item => item.valid) ? "ok" : "warn" },
       { label: "可播放动作", value: validMotions.filter(item => item.valid).length + " / " + motionEntries.length + " 个动作资源有效", state: validMotions.some(item => item.valid) ? "ok" : "warn" },
+      { label: "模型主体 / 贴图", value: modelFileChecks.filter(item => item.valid).length + " / " + modelFileChecks.length + " 个资源可读取", state: modelFileChecks.length && modelFileChecks.every(item => item.valid) ? "ok" : "warn" },
       { label: "表情", value: validExpressions.filter(Boolean).length + " / " + expressionEntries.length + " 个表情资源有效", state: expressionEntries.length && validExpressions.every(Boolean) ? "ok" : "warn" },
       { label: "物理配置", value: physicsState, state: physicsState === "有效配置" ? "ok" : physicsFile ? "warn" : "info" },
-      { label: "触摸区域", value: touchNames.length ? touchNames.map(item => item).join("、") + "；映射可用 " + validTouchCount + " / " + touchNames.length : "未配置", state: touchNames.length && validTouchCount ? "ok" : "warn" },
+      { label: "触摸区域", value: touchNames.length ? touchNames.map(item => item).join("、") + "；可识别 " + validTouchCount + " / " + touchNames.length + (invalidTouchMappings.length ? "；未映射：" + invalidTouchMappings.map(item => item.name + "→" + item.group).join("、") : "") : "未配置", state: touchNames.length && validTouchCount === touchNames.length ? "ok" : "warn" },
       { label: "TTS 嘴型同步", value: moc3 ? "等待 Cubism 运行时参数检测" : "等待 MOC2 模型参数检测", state: "checking" },
       { label: "无效资源", value: invalidAssets.length ? [...new Set(invalidAssets)].join("、") : "未发现已声明资源缺失", state: invalidAssets.length ? "warn" : "ok" }
     ];
@@ -1202,9 +1211,10 @@
     if (moc3 && lastMoc3MouthSyncStatus && lastMoc3MouthSyncStatus.modelUrl === modelConfigUrl(modelId)) {
       const mouth = rows.find(row => row.label === "TTS 嘴型同步");
       if (mouth) {
+        const invalidIds = lastMoc3MouthSyncStatus.invalidDeclaredIds || [];
         mouth.value = lastMoc3MouthSyncStatus.supported
-          ? "支持；检测到参数 " + (lastMoc3MouthSyncStatus.parameterIds || []).join("、")
-          : "不支持；" + (lastMoc3MouthSyncStatus.reason || "没有可用嘴型参数");
+          ? "支持；检测到参数 " + (lastMoc3MouthSyncStatus.parameterIds || []).join("、") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "")
+          : "不支持；" + (lastMoc3MouthSyncStatus.reason || "没有可用嘴型参数") + (invalidIds.length ? "；无效声明：" + invalidIds.join("、") : "");
         mouth.state = lastMoc3MouthSyncStatus.supported ? "ok" : "warn";
         renderModelCapabilityRows(rows);
       }
