@@ -40,7 +40,7 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertIn('pause.disabled = busy || !["running", "paused"].includes(state)', self.page)
 
     def test_control_panel_has_no_duplicate_element_ids(self):
-        ids = re.findall(r'\\bid="([^"]+)"', self.page)
+        ids = re.findall(r'\bid="([^"]+)"', self.page)
         self.assertEqual(len(ids), len(set(ids)))
 
 
