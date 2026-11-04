@@ -131,23 +131,21 @@
     </section>
 
     <section class="panel" id="live2d-settings">
-      <h2>Live2D 模型</h2>
+      <h2>Live2D 运行时</h2>
       <div class="model-row">
         <div>
-          <strong id="model-name">live_uu</strong>
-          <p class="muted">Live2D Cubism 2（MOC2）</p>
+          <strong id="live2d-module-state">已启用</strong>
+          <p class="muted">统一控制 Live2D 运行环境；内部根据模型版本选择对应运行时。</p>
           <a href="/live2d/moc2/display" target="_blank" rel="noopener">打开 Live2D 展示页</a>
         </div>
         <span id="model-state" class="status-pill">检查中</span>
       </div>
       <div class="inline-controls action-controls">
-        <strong id="live2d-module-state">运行中</strong>
-        <button type="button" onclick="moduleAction('live2d','start')">启动</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('live2d','pause')">暂停</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('live2d','resume')">恢复</button>
-        <button type="button" class="secondary-button" onclick="moduleAction('live2d','close')">关闭</button>
+        <button type="button" id="live2d-toggle" class="secondary-button">停用 Live2D</button>
+        <strong id="model-name">live_uu</strong>
       </div>
-      <p class="muted">模型目录：<code>models/live_uu/</code></p>
+      <p id="live2d-toggle-message" class="muted" role="status">当前已接入 MOC2 运行时；MOC3 将由内部版本选择器接入。</p>
+      <p class="muted">模型目录：<code>models/moc2/live_uu/</code></p>
       <p class="muted">请自行放入具有合法使用授权的模型文件；模型资源不会随项目自动分发。</p>
     </section>
 
@@ -251,6 +249,29 @@
     }
     window.moduleAction = moduleAction;
 
+    async function setLive2DEnabled(enabled) {
+      const button = $("live2d-toggle");
+      button.disabled = true;
+      try {
+        const data = await api("/api/modules/live2d/enabled", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled })
+        });
+        $("live2d-toggle-message").textContent = data.message;
+        await refreshStatus();
+      } catch (error) {
+        $("live2d-toggle-message").textContent = "切换失败：" + error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    $("live2d-toggle").addEventListener("click", () => {
+      const currentlyEnabled = $("live2d-toggle").dataset.enabled === "true";
+      setLive2DEnabled(!currentlyEnabled);
+    });
+
     async function refreshMusicQueue() {
       try {
         const data = await api("/api/music/queue");
@@ -321,8 +342,12 @@
           loaded: "已就绪",
           error: "加载失败"
         }[data.live2d.runtime_state] || "状态未知");
-        $("model-state").textContent = data.live2d.config_exists ? "已找到配置" : "缺少模型配置";
+        const live2dEnabled = data.live2d.enabled !== false;
+        $("model-state").textContent = !live2dEnabled ? "运行时已停用" : (data.live2d.config_exists ? "已找到配置" : "缺少模型配置");
         $("model-name").textContent = data.live2d.name || "live_uu";
+        $("live2d-module-state").textContent = live2dEnabled ? "已启用" : "已停用";
+        $("live2d-toggle").textContent = live2dEnabled ? "停用 Live2D" : "启用 Live2D";
+        $("live2d-toggle").dataset.enabled = String(live2dEnabled);
         $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
         const music = (data.modules || {}).music || { state: "stopped" };
         $("music-state").textContent = ({
