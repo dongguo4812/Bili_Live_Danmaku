@@ -39,10 +39,6 @@
       <div class="status-grid">
         <div><span class="muted">B站登录</span><strong id="login-state" data-state="unknown">检查中</strong></div>
         <div><span class="muted">直播连接</span><strong id="connection-state" data-state="unknown">未连接</strong></div>
-        <div class="runtime-status-cell">
-          <span class="muted">Live2D 展示页状态</span>
-          <strong id="runtime-state" data-state="unknown">检查中</strong>
-        </div>
       </div>
       <p id="status-message" class="muted">正在读取状态…</p>
     </section>
@@ -434,15 +430,6 @@
                 ? "正在建立直播连接，请稍候。"
                 : "B 站已登录，输入并保存房间号后即可连接直播间。";
         $("qr-start").textContent = data.bilibili.logged_in ? "重新扫码登录" : "扫码登录";
-        $("runtime-state").textContent = data.live2d.enabled === false ? "已停用" : ({
-          not_started: "等待 OBS 展示页",
-          loading: "正在加载",
-          loaded: "已就绪",
-          error: "加载失败"
-        }[data.live2d.runtime_state] || "状态未知");
-        $("runtime-state").dataset.state = data.live2d.enabled === false ? "disabled" : ({
-          not_started: "waiting", loading: "loading", loaded: "loaded", error: "error"
-        }[data.live2d.runtime_state] || "unknown");
         const live2dEnabled = data.live2d.enabled !== false;
         $("model-state").textContent = !live2dEnabled ? "运行时已停用" : (data.live2d.config_exists ? "已找到配置" : "缺少模型配置");
         $("model-name").textContent = data.live2d.name || "尚未选择模型";
