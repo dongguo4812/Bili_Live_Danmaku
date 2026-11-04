@@ -146,7 +146,7 @@
             body: summarize(doc.body, current),
             canvas: level === 0 ? summarize(doc.querySelector("canvas"), current) : null
           };
-          if (level > 0) {
+          if (current !== current.parent) {
             try {
               const frame = current.frameElement;
               levelInfo.frameInParent = summarize(frame, current.parent);
