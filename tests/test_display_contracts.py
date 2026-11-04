@@ -361,8 +361,6 @@ class Live2DVersionIsolationContractTests(unittest.TestCase):
         self.assertEqual(defaults["runtime_version"], "moc2")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Live2DRuntimeSelectionContractTests(unittest.TestCase):
@@ -383,3 +381,6 @@ class Live2DRuntimeSelectionContractTests(unittest.TestCase):
         self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
         self.assertIn("Cubism 5 Framework/Core 尚未集成", script)
 
+
+if __name__ == "__main__":
+    unittest.main()
