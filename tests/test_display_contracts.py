@@ -832,3 +832,18 @@ class CombinedLayoutSaveRebindRegressionTests(unittest.TestCase):
         success_message = save_function.index('setMessage(data.message||"布局已保存。");', rerender)
         self.assertLess(replace_layout, rerender)
         self.assertLess(rerender, success_message)
+
+
+class CombinedModuleVisibilityRegressionTests(unittest.TestCase):
+    def test_stopped_music_and_video_modules_are_hidden_only_in_combined_output(self):
+        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        start = source.index("  async function refreshData()")
+        end = source.index("\n  document.querySelectorAll(\"[data-add]\")", start)
+        refresh_function = source[start:end]
+
+        self.assertIn('api("/api/modules")', refresh_function)
+        self.assertIn("latestData.modules=modules.modules||{}", refresh_function)
+        self.assertIn('if(displayMode && (item.type==="music" || item.type==="video"))', refresh_function)
+        self.assertIn('const moduleState=(latestData.modules[item.type]||{}).state||"stopped"', refresh_function)
+        self.assertIn('widget.hidden=moduleState==="stopped"', refresh_function)
+        self.assertIn('.widget[hidden]{display:none!important}', source)
