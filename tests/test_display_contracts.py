@@ -532,3 +532,20 @@ class Live2DMoc3FollowupAuditTests(unittest.TestCase):
         runtime_html = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
         self.assertIn('body { position: relative; background-color: transparent !important; }\n    canvas', runtime_html)
         self.assertNotIn('}\\n    canvas', runtime_html)
+
+
+class Live2DMoc3MotionPlaybackRegressionTests(unittest.TestCase):
+    def test_moc3_motion_bridge_loads_missing_motion_into_runtime_cache(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "static" / "js" / "live2d" / "moc3" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn("window.live2dPlayMotion=async", runtime)
+        self.assertIn("r._modelSetting.getMotionFileName(t,i)", runtime)
+        self.assertIn("r.loadMotion(l,l.byteLength,a,null,null,r._modelSetting,t,i,r._motionConsistency)", runtime)
+        self.assertIn("r._motions.set(a,o)", runtime)
+        self.assertIn("r.startMotion(t,i,3)!==-1", runtime)
+
+    def test_display_waits_for_async_moc3_motion_playback_result(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("async function playSelectedModelMotion()", script)
+        self.assertIn("await runtimeWindow.live2dPlayMotion(group, index)", script)
