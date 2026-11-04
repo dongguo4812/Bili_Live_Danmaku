@@ -418,3 +418,22 @@ class Live2DOfficialCubism5RuntimeContractTests(unittest.TestCase):
         self.assertIn('if (live2dRuntimeVersion === "moc3") applyLive2DTransform()', script)
         self.assertIn('applyLive2DCrop();\n    applyLive2DTransform();', script)
 
+
+
+class Live2DModelLoadFailureContractTests(unittest.TestCase):
+    def test_moc3_runtime_reports_failed_model_fetches_and_texture_images(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime_page = (root / "templates" / "live2d_moc3_runtime.html").read_text(encoding="utf-8")
+        self.assertIn('type: "moc3-model-error"', runtime_page)
+        self.assertIn('url.pathname.startsWith("/models/moc3/")', runtime_page)
+        self.assertIn('if (!response.ok && isModelResource(requestUrl))', runtime_page)
+        self.assertIn('target instanceof HTMLImageElement', runtime_page)
+        self.assertIn('window.__moc3ModelUrl', runtime_page)
+
+    def test_parent_display_rejects_moc3_resource_error_without_waiting_for_timeout(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn('event.data.type === "moc3-model-error"', script)
+        self.assertIn('reject(new Error((event.data.message || "MOC3 模型资源加载失败") + resource))', script)
+        self.assertIn('event.data.modelUrl !== expectedUrl', script)
+        self.assertIn('event.source !== moc3Frame.contentWindow', script)
