@@ -44,6 +44,8 @@ COOKIE_VALUES: dict[str, str] = {}
 ADMIN_UIDS: set[int] = set()
 module_enabled = False
 module_paused = False
+# 当前 HTML5 视频元素的真实播放状态，与模块暂停状态分开记录。
+playback_state = "stopped"
 # 生命周期代数：会话代数防止关闭后旧 Selenium 任务污染新会话；
 # 请求代数防止暂停/恢复期间尚未完成的旧弹幕请求重新入队。
 video_session_generation = 0
@@ -136,11 +138,12 @@ def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id
     OBS_CONFIG = load_obs_config()
 
 
-def add_operation_message(message):
+def add_operation_message(message, kind=""):
     operation_messages.append({
         "time": time.strftime("%H:%M:%S"),
         "timestamp": time.time(),
         "message": str(message),
+        "kind": "failure" if kind == "failure" else ("success" if kind == "success" else ""),
     })
     del operation_messages[:-OPERATION_MESSAGE_LIMIT]
 
@@ -230,6 +233,7 @@ def build_queue_snapshot():
         "queue": queued,
         "queue_length": len(video_queue),
         "updated_at": time.strftime("%H:%M:%S"),
+        "playback_state": playback_state if current else "stopped",
         "operations": list(operation_messages),
     }
 
@@ -882,7 +886,7 @@ skip_lock = asyncio.Lock()
 
 async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
-    global is_playing, current_bv, playback_monitor_task
+    global is_playing, current_bv, playback_monitor_task, playback_state
     if session_generation is None:
         session_generation = video_session_generation
     if not module_enabled or session_generation != video_session_generation:
@@ -1051,6 +1055,11 @@ async def monitor_video_end(bv, session_generation=None):
                 continue
 
             if ready_state >= 2 and duration > 0:
+                playback_state = (
+                    "stopped" if bool(status.get("ended"))
+                    else "paused" if bool(status.get("paused"))
+                    else "playing"
+                )
                 saw_video = True
                 if current_time > last_time + 0.2:
                     saw_progress = True
@@ -1350,7 +1359,7 @@ async def on_dan_mu(msg_json):
 
     global is_playing, current_bv, driver
 
-    if not module_enabled or module_paused or not isinstance(msg_json, dict):
+    if not module_enabled or not isinstance(msg_json, dict):
         return
     request_generation = video_request_generation
     if str(msg_json.get("type", "")) != "danmaku":
@@ -1396,6 +1405,11 @@ async def on_dan_mu(msg_json):
     if m_order:
         logger.info("【%s】%s (UID: %s)", uname, com, uid)
         bv = "BV" + m_order.group(1)[2:]
+        if module_paused:
+            message = f"点播失败：{uname}，视频点播当前已暂停（{bv}）"
+            logger.info(message)
+            add_operation_message(message, "failure")
+            return
 
         # 重复视频优先判断：当前正在播放或已在待播队列中，都不重复添加。
         # 此检查放在冷却判断之前，重复点播会明确提示“已经在点播队列中”。
@@ -1611,6 +1625,7 @@ class VideoModuleFacade:
         driver = await asyncio.to_thread(create_browser)
         module_enabled = True
         module_paused = False
+        playback_state = "stopped"
         logger.info("视频模块已启动，Chrome 播放会话已初始化。")
 
     async def pause(self):
@@ -1652,7 +1667,7 @@ class VideoModuleFacade:
         logger.info("视频模块已恢复。")
 
     async def close(self):
-        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task
+        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
@@ -1680,6 +1695,7 @@ class VideoModuleFacade:
         video_queue.clear()
         video_requesters.clear()
         is_playing = False
+        playback_state = "stopped"
         current_bv = None
         if driver is not None:
             old_driver = driver
