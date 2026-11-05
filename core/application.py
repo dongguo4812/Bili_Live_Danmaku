@@ -68,7 +68,7 @@ class ApplicationRuntime:
         if not self._started:
             return
         try:
-            self.async_runtime.submit(self.modules.close_all()).result(timeout=timeout)
+            self.async_runtime.submit(self.modules.shutdown_all()).result(timeout=timeout)
         except Exception:
             logger.exception("统一关闭业务模块时发生错误。")
         finally:
