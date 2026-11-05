@@ -74,6 +74,7 @@ DANMAKU_ITEMS: deque[dict[str, Any]] = deque(maxlen=300)
 DANMAKU_SEQUENCE = 0
 
 VOICE_PLAYBACK_STATE_LOCK = threading.Lock()
+VOICE_TEST_QUEUE: deque[dict[str, str]] = deque(maxlen=50)
 VOICE_PLAYBACK_STATE: dict[str, Any] = {
     "current": "",
     "queue": [],
@@ -650,6 +651,31 @@ def get_tts_audio(filename: str):
     if not TTS_CACHE_DIR.is_dir():
         abort(404)
     return send_from_directory(TTS_CACHE_DIR, filename, mimetype="audio/mpeg", max_age=0)
+
+
+@app.post("/api/voice/tts/test")
+def enqueue_tts_test():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "试听文本不能为空。"}), 400
+    if len(text) > 1000:
+        return jsonify({"ok": False, "error": "试听文本不能超过 1000 个字符。"}), 400
+    with VOICE_PLAYBACK_STATE_LOCK:
+        if len(VOICE_TEST_QUEUE) >= VOICE_TEST_QUEUE.maxlen:
+            return jsonify({"ok": False, "error": "试听队列已满，请稍后再试。"}), 429
+        VOICE_TEST_QUEUE.append({"text": text})
+    return jsonify({"ok": True, "message": "试听已加入 OBS 语音队列。"})
+
+
+@app.get("/api/voice/tts/test-queue")
+def get_tts_test_queue():
+    with VOICE_PLAYBACK_STATE_LOCK:
+        items = list(VOICE_TEST_QUEUE)
+        VOICE_TEST_QUEUE.clear()
+    return jsonify({"ok": True, "items": items})
 
 
 @app.get("/api/voice/tts/state")
