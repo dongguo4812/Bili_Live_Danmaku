@@ -105,6 +105,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('"CreateSceneItem"', main)
         self.assertIn('"SetSceneItemEnabled"', main)
         self.assertIn('"shutdown": False', main)
+        self.assertIn('"reroute_audio": True', main)
         refresh_flow = main[main.index("def _refresh_obs_combined_display_sources"):main.index("def _obs_combined_display_refresh_watchdog")]
         self.assertNotIn("SetSceneItemEnabled", refresh_flow)
         self.assertIn("result.get(\"voice_engine\")", main)
