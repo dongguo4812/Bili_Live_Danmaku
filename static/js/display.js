@@ -1651,7 +1651,7 @@
   let cursorInitializationInProgress = false;
 
   async function pollDanmaku() {
-    if (!danmakuCursorInitialized || pollInProgress) return;
+    if (!danmakuCursorInitialized || pollInProgress || (showTts && !ttsSettings)) return;
     pollInProgress = true;
     try {
       const response = await fetch("/api/danmaku?after=" + lastDanmakuId, { cache: "no-store" });
@@ -2091,7 +2091,9 @@
   }
 
   if (ttsVoice) {
-    loadTtsSettings().catch(ttsError => {
+    loadTtsSettings().then(() => {
+      if (showTts) refreshDanmakuPolling();
+    }).catch(ttsError => {
       console.warn("Unable to load TTS settings:", ttsError);
       setTtsStatus("读取语音设置失败：" + ttsError.message, true);
     });
