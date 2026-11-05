@@ -731,40 +731,56 @@ def match_candidates(
     return stage_one, stage_two
 
 
-def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], str]:
-    """按 QQ→酷狗→网易云→酷我顺序收集每个平台的首个有效匹配，供播放失败时回退。"""
+def find_matching_songs(
+    title: str,
+    artist: str,
+    after_source: str = "",
+) -> tuple[list[dict[str, Any]], str]:
+    """按平台顺序搜索；命中当前平台的首个匹配后立即返回。
+
+    after_source 用于播放核验失败后的延迟回退：从指定音源的下一个平台继续搜索，
+    不会重复搜索已经尝试过的平台。
+    """
     keyword = f"{title} {artist}".strip()
-    exact_matches: list[dict[str, Any]] = []
-    contains_matches: list[dict[str, Any]] = []
     errors: list[str] = []
     total_candidates = 0
+    passed_source = not bool(after_source)
+
     for provider_name, source, search_func in PROVIDERS:
+        if not passed_source:
+            if source == after_source:
+                passed_source = True
+            continue
         if source not in ENABLED_PROVIDERS:
             log.info("音乐平台已在设置中关闭，跳过搜索：%s（%s）", provider_name, source)
             continue
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
-            stage_one, stage_two = match_candidates(candidates, title, artist)
-            if stage_one:
-                selected = dict(stage_one[0])
-                exact_matches.append(selected)
-                log.info("音乐匹配候选：平台=%s（%s），级别=完全匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-            elif stage_two:
-                selected = dict(stage_two[0])
-                contains_matches.append(selected)
-                log.info("音乐匹配候选：平台=%s（%s），级别=歌手包含匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-            else:
-                log.info("音乐平台无符合条件结果：%s（%s），有效候选=%s", provider_name, source, len(candidates))
+            exact_matches, contains_matches = match_candidates(candidates, title, artist)
+            selected = exact_matches[0] if exact_matches else (
+                contains_matches[0] if contains_matches else None
+            )
+            if selected:
+                selected = dict(selected)
+                match_level = "歌手完全匹配" if exact_matches else "歌手包含匹配"
+                log.info(
+                    "音乐匹配命中，停止后续搜索：平台=%s（%s），级别=%s，歌曲=%s - %s",
+                    provider_name, source, match_level,
+                    selected.get("title", ""), selected.get("artist", ""),
+                )
+                return [selected], f"已匹配音源：{provider_name}"
+            log.info(
+                "音乐平台无符合条件结果：%s（%s），有效候选=%s",
+                provider_name, source, len(candidates),
+            )
         except Exception as exc:
             errors.append(f"{source}:{type(exc).__name__}: {exc}")
             log.exception("音乐平台搜索失败：%s（%s）", provider_name, source)
             continue
 
-    # 全平台先使用精确歌手结果；只有不存在任何精确结果时才使用包含匹配。
-    matches = exact_matches + contains_matches
-    if matches:
-        return matches, f"已取得 {len(matches)} 个音源候选"
+    if after_source and not passed_source:
+        return [], f"未找到音源 {after_source}，无法继续后续平台搜索"
     if errors and total_candidates == 0:
         return [], "音乐源搜索请求失败（" + ", ".join(errors) + "）"
     if artist:
@@ -1624,7 +1640,17 @@ class MusicModule:
                     if self._skip_requested.is_set():
                         break
                     if not started:
-                        log.warning("调用洛雪播放失败，准备回退音源：%s（%s）", candidate_song["title"], candidate_song["source"])
+                        log.warning("调用洛雪播放失败，准备搜索下一个平台：%s（%s）", candidate_song["title"], candidate_song["source"])
+                        next_candidates, next_reason = await asyncio.to_thread(
+                            find_matching_songs,
+                            str(item.get("requested_title") or item.get("title") or ""),
+                            str(item.get("requested_artist") or ""),
+                            candidate_song["source"],
+                        )
+                        if next_candidates:
+                            candidates.extend(next_candidates)
+                        else:
+                            log.info("后续平台未找到可回退歌曲：%s", next_reason)
                         continue
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
@@ -1670,10 +1696,20 @@ class MusicModule:
                         break
 
                     log.warning(
-                        "音源播放核验失败，准备尝试下一个音源：歌曲=%s - %s；音源=%s；原因=%s",
+                        "音源播放核验失败，准备搜索下一个平台：歌曲=%s - %s；音源=%s；原因=%s",
                         candidate_song["title"], candidate_song["artist"],
                         candidate_song["source"], verify_message,
                     )
+                    next_candidates, next_reason = await asyncio.to_thread(
+                        find_matching_songs,
+                        str(item.get("requested_title") or item.get("title") or ""),
+                        str(item.get("requested_artist") or ""),
+                        candidate_song["source"],
+                    )
+                    if next_candidates:
+                        candidates.extend(next_candidates)
+                    else:
+                        log.info("后续平台未找到可回退歌曲：%s", next_reason)
 
                 if self._skip_requested.is_set():
                     # 关闭模块也会设置 skip_event；此时必须保留播放归属，
