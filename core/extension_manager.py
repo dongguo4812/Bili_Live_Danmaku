@@ -127,6 +127,25 @@ class LolHexExtensionManager:
         except Exception:
             return True
 
+    def _clear_stale_elevated_process(self) -> None:
+        """清理已退出的管理员 Hex 进程标记，避免状态永久停留在启动中。"""
+        if not self._elevated_managed:
+            return
+        pid = self._read_pid()
+        if pid is not None and self._pid_is_running(pid):
+            return
+
+        self._elevated_managed = False
+        if pid is not None:
+            try:
+                if self._read_pid() == pid:
+                    self.pid_file.unlink(missing_ok=True)
+            except OSError:
+                self.logger.warning("清理已退出 LOL Hex 的 PID 文件失败。", exc_info=True)
+        if not self._last_error:
+            self._last_error = "LOL Hex 管理员进程已退出。"
+        self.logger.warning("检测到 LOL Hex 管理员进程已退出，已清理托管状态。")
+
     def _request(self, path: str, payload: dict[str, Any] | None = None, timeout: float = 1.0) -> dict[str, Any]:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"} if data is not None else {}
@@ -164,6 +183,8 @@ class LolHexExtensionManager:
                 if code not in (0, None):
                     self._last_error = f"LOL Hex 进程异常退出（退出码 {code}）。"
             healthy = self._is_healthy()
+            if not healthy:
+                self._clear_stale_elevated_process()
             if healthy:
                 managed = bool((self._process is not None and self._owned) or self._elevated_managed)
                 return {
@@ -200,6 +221,7 @@ class LolHexExtensionManager:
         with self._lock:
             if self._is_healthy():
                 return self.status()
+            self._clear_stale_elevated_process()
             if self._process is not None and self._process.poll() is None:
                 return self.status()
             command = self._command()
@@ -249,6 +271,7 @@ class LolHexExtensionManager:
                 time.sleep(0.25)
 
             self._last_error = "等待 LOL Hex Web 服务启动超时，请检查 UAC 是否完成以及 Hex 日志。"
+            self._clear_stale_elevated_process()
             process = self._process
             self._process = None
             self._owned = False
