@@ -773,8 +773,12 @@ def find_matching_songs(
                 parts = str(title or "").rsplit(None, 1)
                 if len(parts) == 2 and parts[0].strip() and parts[1].strip():
                     fallback_title, fallback_artist = parts[0].strip(), parts[1].strip()
+                    # 第一次使用完整输入搜索无匹配时，再单独用拆分出的歌名搜索，
+                    # 随后以歌手字段进行严格匹配，避免完整关键词结果集漏掉目标歌曲。
+                    fallback_candidates = search_func(fallback_title)
+                    total_candidates += len(fallback_candidates)
                     fallback_exact, fallback_contains = match_candidates(
-                        candidates, fallback_title, fallback_artist
+                        fallback_candidates, fallback_title, fallback_artist
                     )
                     selected = fallback_exact[0] if fallback_exact else (
                         fallback_contains[0] if fallback_contains else None
@@ -785,7 +789,7 @@ def find_matching_songs(
                             if fallback_exact else "空格拆分后歌手包含匹配"
                         )
                         log.info(
-                            "点歌空格后备匹配成功：原始输入=%s；歌名=%s；歌手=%s",
+                            "点歌空格后备匹配成功：原始输入=%s；歌名搜索词=%s；歌手=%s",
                             title, fallback_title, fallback_artist,
                         )
 
