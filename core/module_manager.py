@@ -39,6 +39,7 @@ class ModuleManager:
         self._lock = threading.RLock()
         self._disconnect_snapshot: dict[str, int] | None = None
         self._connection_active = False
+        self._shutting_down = False
 
     def register(
         self,
@@ -179,8 +180,17 @@ class ModuleManager:
                 logger.exception("模块操作失败：module=%s action=%s", name, method)
                 raise
 
+    def begin_shutdown(self) -> None:
+        """同步封锁新的连接状态回调，避免退出过程中再次暂停业务模块。"""
+        with self._lock:
+            self._shutting_down = True
+            self._connection_active = False
+            self._disconnect_snapshot = None
+
     async def on_connection_lost(self) -> None:
         with self._lock:
+            if self._shutting_down:
+                return
             self._connection_active = False
             snapshot = {
                 name: record.generation
@@ -205,6 +215,8 @@ class ModuleManager:
 
     async def on_connection_restored(self) -> None:
         with self._lock:
+            if self._shutting_down:
+                return
             self._connection_active = True
             first_connection = self._disconnect_snapshot is None
             snapshot = dict(self._disconnect_snapshot or {})
@@ -240,9 +252,8 @@ class ModuleManager:
 
     async def shutdown_all(self) -> None:
         """程序退出专用清理：优先调用模块的 shutdown，避免复用手动关闭语义。"""
+        self.begin_shutdown()
         with self._lock:
-            self._connection_active = False
-            self._disconnect_snapshot = None
             # 按注册顺序逆序清理：后注册的依赖模块（如视频依赖歌曲模块）
             # 先释放资源并完成必要恢复，再关闭其依赖模块。
             records = tuple(reversed(tuple(self._modules.values())))
