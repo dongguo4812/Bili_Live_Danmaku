@@ -1112,7 +1112,7 @@ async def monitor_video_end(bv, session_generation=None):
 async def play_next():
     """取出队列第一条视频并打开页面。"""
 
-    global is_playing, current_bv, driver, playback_monitor_task
+    global is_playing, current_bv, driver, playback_monitor_task, playback_state
 
     async with play_lock:
 
@@ -1134,6 +1134,7 @@ async def play_next():
 
         is_playing = True
         current_bv = bv
+        playback_state = "unknown"
 
         url = f"https://www.bilibili.com/video/{bv}"
 
@@ -1612,7 +1613,7 @@ class VideoModuleFacade:
         self.event_bus.subscribe("danmaku", on_dan_mu)
 
     async def start(self):
-        global driver, module_enabled, module_paused
+        global driver, module_enabled, module_paused, playback_state
         global video_session_generation, video_request_generation
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
