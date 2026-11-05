@@ -806,7 +806,7 @@ def play_song_in_lx(song: dict[str, Any]) -> bool:
             os.startfile(uri)  # type: ignore[attr-defined]
         else:
             webbrowser.open(uri)
-         return True
+        return True
     except Exception:
         log.exception("调用已匹配歌曲播放失败：%s", song.get("title", "未知歌曲"))
         return False
