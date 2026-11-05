@@ -621,20 +621,29 @@ def get_lx_status() -> Optional[dict[str, Any]]:
 
 
 
-def is_lx_playing(status: Optional[dict[str, Any]]) -> bool:
-    """根据洛雪 /status 接口判断当前是否正在播放。"""
+def get_lx_playback_state(status: Optional[dict[str, Any]]) -> str:
+    """将洛雪状态归一为 playing / paused / stopped / unknown。"""
     if not isinstance(status, dict):
-        return False
+        return "unknown"
 
-    status_text = str(
-        status.get("status", status.get("playStatus", status.get("state", "")))
-    ).strip().lower()
-
-    return (
-        status_text in ("playing", "play", "1", "true")
+    raw = status.get("status", status.get("playStatus", status.get("state", "")))
+    value = str(raw).strip().lower()
+    if value in {"paused", "pause", "暂停", "已暂停"} or status.get("paused") is True or status.get("isPaused") is True:
+        return "paused"
+    if (
+        value in {"playing", "play", "1", "true"}
         or status.get("playing") is True
         or status.get("isPlaying") is True
-    )
+    ):
+        return "playing"
+    if value in {"stopped", "stop", "0", "false", "ended", "停止", "已停止"} or status.get("playing") is False:
+        return "stopped"
+    return "unknown"
+
+
+def is_lx_playing(status: Optional[dict[str, Any]]) -> bool:
+    """根据洛雪 /status 接口判断当前是否正在播放。"""
+    return get_lx_playback_state(status) == "playing"
 
 
 def get_lx_current_song_key(
@@ -955,6 +964,8 @@ class MusicModule:
                 for i, item in enumerate(self.queue, 1)
             ]
             queue_count = len(waiting)
+        lx_status = await asyncio.to_thread(get_lx_status)
+        playback_state = get_lx_playback_state(lx_status) if current else "stopped"
         now = time.time()
         with self._display_lock:
             events = [
@@ -964,6 +975,7 @@ class MusicModule:
         return {
             "ok": True,
             "current": current,
+            "playback_state": playback_state,
             "queue": waiting,
             "queue_count": queue_count,
             "queue_limit": QUEUE_LIMIT,
@@ -1048,7 +1060,7 @@ class MusicModule:
         return {"ok": False, "message": "不支持的操作"}
 
     async def on_danmu(self, event: dict[str, Any]) -> None:
-        if not self.enabled or self.paused or not isinstance(event, dict):
+        if not self.enabled or not isinstance(event, dict):
             return
         if str(event.get("type", "")) != "danmaku":
             return
@@ -1078,6 +1090,13 @@ class MusicModule:
         parsed = parse_request(message)
 
         if not parsed:
+            return
+        if self.paused:
+            self.add_display_event(
+                f"【{uname}】点歌失败：歌曲点播当前已暂停",
+                "failure",
+            )
+            log.info("【%s】点歌失败：歌曲点播模块当前已暂停 (UID:%s)", uname, uid)
             return
         if uid not in self.admin_uids and not self.song_request_enabled:
             log.info(
