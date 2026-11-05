@@ -62,6 +62,10 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("if had_current_song and stop_playback:", music)
         self.assertIn("async def shutdown(self):", video)
         self.assertIn("await self.close()", video)
+        self.assertIn('if not callable(shutdown) and record.state == "stopped":', manager)
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertLess(main.index("APPLICATION_RUNTIME.shutdown()", main.index("if __name__ == \"__main__\"")),
+                        main.index("LIVE_CLIENT.stop()", main.index("if __name__ == \"__main__\"")))
 
 
 if __name__ == "__main__":
