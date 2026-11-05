@@ -1852,7 +1852,13 @@ class VideoModuleFacade:
         logger.info("视频模块已恢复。")
 
     async def shutdown(self):
-        """程序退出时先快速回收专用 Chrome，再清理模块状态；不触碰洛雪。"""
+        """程序退出时先封锁视频任务并快速回收专用 Chrome；不触碰洛雪。"""
+        global module_enabled, module_paused, video_session_generation, video_request_generation
+        # 先阻止播放监控/旧请求在 Chrome 被回收期间重新创建浏览器。
+        module_enabled = False
+        module_paused = False
+        video_session_generation += 1
+        video_request_generation += 1
         await asyncio.to_thread(emergency_close_browser_sync)
         await self.close(restore_music=False, cleanup_browser=False)
 
