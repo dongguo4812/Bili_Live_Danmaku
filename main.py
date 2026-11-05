@@ -32,7 +32,7 @@ from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from core.logger_manager import setup_logging
 from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
-from modules.video.service import VideoModuleFacade, emergency_close_browser_sync
+from modules.video.service import VideoModuleFacade
 from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
 
