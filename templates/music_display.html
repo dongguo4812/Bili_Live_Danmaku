@@ -17,7 +17,7 @@ html, body, body.embedded, #media-root, #media-root.media-display {
 body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif}
 body.embedded{padding:0}
 #media-root.offline{visibility:hidden!important}
-#media-root{width:100%;height:100%;overflow:auto}
+#media-root{width:100%;height:100%;overflow:hidden}
 </style>
 </head>
 <body class="{% if request.args.get('embedded') %}embedded{% endif %}">
