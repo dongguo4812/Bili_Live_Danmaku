@@ -81,10 +81,10 @@
     if(current){
       titleLine(currentBox,current,type,"");
     }else{
-      currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无机器人点播歌曲":"暂无机器人点播视频"));
+      currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
 
-    const nextBox=section(root,"接下来播放","next");
+    const nextBox=section(root,"Ⅱ 接下来播放","next");
     const nextHeading=nextBox.querySelector(".md-heading");
     if(queue.length){
       queueList(nextBox,queue,type);
