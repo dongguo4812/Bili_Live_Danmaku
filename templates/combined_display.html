@@ -54,6 +54,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .editor-mode .widget.live2d .widget-header,.editor-mode .widget.music_widget .widget-header{position:absolute;z-index:10;top:0;left:0;right:0}
 .editor-mode .widget.live2d .widget-body,.editor-mode .widget.music_widget .widget-body{position:absolute;inset:0;width:auto;height:auto;padding:0;overflow:hidden}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
+.widget.music iframe,.widget.video iframe{width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:dark}
+.display-mode .widget.music,.display-mode .widget.video,.display-mode .widget.music .widget-body,.display-mode .widget.video .widget-body{background:transparent!important;background-color:transparent!important;box-shadow:none;backdrop-filter:none}
+.widget.music .widget-body,.widget.video .widget-body{padding:0}
+
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .display-mode .widget.music_widget .widget-header{display:none}
@@ -124,13 +128,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     <label class="editor-control">当前模块
       <select id="selected-widget" aria-label="选择要调整内容大小的模块" style="padding:5px;background:#202b3b;color:#f4f6fb;border:1px solid #53627c;border-radius:6px"></select>
     </label>
-    <label class="editor-control" id="font-scale-control">字体大小
-      <input id="font-scale" type="range" min="50" max="200" step="5" value="100">
-      <output id="font-scale-value">100%</output>
-    </label>
-    <label class="editor-control" id="content-scale-control" hidden>整体缩放
-      <input id="content-scale" type="range" min="50" max="200" step="5" value="100">
-      <output id="content-scale-value">100%</output>
+    <label class="editor-control" id="overall-scale-control">整体缩放
+      <input id="overall-scale" type="range" min="50" max="200" step="5" value="100">
+      <output id="overall-scale-value">100%</output>
     </label>
     <span id="layout-message">拖动模块内部移动；拖动边缘调整单一方向，拖动角点同时调整宽高。</span>
   </div>
@@ -235,7 +235,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     node.style.top=item.y+"%";
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
-    node.style.setProperty("--content-scale",String((Number(item.font_scale)||100)/100));
+    node.style.setProperty("--content-scale","1");
     syncLive2DFrame(node);
   }
 
@@ -243,33 +243,35 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     selectedWidgetType=type||"";
     const item=layout.widgets.find(w=>w.type===selectedWidgetType);
     const select=document.getElementById("selected-widget");
-    const fontControl=document.getElementById("font-scale-control");
-    const overallControl=document.getElementById("content-scale-control");
-    const fontSlider=document.getElementById("font-scale");
-    const overallSlider=document.getElementById("content-scale");
+    const overallSlider=document.getElementById("overall-scale");
+    const overallValue=document.getElementById("overall-scale-value");
     if(select) select.value=selectedWidgetType;
-    const fontEnabled=!!item && ["music","video","danmaku","voice"].includes(item.type);
-    const overallEnabled=!!item && item.type==="music_widget";
-    if(fontControl) fontControl.hidden=!fontEnabled;
-    if(overallControl) overallControl.hidden=!overallEnabled;
-    if(fontSlider) fontSlider.value=String(item?.font_scale??100);
-    if(overallSlider) overallSlider.value=String(item?.content_scale??100);
-    const fontValue=document.getElementById("font-scale-value");
-    const overallValue=document.getElementById("content-scale-value");
-    if(fontValue) fontValue.textContent=(item?.font_scale??100)+"%";
-    if(overallValue) overallValue.textContent=(item?.content_scale??100)+"%";
+    const scale=item ? Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100 : 100;
+    if(overallSlider){
+      overallSlider.value=String(scale);
+      overallSlider.disabled=!item || item.type==="live2d";
+    }
+    if(overallValue) overallValue.textContent=scale+"%";
   }
 
   function applyContentScale(item){
     const widget=stage.querySelector('[data-widget="'+item.type+'"]');
     if(widget) positionWidget(widget,item);
     const body=widget?.querySelector(".widget-body");
-    if(item.type==="music_widget" && body){
-      const frame=body.querySelector("iframe");
-      if(frame){
-        const scale=(Number(item.content_scale)||100)/100;
-        frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
-      }
+    if(!body) return;
+    const scale=(Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100)/100;
+    if(item.type==="voice"||item.type==="danmaku"){
+      body.style.zoom=String(scale);
+      body.style.width=(100/scale)+"%";
+      body.style.height=(100/scale)+"%";
+      return;
+    }
+    const frame=body.querySelector("iframe");
+    if(!frame) return;
+    if(item.type==="music_widget"){
+      frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
+    }else if(item.type==="music"||item.type==="video"){
+      frame.contentWindow?.postMessage({type:"combined-display-scale",scale},window.location.origin);
     }
   }
 
@@ -320,8 +322,16 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     setMessage("布局已调整；点击“保存当前布局”写入本地配置。");
   }
 
-  function renderMusic(body){
-    MediaDisplay.render(body,"music",latestData.music||{},{compact:true,showInstruction:false});
+  function renderMusic(body,item){
+    // Embed the module's own display page so rendering and refresh remain independent.
+    const frame=document.createElement("iframe");
+    frame.src="/music/display?embedded=1";
+    frame.title="歌曲点播独立展示页";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
+    body.appendChild(frame);
   }
 
   function renderMusicWidget(body,item){
@@ -332,12 +342,20 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency", "true");
     frame.style.background = "transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
-  function renderVideo(body){
-    // 综合展示仅呈现视频信息，不加载或嵌入实际视频画面。
-    MediaDisplay.render(body,"video",latestData.video||{},{compact:true,showInstruction:false});
+  function renderVideo(body,item){
+    // Embed the module's own display page and its independent refresh lifecycle.
+    const frame=document.createElement("iframe");
+    frame.src="/video/display?embedded=1";
+    frame.title="点播视频独立展示页";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
+    body.appendChild(frame);
   }
 
   function renderVoice(body){
@@ -394,8 +412,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         renderLive2DPreview(body);
       }
     }else if(type==="music_widget") renderMusicWidget(body,item);
-    else if(type==="music") renderMusic(body);
-    else if(type==="video") renderVideo(body);
+    else if(type==="music") renderMusic(body,item);
+    else if(type==="video") renderVideo(body,item);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
   }
@@ -406,7 +424,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       const widget=make("section","widget "+item.type);
       widget.dataset.widget=item.type;
       positionWidget(widget,item);
-      const header=make("header","widget-header",labels[item.type]||item.type);
+      const header=make("header","widget-header");
+      const title=make("span","widget-title",labels[item.type]||item.type);
+      if(displayMode && (item.type==="music"||item.type==="video")) title.hidden=true;
+      header.appendChild(title);
       const actions=make("div","widget-actions");
       if(!displayMode){
         const remove=make("button","","移除");
@@ -500,11 +521,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(refreshInFlight) return;
     refreshInFlight=true;
     try{
-      const [music,video,voice,modules]=await Promise.all([
-        api("/api/music/queue"),api("/api/video/queue"),api("/api/voice/tts/settings"),api("/api/modules")
+      // Music and video data are refreshed by their own embedded display pages.
+      // Keep only the shared voice/module state requests in the layout controller.
+      const [voice,modules]=await Promise.all([
+        api("/api/voice/tts/settings"),api("/api/modules")
       ]);
-      latestData.music=music;
-      latestData.video=video;
       latestData.voice=voice;
       latestData.modules=modules.modules||{};
       latestData.voice.module_state=(latestData.modules.voice||{}).state||"stopped";
@@ -527,14 +548,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       layout.widgets.forEach(item=>{
         const widget=stage.querySelector('[data-widget="'+item.type+'"]');
         if(!widget) return;
-        // The combined output follows each module's lifecycle; a stopped module
-        // is hidden without affecting the other widgets or the module runtime.
-        if(displayMode && (item.type==="music" || item.type==="video")){
-          const moduleState=(latestData.modules[item.type]||{}).state||"stopped";
-          widget.hidden=moduleState==="stopped";
-        }
         const node=widget.querySelector(".widget-body");
-        if(node && item.type!=="live2d" && item.type!=="music_widget") renderWidgetContent(node,item.type,item);
+        // Music and video refresh themselves inside their embedded pages.
+        if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
       });
     }catch(error){
       if(displayMode) console.debug("综合展示数据刷新失败",error);
@@ -548,18 +564,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   });
   const selectedWidgetSelect=document.getElementById("selected-widget");
   if(selectedWidgetSelect) selectedWidgetSelect.addEventListener("change",()=>selectWidget(selectedWidgetSelect.value));
-  const fontScaleSlider=document.getElementById("font-scale");
-  if(fontScaleSlider) fontScaleSlider.addEventListener("input",()=>{
+  const overallScaleSlider=document.getElementById("overall-scale");
+  if(overallScaleSlider) overallScaleSlider.addEventListener("input",()=>{
     const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
-    item.font_scale=Number(fontScaleSlider.value);
-    const value=document.getElementById("font-scale-value"); if(value)value.textContent=item.font_scale+"%";
-    applyContentScale(item);
-  });
-  const contentScaleSlider=document.getElementById("content-scale");
-  if(contentScaleSlider) contentScaleSlider.addEventListener("input",()=>{
-    const item=layout.widgets.find(w=>w.type===selectedWidgetType); if(!item)return;
-    item.content_scale=Number(contentScaleSlider.value);
-    const value=document.getElementById("content-scale-value"); if(value)value.textContent=item.content_scale+"%";
+    const scale=Number(overallScaleSlider.value);
+    if(item.type==="music_widget") item.content_scale=scale;
+    else item.font_scale=scale;
+    const value=document.getElementById("overall-scale-value"); if(value)value.textContent=scale+"%";
     applyContentScale(item);
   });
   const saveButton=document.getElementById("save-layout");

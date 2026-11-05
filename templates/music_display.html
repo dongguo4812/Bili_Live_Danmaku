@@ -6,18 +6,53 @@
 <title>歌曲点播展示</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='display_media.css') }}">
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#fff}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent!important;background-color:transparent!important;color:#fff}
+html{color-scheme:dark;}
+/* Force alpha transparency through the standalone music display page layers. */
+html, body, body.embedded, #media-root, #media-root.media-display {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
 body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif}
-#media-root{width:100%;height:100%;overflow:auto}
+body.embedded{padding:0}
+#media-root.offline{visibility:hidden!important}
+#media-root{width:100%;height:100%;overflow:hidden}
 </style>
 </head>
-<body>
+<body class="{% if request.args.get('embedded') %}embedded{% endif %}">
 <div id="media-root" class="media-display"></div>
 <script src="{{ url_for('static', filename='display_media.js') }}"></script>
 <script>
 (function(){
   const root=document.getElementById("media-root");
-  let inFlight=false;
+  let inFlight=false,statusInFlight=false,moduleState="unknown";
+  let displayScale=1;
+  function applyDisplayScale(scale){
+    displayScale=Math.max(0.5,Math.min(2,Number(scale)||1));
+    root.style.zoom=String(displayScale);
+    root.style.width=(100/displayScale)+"%";
+    root.style.height=(100/displayScale)+"%";
+  }
+  window.addEventListener("message",event=>{
+    if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-display-scale") return;
+    applyDisplayScale(event.data.scale);
+  });
+  applyDisplayScale(1);
+  function setOnline(online){root.classList.toggle("offline",!online);}
+  async function refreshStatus(){
+    if(statusInFlight)return;
+    statusInFlight=true;
+    try{
+      const response=await fetch("/api/modules?t="+Date.now(),{cache:"no-store"});
+      if(!response.ok)throw new Error("HTTP "+response.status);
+      const data=await response.json();
+      const state=data&&data.modules&&data.modules.music?data.modules.music.state:"stopped";
+      moduleState=state;
+      setOnline(state==="running"||state==="paused");
+    }catch(error){console.debug("获取歌曲点播模块状态失败，保留当前显示状态：",error);}
+    finally{statusInFlight=false;}
+  }
   async function refresh(){
     if(inFlight)return;
     inFlight=true;
@@ -31,12 +66,15 @@ body{padding:12px 18px;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-s
         return;
       }
       root.style.display="";
-      MediaDisplay.render(root,"music",data);
+      MediaDisplay.render(root,"music",data,{moduleState});
     }catch(error){
       root.style.display="none";
     }finally{inFlight=false;}
   }
+  setOnline(false);
+  refreshStatus();
   refresh();
+  setInterval(refreshStatus,1000);
   setInterval(refresh,1000);
 })();
 </script>

@@ -7,6 +7,36 @@ import unittest
 from pathlib import Path
 
 
+
+class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
+    def test_music_and_video_widgets_embed_their_independent_display_pages(self):
+        root = Path(__file__).resolve().parents[1]
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('frame.src="/music/display?embedded=1"', combined)
+        self.assertIn('frame.src="/video/display?embedded=1"', combined)
+        self.assertNotIn('MediaDisplay.render(body,"music"', combined)
+        self.assertNotIn('MediaDisplay.render(body,"video"', combined)
+        self.assertIn('!["live2d","music_widget","music","video"].includes(item.type)', combined)
+        self.assertNotIn("widget.hidden=", combined)
+        self.assertNotIn('api("/api/music/queue")', combined)
+        self.assertNotIn('api("/api/video/queue")', combined)
+
+    def test_music_and_video_pages_hide_content_when_modules_are_stopped(self):
+        root = Path(__file__).resolve().parents[1]
+        music = (root / "templates" / "music_display.html").read_text(encoding="utf-8")
+        video = (root / "templates" / "video_display.html").read_text(encoding="utf-8")
+        for page, module in ((music, "music"), (video, "video")):
+            self.assertIn('fetch("/api/modules?t="+Date.now()', page)
+            self.assertIn('state==="running"||state==="paused"', page)
+            self.assertIn('#media-root.offline{visibility:hidden!important}', page)
+            self.assertNotIn('body.offline', page)
+            self.assertIn('root.classList.toggle("offline",!online)', page)
+            self.assertIn('保留当前显示状态', page)
+            self.assertIn('data.modules.' + module, page)
+        self.assertIn('body.embedded{padding:0}', music)
+        self.assertIn('body.embedded{padding:0}', video)
+
+
 class CombinedDisplayContractTests(unittest.TestCase):
     def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
@@ -832,18 +862,3 @@ class CombinedLayoutSaveRebindRegressionTests(unittest.TestCase):
         success_message = save_function.index('setMessage(data.message||"布局已保存。");', rerender)
         self.assertLess(replace_layout, rerender)
         self.assertLess(rerender, success_message)
-
-
-class CombinedModuleVisibilityRegressionTests(unittest.TestCase):
-    def test_stopped_music_and_video_modules_are_hidden_only_in_combined_output(self):
-        source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
-        start = source.index("  async function refreshData()")
-        end = source.index("\n  document.querySelectorAll(\"[data-add]\")", start)
-        refresh_function = source[start:end]
-
-        self.assertIn('api("/api/modules")', refresh_function)
-        self.assertIn("latestData.modules=modules.modules||{}", refresh_function)
-        self.assertIn('if(displayMode && (item.type==="music" || item.type==="video"))', refresh_function)
-        self.assertIn('const moduleState=(latestData.modules[item.type]||{}).state||"stopped"', refresh_function)
-        self.assertIn('widget.hidden=moduleState==="stopped"', refresh_function)
-        self.assertIn('.widget[hidden]{display:none!important}', source)
