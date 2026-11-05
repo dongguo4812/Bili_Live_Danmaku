@@ -39,6 +39,11 @@ REQUIRE_FANS_MEDAL = bool(_MUSIC_CONFIG.get("requests", {}).get("require_fans_me
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
 QUEUE_LIMIT = max(1, int(_MUSIC_CONFIG.get("requests", {}).get("queue_limit", 100)))
 SEARCH_LIMIT = min(20, max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20))))
+DEFAULT_ENABLED_PROVIDERS = ("tx", "kg", "wy", "kw")
+ENABLED_PROVIDERS = tuple(
+    key for key in DEFAULT_ENABLED_PROVIDERS
+    if key in (_MUSIC_CONFIG.get("search", {}).get("enabled_platforms") or DEFAULT_ENABLED_PROVIDERS)
+) or DEFAULT_ENABLED_PROVIDERS
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
 
@@ -59,7 +64,7 @@ def _require_fans_medal(value: Any) -> bool:
 def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id: int = 0) -> None:
     """由主程序注入普通配置和统一登录态；本模块不读取/保存 Cookie。"""
     global LX_API, HTTP_TIMEOUT, ROOM_ID, COOKIE_DICT, REQUIRE_FANS_MEDAL
-    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS
+    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS, ENABLED_PROVIDERS
     lx = config.get("lx_music", {}) if isinstance(config.get("lx_music"), dict) else {}
     req = config.get("requests", {}) if isinstance(config.get("requests"), dict) else {}
     search = config.get("search", {}) if isinstance(config.get("search"), dict) else {}
@@ -70,6 +75,12 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     COOLDOWN_SECONDS = max(0, int(req.get("cooldown_seconds", 10)))
     QUEUE_LIMIT = max(1, int(req.get("queue_limit", 100)))
     SEARCH_LIMIT = min(20, max(1, int(search.get("max_results_per_platform", 20))))
+    raw_enabled = search.get("enabled_platforms", list(DEFAULT_ENABLED_PROVIDERS))
+    if isinstance(raw_enabled, (list, tuple, set)):
+        selected = tuple(key for key in DEFAULT_ENABLED_PROVIDERS if key in raw_enabled)
+        ENABLED_PROVIDERS = selected or DEFAULT_ENABLED_PROVIDERS
+    else:
+        ENABLED_PROVIDERS = DEFAULT_ENABLED_PROVIDERS
     ADMIN_UIDS = set()
     configured_uids = config.get("admin_uids", [])
     if isinstance(configured_uids, list):
@@ -728,6 +739,9 @@ def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], 
     errors: list[str] = []
     total_candidates = 0
     for provider_name, source, search_func in PROVIDERS:
+        if source not in ENABLED_PROVIDERS:
+            log.info("音乐平台已在设置中关闭，跳过搜索：%s（%s）", provider_name, source)
+            continue
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
