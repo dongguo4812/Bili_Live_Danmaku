@@ -717,12 +717,29 @@ def emergency_close_browser_sync() -> bool:
 
 @selenium_locked
 def create_browser():
-    """创建 Chrome 浏览器实例。"""
+    """创建 Chrome 浏览器实例；创建失败时只清理本程序专用 Profile。"""
 
-    browser = webdriver.Chrome(options=chrome_options)
-    browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-
-    return browser
+    try:
+        browser = webdriver.Chrome(options=chrome_options)
+        browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+        return browser
+    except Exception:
+        # SessionNotCreated 等异常可能发生在 Chrome 已启动、WebDriver 会话
+        # 尚未建立时；此时全局 driver 仍为 None，常规 quit 无法回收孤儿进程。
+        # 仅按本程序独立的 user-data-dir 定向清理，绝不结束其他 Chrome。
+        logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
+        roots, remaining = _terminate_chrome_profile_processes_sync()
+        if remaining:
+            logger.error(
+                "Chrome 创建失败后的专用 Profile 清理仍有残留：匹配主进程=%s，残留 PID=%s",
+                roots,
+                remaining,
+            )
+        elif roots:
+            logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
+        else:
+            logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
+        raise
 
 
 @selenium_locked
