@@ -56,14 +56,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}
 .widget.music iframe,.widget.video iframe{width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important;color-scheme:dark}
 .display-mode .widget.music,.display-mode .widget.video,.display-mode .widget.music .widget-body,.display-mode .widget.video .widget-body{background:transparent!important;background-color:transparent!important;box-shadow:none;backdrop-filter:none}
-.widget.music .widget-body,.widget.video .widget-body{padding:0}
+.widget.music .widget-body,.widget.video .widget-body,.widget.lol_hex_bar .widget-body,.widget.lol_hex_display .widget-body{padding:0}
+.widget.lol_hex_bar iframe,.widget.lol_hex_display iframe{width:100%;height:100%;border:0;background:transparent!important;background-color:transparent!important}
 
 /* 歌曲信息组件直接呈现 /music/widget 原页面，不显示综合展示容器标题栏。 */
 .display-mode .widget.music_widget{border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none}
 .display-mode .widget.music_widget .widget-header{display:none}
 .display-mode .widget.music_widget .widget-body{flex:1;min-height:0;padding:0;overflow:hidden}
 /* Live2D 使用模块自身的完整视口；隐藏标题栏，避免压缩 iframe 的可用高度。 */
-.display-mode .widget.live2d .widget-header{display:none}
+.display-mode .widget.live2d .widget-header,.display-mode .widget.lol_hex_bar .widget-header,.display-mode .widget.lol_hex_display .widget-header{display:none}
 .display-mode .widget.live2d .widget-body{flex:1;min-height:0;padding:0;overflow:hidden;background:transparent}
 .widget video,.widget .video-frame{display:none!important}
 .voice-engine{position:absolute;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none;border:0}
@@ -119,6 +120,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     <button type="button" data-add="music">添加歌曲</button>
     <button type="button" data-add="music_widget">添加歌曲信息</button>
     <button type="button" data-add="video">添加视频</button>
+    <button type="button" data-add="lol_hex_bar">添加 LOL 战绩条</button>
+    <button type="button" data-add="lol_hex_display">添加 LOL 海克斯展示</button>
     <button type="button" data-add="danmaku">添加弹幕</button>
     <button type="button" class="primary" id="save-layout">保存当前布局</button>
     <button type="button" id="reset-layout">恢复默认布局</button>
@@ -142,14 +145,14 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
   const displayMode = document.body.dataset.displayMode === "1";
   const stage = document.getElementById("stage");
   const message = document.getElementById("layout-message");
-  const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",music_widget:"歌曲信息",video:"视频点播",danmaku:"直播弹幕"};
+  const labels = {live2d:"Live2D",voice:"语音播报",music:"歌曲点播",music_widget:"歌曲信息",video:"视频点播",lol_hex_bar:"LOL 战绩条",lol_hex_display:"LOL 海克斯展示",danmaku:"直播弹幕"};
   let layout = {version:1,widgets:[]};
   let danmakuAfter = 0;
   let danmakuCursorReady = false;
   let refreshInFlight = false;
   let dragState = null;
   let selectedWidgetType = "";
-  let latestData = {voiceSpeech:{current:"",queue:[]}};
+  let latestData = {voiceSpeech:{current:"",queue:[]},hex:null};
   window.addEventListener("message",event=>{
     if(event.origin!==window.location.origin || !event.data || event.data.type!=="combined-tts-state") return;
     latestData.voiceSpeech={
@@ -358,6 +361,22 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     body.appendChild(frame);
   }
 
+  function renderLolHex(body,type){
+    const running=!!(latestData.hex&&latestData.hex.running);
+    body.dataset.hexState=running?"running":"stopped";
+    if(!running){
+      body.appendChild(make("div","empty","LOL 海克斯展示未启动"));
+      return;
+    }
+    const frame=document.createElement("iframe");
+    frame.src=type==="lol_hex_bar"?"/extensions/lol-hex/bar":"/extensions/lol-hex/display";
+    frame.title=type==="lol_hex_bar"?"LOL 战绩条":"LOL 海克斯展示";
+    frame.loading="eager";
+    frame.setAttribute("allowtransparency","true");
+    frame.style.background="transparent";
+    body.appendChild(frame);
+  }
+
   function renderVoice(body){
     const data=latestData.voice||{};
     const prefs=data.preferences||{};
@@ -414,6 +433,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     }else if(type==="music_widget") renderMusicWidget(body,item);
     else if(type==="music") renderMusic(body,item);
     else if(type==="video") renderVideo(body,item);
+    else if(type==="lol_hex_bar"||type==="lol_hex_display") renderLolHex(body,type);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
   }
@@ -523,10 +543,11 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     try{
       // Music and video data are refreshed by their own embedded display pages.
       // Keep only the shared voice/module state requests in the layout controller.
-      const [voice,modules]=await Promise.all([
-        api("/api/voice/tts/settings"),api("/api/modules")
+      const [voice,modules,hex]=await Promise.all([
+        api("/api/voice/tts/settings"),api("/api/modules"),api("/api/extensions/lol-hex")
       ]);
       latestData.voice=voice;
+      latestData.hex=hex;
       latestData.modules=modules.modules||{};
       latestData.voice.module_state=(latestData.modules.voice||{}).state||"stopped";
 
@@ -550,7 +571,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         if(!widget) return;
         const node=widget.querySelector(".widget-body");
         // Music and video refresh themselves inside their embedded pages.
-        if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
+        if(node && ["lol_hex_bar","lol_hex_display"].includes(item.type)){
+          const hexState=latestData.hex&&latestData.hex.running?"running":"stopped";
+          if(node.dataset.hexState!==hexState) renderWidgetContent(node,item.type,item);
+        }else if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
       });
     }catch(error){
 
