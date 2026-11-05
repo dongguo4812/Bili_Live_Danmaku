@@ -20,7 +20,7 @@ body.embedded{padding:0}
 <script>
 (function(){
   const root=document.getElementById("media-root");
-  let queueInFlight=false,statusInFlight=false;
+  let queueInFlight=false,statusInFlight=false,moduleState="unknown";
   let displayScale=1;
   function applyDisplayScale(scale){
     displayScale=Math.max(0.5,Math.min(2,Number(scale)||1));
@@ -42,6 +42,7 @@ body.embedded{padding:0}
       if(!response.ok)throw new Error("HTTP "+response.status);
       const data=await response.json();
       const state=data&&data.modules&&data.modules.video?data.modules.video.state:"stopped";
+      moduleState=state;
       setOnline(state==="running"||state==="paused");
     }catch(error){console.debug("获取视频点播模块状态失败，保留当前显示状态：",error);}
     finally{statusInFlight=false;}
@@ -54,7 +55,7 @@ body.embedded{padding:0}
       if(!response.ok)throw new Error("HTTP "+response.status);
       const data=await response.json();
       if(!data||!Array.isArray(data.queue)||!Array.isArray(data.operations))throw new Error("视频队列数据无效");
-      MediaDisplay.render(root,"video",data);
+      MediaDisplay.render(root,"video",data,{moduleState});
     }catch(error){
       console.debug("获取视频点播展示数据失败：",error);
     }finally{queueInFlight=false;}
