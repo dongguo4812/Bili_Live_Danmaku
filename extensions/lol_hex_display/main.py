@@ -235,7 +235,8 @@ def check_admin_privileges():
 
         shell_execute = ctypes.windll.shell32.ShellExecuteW
         shell_execute.restype = ctypes.c_void_p
-        result = shell_execute(None, "runas", executable, parameters, str(ROOT), 1)
+        # SW_HIDE keeps the elevated background extension from opening a console window.
+        result = shell_execute(None, "runas", executable, parameters, str(ROOT), 0)
         if result and result > 32:
             logging.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
             return False
@@ -955,6 +956,20 @@ def display(): return render_template('display.html')
 def api_client_status():
     return jsonify(client_status())
 
+
+@app.get('/api/runtime-status')
+def api_runtime_status():
+    try:
+        is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin()) if os.name == 'nt' else True
+    except Exception:
+        is_admin = False
+    return jsonify({
+        'is_admin': is_admin,
+        'f1_registered': F1_HOTKEY_REGISTERED,
+        'f1_error': F1_HOTKEY_ERROR,
+    })
+
+
 @app.get('/api/state')
 def api_state():
     # 新卡片在 process_screenshot 中保存 level；
@@ -1477,27 +1492,45 @@ class ScreenshotSelector:
 
 
 selector = ScreenshotSelector()
+F1_HOTKEY_REGISTERED = False
+F1_HOTKEY_ERROR = ''
+F1_HOTKEY_HANDLE = None
+
 
 def start_hotkey():
-    """只注册 F1，不注册 ESC 或其他全局热键。"""
+    """仅在管理员进程中注册 F1；注册失败时明确报告，不静默降级。"""
+    global F1_HOTKEY_REGISTERED, F1_HOTKEY_ERROR, F1_HOTKEY_HANDLE
+
+    F1_HOTKEY_REGISTERED = False
+    F1_HOTKEY_ERROR = ''
+    F1_HOTKEY_HANDLE = None
+
     if os.name != 'nt':
-        return
+        return True
 
     try:
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            raise PermissionError('LOL Hex 当前不是 Windows 管理员进程，不能启用游戏内 F1 截图')
+
         import keyboard
 
-        keyboard.add_hotkey(
+        F1_HOTKEY_HANDLE = keyboard.add_hotkey(
             'F1',
             selector.toggle,
             suppress=True,
             trigger_on_release=False
         )
+        if F1_HOTKEY_HANDLE is None:
+            raise RuntimeError('keyboard 未返回有效的 F1 热键注册句柄')
 
-        log.info('全局热键已启用：仅 F1 开始/取消截图')
+        F1_HOTKEY_REGISTERED = True
+        log.info('全局热键已启用：F1 开始/取消截图；管理员权限检查通过')
+        return True
 
     except Exception as e:
-        log.exception('全局热键启动失败：%s', e)
-
+        F1_HOTKEY_ERROR = f'{type(e).__name__}: {e}'
+        log.exception('F1 全局热键注册失败：%s', e)
+        return False
 
 
 def main():
@@ -1527,7 +1560,9 @@ def main():
     log.info('[LCU诊断] 配置的客户端安装目录：%s', client_path or '(未配置)')
     threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
     threading.Thread(target=gameflow_worker,daemon=True,name='GameflowWatcher').start()
-    start_hotkey()
+    if os.name == 'nt' and not start_hotkey():
+        log.critical('F1 截图热键未能注册，LOL Hex 不会以不完整状态启动：%s', F1_HOTKEY_ERROR)
+        raise RuntimeError('F1 截图热键注册失败：' + F1_HOTKEY_ERROR)
     cfg=read_config(); host=cfg.get('host','127.0.0.1'); port=int(cfg.get('port','8767'))
     log.info('管理页：http://%s:%d/ | OBS 展示页：http://%s:%d/display',host,port,host,port)
     try: app.run(host=host,port=port,debug=False,use_reloader=False,threaded=True)

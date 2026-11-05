@@ -210,15 +210,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     renderLayout();
   }
 
-  function syncLive2DFrame(widget){
+  function syncLive2DFrame(widget,item){
     if(!widget || widget.dataset.widget!=="live2d") return;
     const body=widget.querySelector(".widget-body");
     const frame=body?.querySelector("iframe");
     if(!body || !frame) return;
 
-    // 保留完整舞台尺寸的 Live2D 视口，避免模块尺寸改变模型缩放。
-    // 将完整视口居中放在模块内部：模型默认位于视口中心，因此无论模块
-    // 放在舞台哪个位置，模型中心都会落在模块可见区域，而不会被裁到模块外。
+    // 保留完整舞台尺寸的 Live2D 视口，并以模块中心为缩放中心。
+    // 这样缩放的是 Live2D 完整展示内容，模块边界仍负责裁切，位置和尺寸互不影响。
+    const scale=(Number(item?.font_scale)||100)/100;
     frame.style.position="absolute";
     frame.style.width=stage.clientWidth+"px";
     frame.style.height=stage.clientHeight+"px";
@@ -226,11 +226,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.style.maxHeight="none";
     frame.style.left=((body.clientWidth-stage.clientWidth)/2)+"px";
     frame.style.top=((body.clientHeight-stage.clientHeight)/2)+"px";
+    frame.style.transformOrigin="center center";
+    frame.style.transform="scale("+scale+")";
     frame.style.border="0";
   }
 
   function syncAllLive2DFrames(){
-    stage.querySelectorAll('[data-widget="live2d"]').forEach(syncLive2DFrame);
+    stage.querySelectorAll('[data-widget="live2d"]').forEach(widget=>{
+      syncLive2DFrame(widget,layout.widgets.find(item=>item.type==="live2d"));
+    });
   }
 
   function positionWidget(node,item){
@@ -239,7 +243,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
     node.style.setProperty("--content-scale","1");
-    syncLive2DFrame(node);
+    syncLive2DFrame(node,item);
   }
 
   function selectWidget(type){
@@ -252,7 +256,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const scale=item ? Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100 : 100;
     if(overallSlider){
       overallSlider.value=String(scale);
-      overallSlider.disabled=!item || item.type==="live2d";
+      overallSlider.disabled=!item;
     }
     if(overallValue) overallValue.textContent=scale+"%";
   }
@@ -263,6 +267,10 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const body=widget?.querySelector(".widget-body");
     if(!body) return;
     const scale=(Number(item.type==="music_widget" ? item.content_scale : item.font_scale)||100)/100;
+    if(item.type==="live2d"){
+      syncLive2DFrame(widget,item);
+      return;
+    }
     if(item.type==="voice"||item.type==="danmaku"){
       body.style.zoom=String(scale);
       body.style.width=(100/scale)+"%";
@@ -275,6 +283,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
     }else if(item.type==="music"||item.type==="video"){
       frame.contentWindow?.postMessage({type:"combined-display-scale",scale},window.location.origin);
+    }else if(item.type==="lol_hex_bar"||item.type==="lol_hex_display"){
+      // Scale the full embedded Hex page while expanding its CSS viewport inversely,
+      // so the page does not reflow before the visual scale is applied.
+      frame.style.transformOrigin="top left";
+      frame.style.transform="scale("+scale+")";
+      frame.style.width=(100/scale*100)+"%";
+      frame.style.height=(100/scale*100)+"%";
     }
   }
 
@@ -361,7 +376,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     body.appendChild(frame);
   }
 
-  function renderLolHex(body,type){
+  function renderLolHex(body,type,item){
     const running=!!(latestData.hex&&latestData.hex.running);
     body.dataset.hexState=running?"running":"stopped";
     if(!running){
@@ -375,6 +390,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
     frame.style.colorScheme="dark";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -407,7 +423,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     });
   }
 
-  function renderLive2DPreview(body){
+  function renderLive2DPreview(body,item){
     // 编辑器始终使用完整 Live2D 展示页预览，不提供静音开关。
     body.replaceChildren();
     const frame=document.createElement("iframe");
@@ -416,6 +432,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -427,14 +444,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         frame.src="/live2d/display?embedded=1";
         frame.title="Live2D 展示";
         frame.allow="autoplay";
+        frame.addEventListener("load",()=>applyContentScale(item));
         body.appendChild(frame);
       }else{
-        renderLive2DPreview(body);
+        renderLive2DPreview(body,item);
       }
     }else if(type==="music_widget") renderMusicWidget(body,item);
     else if(type==="music") renderMusic(body,item);
     else if(type==="video") renderVideo(body,item);
-    else if(type==="lol_hex_bar"||type==="lol_hex_display") renderLolHex(body,type);
+    else if(type==="lol_hex_bar"||type==="lol_hex_display") renderLolHex(body,type,item);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
   }

@@ -149,8 +149,9 @@ class LolHexExtensionManager:
                 self.logger.info("请求以 Windows 管理员权限启动 LOL Hex：%s", executable)
                 shell_execute = ctypes.windll.shell32.ShellExecuteW
                 shell_execute.restype = ctypes.c_void_p
+                # SW_HIDE: Hex is a background extension; its logs remain in its own logs directory.
                 result = shell_execute(
-                    None, "runas", executable, parameters, str(self.extension_dir), 1
+                    None, "runas", executable, parameters, str(self.extension_dir), 0
                 )
                 if not result or result <= 32:
                     error_code = int(result or 0)
