@@ -46,6 +46,8 @@ module_enabled = False
 module_paused = False
 # 当前 HTML5 视频元素的真实播放状态，与模块暂停状态分开记录。
 playback_state = "stopped"
+# 由主程序注入歌曲模块；视频实际播放时暂停音乐，最后一条视频结束后恢复。
+music_controller = None
 # 生命周期代数：会话代数防止关闭后旧 Selenium 任务污染新会话；
 # 请求代数防止暂停/恢复期间尚未完成的旧弹幕请求重新入队。
 video_session_generation = 0
@@ -884,6 +886,30 @@ skip_lock = asyncio.Lock()
 
 # ====================== 播放结束监控 ======================
 
+async def _pause_music_for_video():
+    """视频实际开始播放后，通知歌曲模块暂停洛雪音乐。"""
+    controller = music_controller
+    if controller is None:
+        return
+    try:
+        await controller.pause_for_video()
+    except Exception as exc:
+        logger.warning("视频播放期间自动暂停洛雪音乐失败：%s", type(exc).__name__)
+
+
+async def _resume_music_if_video_finished():
+    """只有当前点播视频及其后续队列都不再播放时，才恢复自动暂停的音乐。"""
+    if is_playing and current_bv:
+        return
+    controller = music_controller
+    if controller is None:
+        return
+    try:
+        await controller.resume_after_video()
+    except Exception as exc:
+        logger.warning("点播视频结束后恢复洛雪音乐失败：%s", type(exc).__name__)
+
+
 async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
     global is_playing, current_bv, playback_monitor_task, playback_state
@@ -984,6 +1010,7 @@ async def monitor_video_end(bv, session_generation=None):
                     except Exception as recovery_exc:
                         logger.exception("恢复浏览器失败：%s", recovery_exc)
                     await play_next()
+                    await _resume_music_if_video_finished()
                 return
             except Exception as exc:
                 # 某些 Selenium 版本会把标签页关闭报告为通用 WebDriver 异常。
@@ -1002,6 +1029,7 @@ async def monitor_video_end(bv, session_generation=None):
                         except Exception as recovery_exc:
                             logger.exception("恢复浏览器失败：%s", recovery_exc)
                         await play_next()
+                        await _resume_music_if_video_finished()
                     return
                 logger.debug("读取视频播放状态失败（%s）：%s", bv, exc)
                 continue
@@ -1035,6 +1063,7 @@ async def monitor_video_end(bv, session_generation=None):
                         except Exception as exc:
                             logger.warning("停止合集自动播放失败：%s", exc)
                     await play_next()
+                    await _resume_music_if_video_finished()
                     return
                 # 尚未确认原视频实际播放前，不把页面 URL 变化误判为播放结束。
                 continue
@@ -1075,6 +1104,8 @@ async def monitor_video_end(bv, session_generation=None):
 
                 # 只有视频真正处于播放状态时才显示 OBS 来源；暂停/结束时隐藏。
                 actually_playing = not bool(status.get("paused")) and not bool(status.get("ended"))
+                if actually_playing:
+                    await _pause_music_for_video()
                 if actually_playing != last_obs_visible:
                     changed = await set_obs_visibility_async(actually_playing)
                     if changed:
@@ -1093,6 +1124,7 @@ async def monitor_video_end(bv, session_generation=None):
                         is_playing = False
                         current_bv = None
                         await play_next()
+                        await _resume_music_if_video_finished()
                     return
 
     except asyncio.CancelledError:
@@ -1604,8 +1636,10 @@ async def on_dan_mu(msg_json):
 class VideoModuleFacade:
     """视频模块生命周期与统一事件总线适配器。"""
 
-    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0):
+    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None):
+        global music_controller
         self.event_bus = event_bus
+        music_controller = music_module
         self.config = dict(config)
         self.cookie_provider = cookie_provider
         self.room_id = max(0, int(room_id or 0))
@@ -1698,6 +1732,7 @@ class VideoModuleFacade:
         is_playing = False
         playback_state = "stopped"
         current_bv = None
+        await _resume_music_if_video_finished()
         if driver is not None:
             old_driver = driver
             driver = None
