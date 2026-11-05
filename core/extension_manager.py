@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import threading
 import time
 import urllib.error
@@ -112,8 +113,13 @@ class LolHexExtensionManager:
             raise FileNotFoundError(
                 "未找到 LOL Hex 扩展源码，请执行 git submodule update --init --recursive。"
             )
-        python = os.environ.get("LOL_HEX_PYTHON", "").strip() or sys.executable
-        return [python, str(script)]
+        python = os.environ.get("LOL_HEX_PYTHON", "").strip()
+        if python:
+            return [python, str(script)]
+        launcher = shutil.which("py") if os.name == "nt" else None
+        if launcher:
+            return [launcher, "-3", str(script)]
+        return [sys.executable, str(script)]
 
     def start(self) -> dict[str, Any]:
         with self._lock:
