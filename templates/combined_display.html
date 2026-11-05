@@ -423,7 +423,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     });
   }
 
-  function renderLive2DPreview(body){
+  function renderLive2DPreview(body,item){
     // 编辑器始终使用完整 Live2D 展示页预览，不提供静音开关。
     body.replaceChildren();
     const frame=document.createElement("iframe");
@@ -432,7 +432,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.loading="eager";
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
-    frame.addEventListener("load",()=>applyContentScale({type:"live2d",font_scale:item?.font_scale}));
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -447,7 +447,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         frame.addEventListener("load",()=>applyContentScale(item));
         body.appendChild(frame);
       }else{
-        renderLive2DPreview(body);
+        renderLive2DPreview(body,item);
       }
     }else if(type==="music_widget") renderMusicWidget(body,item);
     else if(type==="music") renderMusic(body,item);
