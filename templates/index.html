@@ -354,11 +354,11 @@
             const client = await api("/api/extensions/lol-hex/client-status");
             if (client.recognized && client.available) {
               const account = client.account ? "｜账号：" + client.account : "";
-              clientMessage.textContent = "客户端已识别｜LCU 可用" + account + "；识别到可用的英雄联盟客户端";
+              clientMessage.textContent = "客户端已识别｜LCU 可用" + account;
             } else if (client.recognized) {
               clientMessage.textContent = "客户端已识别｜LCU 不可用；" + (client.message || "英雄联盟客户端 LCU 暂不可用");
             } else {
-              clientMessage.textContent = "客户端未识别｜" + (client.message || "未识别到可用的英雄联盟客户端");
+              clientMessage.textContent = "未识别到可用的英雄联盟客户端";
             }
           } catch (clientError) {
             clientMessage.textContent = "客户端状态读取失败｜" + (clientError.message || "请稍后重试");
