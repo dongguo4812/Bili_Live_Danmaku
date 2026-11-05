@@ -2599,6 +2599,22 @@ def api_lol_hex_stop():
         return jsonify({"ok": False, "error": str(exc) or "LOL Hex 停止失败。"}), 500
 
 
+@app.get("/extensions/lol-hex/logs")
+def lol_hex_extension_logs():
+    log_dir = LOL_HEX_EXTENSION.extension_dir / "logs"
+    try:
+        candidates = sorted(
+            log_dir.glob("app_*.log"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        candidates = []
+    if not candidates:
+        return "LOL Hex 暂无日志文件。", 404
+    return send_from_directory(log_dir, candidates[0].name, mimetype="text/plain")
+
+
 @app.get("/extensions/lol-hex/")
 @app.get("/extensions/lol-hex/<path:resource>")
 def lol_hex_extension_redirect(resource: str = ""):
