@@ -948,7 +948,7 @@ class MusicModule:
         if not self.paused:
             return
         # 当前没有机器人点播歌曲时，只解除模块暂停，不触碰洛雪中其他来源的歌曲。
-        if self._lx_playback_active:
+        if self._lx_playback_active and not self._video_pause_active:
             ok, detail = await asyncio.to_thread(_lx_control, "resume")
             if not ok:
                 raise RuntimeError(detail)
