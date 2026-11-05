@@ -695,8 +695,8 @@ def emergency_close_browser_sync() -> bool:
     browser = driver
     driver = None
     roots, remaining = _terminate_chrome_profile_processes_sync()
-    if remaining and browser is not None:
-        # CIM 查询或按 profile 终止未能完成时，再用 WebDriver 返回的 PID 兜底。
+    if (not roots or remaining) and browser is not None:
+        # CIM 未匹配到浏览器主进程，或清理后仍有残留时，再用 WebDriver PID 兜底。
         _force_terminate_browser_sync(browser)
     return not remaining
 
