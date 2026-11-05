@@ -33,6 +33,9 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+if exist "extensions\lol_hex_display\data" xcopy "extensions\lol_hex_display\data" "extensions\lol_hex_display\dist\lol_hex_display\data" /E /I /Y >nul
+if exist "extensions\lol_hex_display\screenshots" xcopy "extensions\lol_hex_display\screenshots" "extensions\lol_hex_display\dist\lol_hex_display\screenshots" /E /I /Y >nul
+if exist "extensions\lol_hex_display\logs" xcopy "extensions\lol_hex_display\logs" "extensions\lol_hex_display\dist\lol_hex_display\logs" /E /I /Y >nul
 
 echo [2/4] 安装/检查 PyInstaller...
 ".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
