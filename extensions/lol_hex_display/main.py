@@ -90,8 +90,7 @@ file_handler.setLevel(LOG_LEVEL)
 formatter = logging.Formatter(LOG_FORMAT)
 file_handler.setFormatter(formatter)
 
-# 暂时关闭控制台输出，只保留文件输出
-# 本次实验用于判断 StreamHandler 是否导致日志监听线程阻塞
+# Hex 由主项目以隐藏的管理员后台进程启动，仅保留文件日志输出，不创建控制台处理器。
 
 # 创建日志监听线程
 log_listener = QueueListener(
