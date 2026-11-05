@@ -1,16 +1,16 @@
 """Lifecycle management for the optional LOL Hex Display process.
 
 The extension stays a separate application. The Bili application owns its
-process only when it starts it; an already-running standalone instance is
-detected but is never terminated by the host.
+process only when it starts it. An independently started instance is detected
+and is stopped only after an explicit stop request from the user.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 import threading
 import time
 import urllib.error
