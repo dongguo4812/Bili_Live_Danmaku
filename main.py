@@ -930,31 +930,49 @@ def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:
 
     expected_url = _voice_engine_browser_url()
     expected_path = "/voice/display"
+    base_name = "B站直播弹幕助手-全局语音引擎"
     inputs = _obs_ws_request(ws, "GetInputList").get("inputs", [])
     source_name = ""
     source_exists = False
 
-    # 优先复用已经创建的全局语音源，避免每次启动都新增浏览器源。
+    # 先按专用来源名称查找，应用端口或绑定地址变更后也能复用旧输入。
     for item in inputs:
         if not isinstance(item, dict) or item.get("inputKind") != "browser_source":
             continue
         name = str(item.get("inputName") or "").strip()
-        if not name:
-            continue
-        settings_data = _obs_ws_request(ws, "GetInputSettings", {"inputName": name})
-        url = str((settings_data.get("inputSettings") or {}).get("url") or "")
-        try:
-            parsed = urlparse(url)
-            expected = urlparse(expected_url)
-            if parsed.path.rstrip("/") == expected_path and parsed.hostname == expected.hostname and parsed.port == expected.port:
-                source_name = name
-                source_exists = True
-                break
-        except ValueError:
-            continue
+        if name == base_name or name.startswith(base_name + " "):
+            source_name = name
+            source_exists = True
+            break
+
+    # 兼容用户曾手动添加过 /voice/display 的情况，优先复用本机地址上的浏览器源。
+    if not source_name:
+        expected = urlparse(expected_url)
+        local_hosts = {"localhost", "127.0.0.1", "::1"}
+        for item in inputs:
+            if not isinstance(item, dict) or item.get("inputKind") != "browser_source":
+                continue
+            name = str(item.get("inputName") or "").strip()
+            if not name:
+                continue
+            settings_data = _obs_ws_request(ws, "GetInputSettings", {"inputName": name})
+            url = str((settings_data.get("inputSettings") or {}).get("url") or "")
+            try:
+                parsed = urlparse(url)
+                if (
+                    parsed.path.rstrip("/") == expected_path
+                    and (
+                        parsed.hostname in local_hosts
+                        or parsed.hostname == expected.hostname
+                    )
+                ):
+                    source_name = name
+                    source_exists = True
+                    break
+            except ValueError:
+                continue
 
     if not source_name:
-        base_name = "B站直播弹幕助手-全局语音引擎"
         used_names = {
             str(item.get("inputName") or "")
             for item in inputs if isinstance(item, dict)
