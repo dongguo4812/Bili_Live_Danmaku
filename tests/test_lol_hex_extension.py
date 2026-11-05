@@ -87,7 +87,7 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         page = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
         self.assertIn('overallSlider.disabled=!item;', page)
         self.assertNotIn('overallSlider.disabled=!item || item.type==="live2d";', page)
-        self.assertIn('if(item.type==="live2d"){\\n      syncLive2DFrame(widget,item);', page)
+        self.assertIn('syncLive2DFrame(widget,item);', page)
         self.assertIn('frame.style.transform="scale("+scale+")";', page)
         self.assertIn('frame.addEventListener("load",()=>applyContentScale(item));', page)
 
