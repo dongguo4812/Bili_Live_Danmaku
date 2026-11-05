@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>海克斯展示</title>
-<link rel="stylesheet" href="/static/style.css?v=20261105-two-columns">
+<link rel="stylesheet" href="/static/style.css?v=20261105-three-columns-six-cards">
 </head>
 <body class="display-body">
 <main class="display-main">
@@ -36,7 +36,8 @@ async function load(){
         const root=document.getElementById('cards');
         root.innerHTML='';
 
-        d.cards.forEach(c=>{
+        // 综合展示固定展示前六张卡片，保持三列布局。
+        (d.cards||[]).slice(0,6).forEach(c=>{
             const el=document.createElement('div');
             el.className=('display-card '+qualityClass(c.level)).trim();
 
