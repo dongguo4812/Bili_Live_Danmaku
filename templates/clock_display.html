@@ -5,16 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>环形进度时钟</title>
 <style>
+:root { color-scheme: dark; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
-body { display: flex; align-items: center; justify-content: center; }
-/* 保持正方形比例，适配独立 OBS 浏览器源及综合展示模块的任意尺寸。 */
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+    background-color: rgba(0, 0, 0, 0) !important;
+}
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent !important;
+    background-color: rgba(0, 0, 0, 0) !important;
+}
+/* 保持正方形比例；缩放只作用于时钟内容，不改变 iframe 视口。 */
 #clockSvg {
     display: block;
     width: min(100vw, 100vh);
     height: auto;
-    max-width: 100%;
-    max-height: 100%;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    transform: scale(var(--clock-content-scale, 1));
+    transform-origin: 50% 50%;
+    transform-box: view-box;
 }
 </style>
 </head>
@@ -70,6 +87,22 @@ body { display: flex; align-items: center; justify-content: center; }
             timeTxt.setAttribute("transform", `translate(180 156) scale(${scale}) translate(-180 -156)`);
         }
     }
+    let contentScale = 1;
+    function applyContentScale(scale) {
+        const value = Number(scale);
+        if (!Number.isFinite(value)) return;
+        contentScale = Math.max(0.5, Math.min(2, value));
+        document.documentElement.style.setProperty("--clock-content-scale", String(contentScale));
+    }
+    window.addEventListener("message", event => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data && event.data.type === "clock-content-scale") {
+            applyContentScale(event.data.scale);
+        }
+    });
+    const initialScale = new URLSearchParams(window.location.search).get("scale");
+    if (initialScale !== null) applyContentScale(initialScale);
+
     function refresh() {
         updateClock();
         requestAnimationFrame(matchTimeWidthToDate);
