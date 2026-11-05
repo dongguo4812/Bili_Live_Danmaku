@@ -64,6 +64,33 @@ class MusicFallbackSearchTests(unittest.TestCase):
         self.assertEqual([item["source"] for item in matches], ["tx", "kg", "wy", "kw"])
         self.assertEqual([item["songmid"] for item in matches], ["tx-id", "kg-id", "wy-id", "kw-id"])
 
+    def test_disabled_providers_are_skipped(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def provider(source):
+            def search(keyword):
+                calls.append(source)
+                return [{
+                    "title": "晴天", "artist": "周杰伦", "source": source,
+                    "songmid": source + "-id",
+                }]
+            return search
+
+        providers = (
+            ("QQ音乐", "tx", provider("tx")),
+            ("酷狗音乐", "kg", provider("kg")),
+            ("网易云音乐", "wy", provider("wy")),
+            ("酷我音乐", "kw", provider("kw")),
+        )
+        with patch.object(service, "PROVIDERS", providers), \\
+             patch.object(service, "ENABLED_PROVIDERS", ("kg", "kw")):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual(calls, ["kg", "kw"])
+        self.assertEqual([item["source"] for item in matches], ["kg", "kw"])
+
     def test_exact_artist_from_later_source_precedes_earlier_contains_match(self):
         from unittest.mock import patch
         import modules.music.service as service
