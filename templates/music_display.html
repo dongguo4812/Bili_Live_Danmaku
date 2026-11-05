@@ -50,7 +50,7 @@ body.embedded{padding:0}
       const state=data&&data.modules&&data.modules.music?data.modules.music.state:"stopped";
       moduleState=state;
       setOnline(state==="running"||state==="paused");
-    }catch(error){console.debug("获取歌曲点播模块状态失败，保留当前显示状态：",error);}
+    }catch(error){}
     finally{statusInFlight=false;}
   }
   async function refresh(){
