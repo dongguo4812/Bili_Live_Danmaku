@@ -90,6 +90,37 @@ class MusicFallbackSearchTests(unittest.TestCase):
         self.assertEqual(calls, ["kg"])
         self.assertEqual([item["source"] for item in matches], ["kg"])
 
+    def test_trailing_space_artist_fallback_matches_song_and_artist(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+
+        def search(keyword):
+            calls.append(keyword)
+            return [{
+                "title": "稻香",
+                "artist": "周杰伦",
+                "source": "tx",
+                "songmid": "tx-dao-xiang-id",
+                "types": [{"type": "128k", "size": None}],
+            }]
+
+        providers = (
+            ("QQ音乐", "tx", search),
+            ("酷狗音乐", "kg", lambda keyword: []),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, message = service.find_matching_songs("稻香 周杰伦", "")
+
+        self.assertEqual(calls, ["稻香 周杰伦"])
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["title"], "稻香")
+        self.assertEqual(matches[0]["artist"], "周杰伦")
+        self.assertEqual(matches[0]["songmid"], "tx-dao-xiang-id")
+        self.assertEqual(matches[0]["source"], "tx")
+        self.assertIn("QQ音乐", message)
+
     def test_first_platform_match_wins(self):
         from unittest.mock import patch
         import modules.music.service as service
