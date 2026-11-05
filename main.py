@@ -1322,9 +1322,25 @@ def music_settings_page():
     return render_template("music_settings.html")
 
 
+def _queue_display_limit(module_name: str) -> int:
+    """读取歌曲/视频展示页各自的待播列表显示条数。"""
+    config = ConfigManager().load(module_name, {})
+    display = config.get("display", {})
+    if not isinstance(display, dict):
+        display = {}
+    try:
+        limit = int(display.get("queue_display_limit", 10))
+    except (TypeError, ValueError):
+        limit = 10
+    return max(1, min(1000, limit))
+
+
 @app.get("/music/display")
 def music_display_page():
-    return render_template("music_display.html")
+    return render_template(
+        "music_display.html",
+        queue_display_limit=_queue_display_limit("music"),
+    )
 
 
 @app.get("/music/widget")
@@ -1345,7 +1361,10 @@ def video_settings_page():
 
 @app.get("/video/display")
 def video_display_page():
-    return render_template("video_display.html")
+    return render_template(
+        "video_display.html",
+        queue_display_limit=_queue_display_limit("video"),
+    )
 
 
 @app.get("/api/models")
