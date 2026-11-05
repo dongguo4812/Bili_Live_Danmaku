@@ -643,6 +643,18 @@
           ? "直播间已连接，全局语音引擎正在等待播报。"
           : "等待直播间连接；连接后将自动启动语音播报。");
       }
+
+      // OBS/CEF 可能在页面首次加载时尚未允许 Web Audio。
+      // 不要只在页面初始化时尝试一次；直播连接期间持续恢复音频上下文，
+      // 否则队列中的弹幕会一直等待，直到浏览器意外触发 statechange。
+      if (showTts && connected && voiceModuleActive) {
+        if (!audioUnlocked) {
+          const ready = await unlockSpeechAudio({ silent: true });
+          if (ready) processSpeechQueue();
+        } else if (speechQueue.length && !speaking) {
+          processSpeechQueue();
+        }
+      }
     } catch (error) {
       
     }
