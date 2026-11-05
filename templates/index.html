@@ -90,6 +90,20 @@
         <div class="inline-controls action-controls"><button id="voice-toggle-lifecycle" type="button">启动</button><button id="voice-toggle-pause" type="button" class="secondary-button">暂停</button></div>
         <p id="voice-control-message" class="muted module-control-message" role="status"></p>
       </div>
+      <div class="module-control-row">
+        <div class="module-control-info"><strong>LOL 海克斯展示</strong></div>
+        <div class="inline-controls action-controls"><button id="lol-hex-start" type="button">启动</button><button id="lol-hex-stop" type="button" class="secondary-button">停止</button></div>
+      </div>
+    </section>
+
+    <section class="panel" id="lol-hex-module">
+      <h2>LOL 海克斯展示</h2>
+      <div class="module-links">
+        <a href="/extensions/lol-hex/" target="_blank" rel="noopener">管理页面</a>
+        <a href="/extensions/lol-hex/bar" target="_blank" rel="noopener">LOL 战绩条</a>
+        <a href="/extensions/lol-hex/display" target="_blank" rel="noopener">LOL 海克斯展示页</a>
+        <a href="/extensions/lol-hex/logs" target="_blank" rel="noopener">查看日志</a>
+      </div>
     </section>
 
     <section class="panel">
@@ -283,6 +297,35 @@
       $(name + "-toggle-pause").addEventListener("click", () => toggleModuleControl(name, "pause"));
     }
 
+    async function refreshLolHexControl() {
+      const start = $("lol-hex-start");
+      const stop = $("lol-hex-stop");
+      try {
+        const data = await api("/api/extensions/lol-hex");
+        start.disabled = data.running || data.state === "starting";
+        stop.disabled = !data.running;
+      } catch (error) {
+        start.disabled = true;
+        stop.disabled = true;
+      }
+    }
+
+    async function toggleLolHex(action) {
+      const start = $("lol-hex-start");
+      const stop = $("lol-hex-stop");
+      start.disabled = true;
+      stop.disabled = true;
+      try {
+        await api("/api/extensions/lol-hex/" + action, { method: "POST" });
+      } catch (error) {
+        window.alert((action === "start" ? "启动" : "停止") + " LOL 海克斯展示失败：" + error.message);
+      }
+      await refreshLolHexControl();
+    }
+
+    $("lol-hex-start").addEventListener("click", () => toggleLolHex("start"));
+    $("lol-hex-stop").addEventListener("click", () => toggleLolHex("stop"));
+
     async function videoQueueAction(payload) {
       if (!moduleOperationsAvailable("video")) {
         renderModuleOperations();
@@ -448,6 +491,7 @@
         live2dControlState.dataset.state = live2dEnabled ? "enabled" : "disabled";
         renderModuleControls();
         renderModuleOperations();
+        await refreshLolHexControl();
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }

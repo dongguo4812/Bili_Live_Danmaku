@@ -30,6 +30,7 @@ from core.paths import get_base_dir
 from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
+from core.extension_manager import LolHexExtensionManager
 from core.logger_manager import setup_logging
 from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
 from modules.video.service import VideoModuleFacade
@@ -38,7 +39,7 @@ from modules.voice.service import VoiceModule
 
 BASE_DIR = get_base_dir()
 MODEL_ROOT = BASE_DIR / "models"
-DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku"}
+DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku", "lol_hex_bar", "lol_hex_display"}
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
@@ -100,6 +101,7 @@ def load_config() -> dict[str, Any]:
 
 CONFIG = load_config()
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"), static_folder=str(BASE_DIR / "static"))
+LOL_HEX_EXTENSION = LolHexExtensionManager(BASE_DIR, logger)
 
 
 def _credential_path() -> Path:
@@ -892,6 +894,10 @@ def _shutdown_application_and_refresh_obs() -> None:
             APPLICATION_RUNTIME.shutdown(timeout=30.0)
         except Exception:
             logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
+        try:
+            LOL_HEX_EXTENSION.stop_if_owned()
+        except Exception:
+            logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行 OBS 刷新。")
         try:
             LIVE_CLIENT.stop()
         except Exception:
@@ -2555,6 +2561,70 @@ def api_status():
         },
         "modules": APPLICATION_RUNTIME.modules.list_status(),
     })
+
+
+@app.get("/api/extensions/lol-hex")
+def api_lol_hex_status():
+    return jsonify(LOL_HEX_EXTENSION.status())
+
+
+@app.post("/api/extensions/lol-hex/start")
+def api_lol_hex_start():
+    try:
+        result = LOL_HEX_EXTENSION.start()
+        if result.get("running"):
+            threading.Thread(
+                target=_refresh_obs_combined_display_sources,
+                name="obs-lol-hex-start-refresh",
+                daemon=True,
+            ).start()
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("启动 LOL Hex 扩展失败。")
+        return jsonify({"ok": False, "error": str(exc) or "LOL Hex 启动失败。"}), 500
+
+
+@app.post("/api/extensions/lol-hex/stop")
+def api_lol_hex_stop():
+    try:
+        result = LOL_HEX_EXTENSION.stop()
+        threading.Thread(
+            target=_refresh_obs_combined_display_sources,
+            name="obs-lol-hex-stop-refresh",
+            daemon=True,
+        ).start()
+        return jsonify(result)
+    except Exception as exc:
+        logger.exception("停止 LOL Hex 扩展失败。")
+        return jsonify({"ok": False, "error": str(exc) or "LOL Hex 停止失败。"}), 500
+
+
+@app.get("/extensions/lol-hex/logs")
+def lol_hex_extension_logs():
+    log_dir = LOL_HEX_EXTENSION.extension_dir / "logs"
+    try:
+        candidates = sorted(
+            log_dir.glob("app_*.log"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        candidates = []
+    if not candidates:
+        return "LOL Hex 暂无日志文件。", 404
+    return send_from_directory(log_dir, candidates[0].name, mimetype="text/plain")
+
+
+@app.get("/extensions/lol-hex/")
+@app.get("/extensions/lol-hex/<path:resource>")
+def lol_hex_extension_redirect(resource: str = ""):
+    if resource not in {"", "bar", "display"}:
+        abort(404)
+    host = LOL_HEX_EXTENSION.host
+    if ":" in host:
+        host = f"[{host}]"
+    suffix = f"/{resource}" if resource else "/"
+    return redirect(f"http://{host}:{LOL_HEX_EXTENSION.port}{suffix}")
 
 
 def _initialize_login_state() -> None:
