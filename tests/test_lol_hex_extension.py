@@ -11,17 +11,33 @@ from core.extension_manager import LolHexExtensionManager
 
 
 class LolHexExtensionManagerTests(unittest.TestCase):
-    def test_reads_extension_port_from_its_own_config(self):
+    def test_loads_port_from_unified_local_json_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "config" / "default"
+            defaults.mkdir(parents=True)
+            (defaults / "lol_hex_display.json").write_text(
+                '{"host":"127.0.0.1","port":8877}', encoding="utf-8"
+            )
+            manager = LolHexExtensionManager(root, logging.getLogger("test"))
+            self.assertEqual(manager.port, 8877)
+            self.assertEqual(manager.base_url, "http://127.0.0.1:8877")
+            local_config = root / "config" / "local" / "lol_hex_display.json"
+            self.assertTrue(local_config.is_file())
+
+    def test_migrates_existing_text_config_without_overwriting_local_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extension = root / "extensions" / "lol_hex_display"
             extension.mkdir(parents=True)
             (extension / "config.txt").write_text(
-                "host=127.0.0.1\nport=8877\n", encoding="utf-8"
+                "host=127.0.0.1\nport=8878\nlol_client_path=D:\\Games\\League\n",
+                encoding="utf-8",
             )
             manager = LolHexExtensionManager(root, logging.getLogger("test"))
-            self.assertEqual(manager.port, 8877)
-            self.assertEqual(manager.base_url, "http://127.0.0.1:8877")
+            self.assertEqual(manager.port, 8878)
+            self.assertEqual(manager.config["lol_client_path"], "D:\\Games\\League")
+            self.assertTrue((root / "config" / "local" / "lol_hex_display.json").is_file())
 
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,6 +82,12 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
         self.assertIn('str(self.extension_dir), 0', manager)
+        self.assertIn('self.config_path', manager)
+        self.assertIn('"--config"', manager)
+        self.assertIn('config/local/lol_hex_display.json', manager)
+        self.assertIn('argparse.ArgumentParser', hex_main)
+        self.assertIn('json.loads(CONFIG_PATH.read_text', hex_main)
+        self.assertFalse((root / "extensions" / "lol_hex_display" / "config.txt").exists())
 
     def test_bar_and_hex_display_are_two_independent_layout_widgets(self):
         root = Path(__file__).resolve().parents[1]
