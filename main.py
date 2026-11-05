@@ -1141,7 +1141,7 @@ def _shutdown_application_and_refresh_obs() -> None:
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
             logger.info(
-                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。
+                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
                 result["refreshed"],
             )
         else:
