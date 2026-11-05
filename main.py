@@ -997,6 +997,8 @@ def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:
         "css": css,
         "shutdown": False,
         "restart_when_active": False,
+        # 将浏览器音频作为独立 OBS 音频源输出，不能依赖桌面音频回环。
+        "reroute_audio": True,
     }
 
     if source_exists:
