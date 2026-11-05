@@ -77,12 +77,17 @@ class LolHexIntegrationContractTests(unittest.TestCase):
     def test_build_packages_the_hex_application_as_a_separate_folder(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build.bat").read_text(encoding="utf-8")
-        modules = (root / ".gitmodules").read_text(encoding="utf-8")
-        self.assertIn("git submodule update --init --recursive", build)
+        extension = root / "extensions" / "lol_hex_display"
+        self.assertFalse((root / ".gitmodules").exists())
+        self.assertNotIn("git submodule", build.lower())
+        self.assertTrue((extension / "main.py").is_file())
+        self.assertTrue((extension / "bar_integration.py").is_file())
+        self.assertTrue((extension / "templates" / "manager.html").is_file())
+        self.assertTrue((extension / "templates" / "display.html").is_file())
+        self.assertTrue((extension / "templates" / "bar.html").is_file())
         self.assertIn("extensions\\lol_hex_display\\build.bat", build)
         self.assertIn("dist\\lol_hex_display", build)
         self.assertIn('"extensions\\lol_hex_display\\data"', build)
-        self.assertIn("path = extensions/lol_hex_display", modules)
 
 
 if __name__ == "__main__":

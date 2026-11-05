@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>海克斯展示</title>
+<link rel="stylesheet" href="/static/style.css?v=20261029-quality1">
+</head>
+<body class="display-body">
+<main class="display-main">
+<div id="cards" class="display-cards"></div>
+</main>
+
+<script>
+function esc(s){
+    return String(s||'').replace(/[&<>"']/g,c=>({
+        '&':'&amp;',
+        '<':'&lt;',
+        '>':'&gt;',
+        '"':'&quot;',
+        "'":'&#39;'
+    }[c]))
+}
+
+function qualityClass(level){
+    return ({
+        kSilver:'quality-silver',
+        kGold:'quality-gold',
+        kPrismatic:'quality-prismatic'
+    })[level]||''
+}
+
+async function load(){
+    try{
+        const d=await(await fetch('/api/state')).json();
+        const root=document.getElementById('cards');
+        root.innerHTML='';
+
+        d.cards.forEach(c=>{
+            const el=document.createElement('div');
+            el.className=('display-card '+qualityClass(c.level)).trim();
+
+            const img=c.augment_id
+                ? `/asset/hex/${encodeURIComponent(c.augment_id)}.png`
+                : `/asset/screenshot/${encodeURIComponent(c.filename)}`;
+
+            // 根据 OCR 原始文本判断是否为质变海克斯
+            const isMutated=/^已质变\s*[:：]/.test((c.ocr_text||'').trim());
+
+            // 标题使用数据库名称，质变时添加前缀
+            const displayName=c.name
+                ? (isMutated?'已质变：':'')+c.name
+                : c.ocr_text||'';
+
+            el.innerHTML=`
+                <img
+                    src="${img}"
+                    onerror="this.onerror=null;this.src='/asset/screenshot/${encodeURIComponent(c.filename)}'"
+                    alt=""
+                >
+                <div class="display-name">${esc(displayName)}</div>
+            `;
+
+            root.appendChild(el);
+        });
+    }catch(e){}
+}
+
+load();
+setInterval(load,1500);
+</script>
+</body>
+</html>

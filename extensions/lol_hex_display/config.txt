@@ -1,0 +1,24 @@
+# 截图目录：支持相对路径（相对于项目根目录）默认为screenshots/inbox
+# 绝对路径可设置为：F:\GameShots
+screenshot_dir=screenshots/inbox
+
+# 本地网页服务
+host=127.0.0.1
+port=8767
+
+# 截图扫描间隔（秒）
+scan_interval=1
+
+# 腾讯海克斯数据索引自动检查间隔（秒），默认 60 分钟
+asset_check_interval=3600
+
+# 游戏版本检查间隔（秒），检测到版本变化时立即检查数据接口
+version_check_interval=3600
+
+
+# LCU 对局阶段检测间隔，单位：秒
+gameflow_check_interval=10
+
+
+# 英雄联盟客户端安装目录
+lol_client_path = D:\WeGameApps\英雄联盟（含经典模式）
