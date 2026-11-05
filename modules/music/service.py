@@ -757,13 +757,40 @@ def find_matching_songs(
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
+            # 先按用户输入的完整歌名匹配；若未指定歌手且输入含空格，
+            # 再把最后一个空格后的词作为歌手，前面的内容作为歌名进行后备匹配。
             exact_matches, contains_matches = match_candidates(candidates, title, artist)
             selected = exact_matches[0] if exact_matches else (
                 contains_matches[0] if contains_matches else None
             )
+            match_level = "歌手完全匹配" if exact_matches else (
+                "歌手包含匹配" if contains_matches else ""
+            )
+
+            fallback_title = ""
+            fallback_artist = ""
+            if not selected and not artist:
+                parts = str(title or "").rsplit(None, 1)
+                if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                    fallback_title, fallback_artist = parts[0].strip(), parts[1].strip()
+                    fallback_exact, fallback_contains = match_candidates(
+                        candidates, fallback_title, fallback_artist
+                    )
+                    selected = fallback_exact[0] if fallback_exact else (
+                        fallback_contains[0] if fallback_contains else None
+                    )
+                    if selected:
+                        match_level = (
+                            "空格拆分后歌手完全匹配"
+                            if fallback_exact else "空格拆分后歌手包含匹配"
+                        )
+                        log.info(
+                            "点歌空格后备匹配成功：原始输入=%s；歌名=%s；歌手=%s",
+                            title, fallback_title, fallback_artist,
+                        )
+
             if selected:
                 selected = dict(selected)
-                match_level = "歌手完全匹配" if exact_matches else "歌手包含匹配"
                 log.info(
                     "音乐匹配命中，停止后续搜索：平台=%s（%s），级别=%s，歌曲=%s - %s",
                     provider_name, source, match_level,
