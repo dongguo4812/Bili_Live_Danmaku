@@ -222,7 +222,7 @@ LOL Hex 以独立进程方式运行，由接入中心的「功能启停控制」
 - 扩展单独打包脚本不会打包本机数据；主项目 `build.bat` 会在生成扩展后，将当前电脑上已经存在的 Hex `data/`、`screenshots/`、`logs/` 复制到文件夹版输出中。这是本机打包行为，与 GitHub 是否跟踪这些文件相互独立。
 - 在综合展示编辑器中，`LOL 战绩条` 和 `LOL 海克斯展示` 是两个独立组件，可分别添加、移动、缩放和移除。
 
-歌曲和视频展示页的待播列表显示数量可分别在 `/music/settings` 与 `/video/settings` 配置，范围为 1～1000，默认各显示 10 条；页面同时显示完整待播总数，不会因展示条数限制而改变实际队列。
+独立扩展说明见 [LOL Hex 扩展文档](extensions/lol_hex_display/README.md)。\n\n歌曲和视频展示页的待播列表显示数量可分别在 `/music/settings` 与 `/video/settings` 配置，范围为 1～1000，默认各显示 10 条；页面同时显示完整待播总数，不会因展示条数限制而改变实际队列。
 
 GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与离线回归测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置退役测试。CI 通过不等于所有设备上的人工联调均已完成；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
