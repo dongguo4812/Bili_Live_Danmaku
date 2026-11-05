@@ -50,6 +50,19 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await _resume_music_if_video_finished()", video)
         self.assertIn("music_module=MUSIC_MODULE.bot", main)
 
+    def test_application_shutdown_closes_video_browser_without_stopping_lx_music(self):
+        application = (ROOT / "core" / "application.py").read_text(encoding="utf-8")
+        manager = (ROOT / "core" / "module_manager.py").read_text(encoding="utf-8")
+        music = (ROOT / "modules" / "music" / "service.py").read_text(encoding="utf-8")
+        video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")
+        self.assertIn("self.modules.shutdown_all()", application)
+        self.assertIn('getattr(instance, "shutdown", None)', manager)
+        self.assertIn("async def shutdown(self):", music)
+        self.assertIn("await self.bot.close(stop_playback=False)", music)
+        self.assertIn("if had_current_song and stop_playback:", music)
+        self.assertIn("async def shutdown(self):", video)
+        self.assertIn("await self.close()", video)
+
 
 if __name__ == "__main__":
     unittest.main()
