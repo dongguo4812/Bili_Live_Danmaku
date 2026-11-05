@@ -47,5 +47,3 @@
 .md-compact .md-request-status,.md-compact .md-paused-status,.md-compact .md-instruction{font-size:calc(11px * var(--content-scale, 1))}
 @media(max-width:800px){.md-inline-title,.md-video-title{font-size:calc(16px * var(--content-scale, 1))}.md-queue-item{font-size:calc(12px * var(--content-scale, 1))}.md-heading{font-size:calc(12px * var(--content-scale, 1))}}
 
-.md-playback-paused-status{margin:3px 0;color:#ffd66b;font-size:calc(14px * var(--content-scale, 1));font-weight:800}
-.md-compact .md-playback-paused-status{font-size:calc(11px * var(--content-scale, 1))}
