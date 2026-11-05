@@ -116,7 +116,9 @@
         ? String(queue.length)+"首歌曲待播"
         : String(queue.length)+"个视频待播";
       nextHeading.appendChild(node("span","md-pending-count",pendingLabel));
-      queueList(nextBox,queue.slice(0,10),type);
+      const configuredLimit=Number(options.queueDisplayLimit);
+      const queueLimit=Number.isFinite(configuredLimit)?Math.max(1,Math.min(1000,Math.floor(configuredLimit))):10;
+      queueList(nextBox,queue.slice(0,queueLimit),type);
     }else{
       nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
     }
