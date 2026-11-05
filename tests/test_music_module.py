@@ -84,8 +84,7 @@ class MusicFallbackSearchTests(unittest.TestCase):
             ("网易云音乐", "wy", provider("wy")),
             ("酷我音乐", "kw", provider("kw")),
         )
-        with patch.object(service, "PROVIDERS", providers), \\
-             patch.object(service, "ENABLED_PROVIDERS", ("kg", "kw")):
+        with patch.object(service, "PROVIDERS", providers), patch.object(service, "ENABLED_PROVIDERS", ("kg", "kw")):
             matches, _ = service.find_matching_songs("晴天", "周杰伦")
 
         self.assertEqual(calls, ["kg", "kw"])
