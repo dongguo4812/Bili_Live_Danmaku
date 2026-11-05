@@ -281,8 +281,10 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('"content_scale": round(content_scale, 1)', main)
         for direction in ('"n"', '"s"', '"e"', '"w"', '"ne"', '"nw"', '"se"', '"sw"'):
             self.assertIn(direction, combined)
-        self.assertIn('id="font-scale"', combined)
-        self.assertIn('id="content-scale"', combined)
+        # 当前编辑器使用统一的 overall-scale 控件，不再保留旧版双滑块 ID。
+        self.assertIn('id="overall-scale"', combined)
+        self.assertIn('id="overall-scale-control"', combined)
+        self.assertIn('id="overall-scale-value"', combined)
         self.assertIn('.editor-control[hidden]{display:none!important}', combined)
         self.assertIn('font_scale', combined)
         self.assertIn('content_scale', combined)
