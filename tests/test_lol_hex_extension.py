@@ -25,7 +25,7 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             local_config = root / "config" / "local" / "lol_hex_display.json"
             self.assertTrue(local_config.is_file())
 
-    def test_migrates_existing_text_config_without_overwriting_local_json(self):
+    def test_migrates_existing_text_config_to_local_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extension = root / "extensions" / "lol_hex_display"
