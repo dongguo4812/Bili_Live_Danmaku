@@ -570,11 +570,9 @@ def _quit_browser_sync(browser):
         browser.quit()
 
 
-def _force_terminate_browser_sync(browser) -> bool:
-    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
-    if browser is None or os.name != "nt":
-        return False
-
+def _browser_process_ids(browser) -> list[int]:
+    if browser is None:
+        return []
     pids: list[int] = []
     try:
         chrome_pid = int((getattr(browser, "capabilities", {}) or {}).get("goog:processID") or 0)
@@ -582,7 +580,6 @@ def _force_terminate_browser_sync(browser) -> bool:
             pids.append(chrome_pid)
     except (TypeError, ValueError):
         pass
-
     try:
         service_process = getattr(getattr(browser, "service", None), "process", None)
         service_pid = int(getattr(service_process, "pid", 0) or 0)
@@ -590,6 +587,38 @@ def _force_terminate_browser_sync(browser) -> bool:
             pids.append(service_pid)
     except (TypeError, ValueError):
         pass
+    return pids
+
+
+def _browser_process_alive_sync(browser) -> bool:
+    """检查本 WebDriver 对应的 Chrome 主进程是否仍存在。"""
+    if browser is None or os.name != "nt":
+        return False
+    pids = _browser_process_ids(browser)
+    if not pids:
+        return False
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if f'"{pid}"' in result.stdout:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _force_terminate_browser_sync(browser) -> bool:
+    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
+    if browser is None or os.name != "nt":
+        return False
+
+    pids = _browser_process_ids(browser)
 
     closed = False
     for pid in pids:
@@ -1791,7 +1820,15 @@ class VideoModuleFacade:
                     asyncio.to_thread(_quit_browser_sync, old_driver),
                     timeout=4.0,
                 )
-                logger.info("Selenium Chrome 会话已正常关闭。")
+                await asyncio.sleep(0.5)
+                still_alive = await asyncio.to_thread(_browser_process_alive_sync, old_driver)
+                if still_alive:
+                    logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
+                    closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                    if not closed:
+                        logger.error("Chrome 进程树兜底清理未能确认成功，请检查 WebDriver/Chrome 进程。")
+                else:
+                    logger.info("Selenium Chrome 会话已关闭，未检测到残留浏览器进程。")
             except Exception as exc:
                 logger.warning("Selenium 关闭 Chrome 未完成（%s），尝试按进程树兜底清理。", type(exc).__name__)
                 closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
