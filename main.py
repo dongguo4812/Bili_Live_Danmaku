@@ -2604,7 +2604,7 @@ def api_lol_hex_stop():
 def lol_hex_extension_redirect(resource: str = ""):
     if resource not in {"", "bar", "display"}:
         abort(404)
-    host = urlparse(request.host_url).hostname or "127.0.0.1"
+    host = LOL_HEX_EXTENSION.host
     if ":" in host:
         host = f"[{host}]"
     suffix = f"/{resource}" if resource else "/"
