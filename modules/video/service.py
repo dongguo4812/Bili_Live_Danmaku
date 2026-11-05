@@ -639,18 +639,25 @@ def _force_terminate_browser_sync(browser) -> bool:
     return closed
 
 
-def _find_chrome_profile_processes_sync() -> list[int]:
-    """通过本项目独立 user-data-dir 查找 Chrome 主进程及其子进程。"""
+def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
+    """只按本项目独立 user-data-dir 结束 Chrome 主进程树，并回查是否仍有残留。"""
     if os.name != "nt":
-        return []
+        return [], []
     profile = str(CHROME_PROFILE.resolve())
     profile_literal = profile.replace("'", "''")
     script = (
         "$profile = '" + profile_literal + "'; "
         "$needle = '--user-data-dir=' + $profile; "
-        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "$all = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\"); "
+        "$roots = @($all | Where-Object { $_.CommandLine -and "
+        "$_.CommandLine.Contains($needle) -and $_.CommandLine -notmatch '--type=' }); "
+        "$ids = @($roots | ForEach-Object { $_.ProcessId }); "
+        "foreach ($id in $ids) { & taskkill.exe /PID $id /T /F | Out-Null }; "
+        "Start-Sleep -Milliseconds 250; "
+        "$left = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
         "Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) } | "
-        "ForEach-Object { $_.ProcessId }"
+        "ForEach-Object { $_.ProcessId }); "
+        "'ROOTS=' + ($ids -join ','); 'REMAINING=' + ($left -join ',')"
     )
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     try:
@@ -658,66 +665,42 @@ def _find_chrome_profile_processes_sync() -> list[int]:
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
             capture_output=True,
             text=True,
-            timeout=3.0,
+            timeout=3.5,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        output = (result.stdout or "").splitlines()
+        roots_line = next((line for line in output if line.startswith("ROOTS=")), "ROOTS=")
+        remaining_line = next((line for line in output if line.startswith("REMAINING=")), "REMAINING=")
+        roots = [int(value) for value in roots_line.partition("=")[2].split(",") if value.strip().isdigit()]
+        remaining = [int(value) for value in remaining_line.partition("=")[2].split(",") if value.strip().isdigit()]
         if result.returncode != 0:
             logger.warning(
-                "按 Chrome 专用配置目录查找进程失败：returncode=%s，stderr=%s",
-                result.returncode, (result.stderr or "").strip()[:500],
+                "按专用 chrome_profile 清理失败：returncode=%s，stdout=%s，stderr=%s",
+                result.returncode, (result.stdout or "").strip()[:500],
+                (result.stderr or "").strip()[:500],
             )
-            return []
-        pids = sorted({int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()})
-        return pids
+        logger.warning(
+            "专用 Chrome 进程树清理核验：匹配的浏览器主进程=%s，仍残留的专用 Chrome PID=%s",
+            roots, remaining,
+        )
+        return roots, remaining
     except Exception as exc:
-        logger.warning("按 Chrome 专用配置目录查找进程异常：%s", type(exc).__name__)
-        return []
-
-
-def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
-    """仅结束命令行使用本项目独立 chrome_profile 的 Chrome 进程，并返回残留 PID。"""
-    pids = _find_chrome_profile_processes_sync()
-    if not pids:
-        logger.warning("未通过专用 chrome_profile 找到 Chrome 进程；不会按进程名误杀用户自己的 Chrome。")
+        logger.warning("按专用 chrome_profile 清理 Chrome 进程树异常：%s", type(exc).__name__)
         return [], []
-    terminated: list[int] = []
-    for pid in pids:
-        try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                timeout=1.0,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if result.returncode == 0:
-                terminated.append(pid)
-            else:
-                logger.warning(
-                    "关闭专用 Chrome 进程失败：PID=%s，returncode=%s，stdout=%s，stderr=%s",
-                    pid, result.returncode,
-                    (result.stdout or "").strip()[:300],
-                    (result.stderr or "").strip()[:300],
-                )
-        except Exception as exc:
-            logger.warning("关闭专用 Chrome 进程异常：PID=%s，错误=%s", pid, type(exc).__name__)
-    remaining = _find_chrome_profile_processes_sync()
-    logger.warning(
-        "专用 Chrome 进程清理结果：发现=%s，已请求终止=%s，仍残留=%s",
-        pids, terminated, remaining,
-    )
-    return terminated, remaining
 
 
 def emergency_close_browser_sync() -> bool:
-    """CMD 窗口关闭事件的同步兜底：先按 WebDriver PID，再按独立 chrome_profile 清理。"""
+    """CMD 窗口关闭事件：按独立 chrome_profile 清理整个 Chrome 进程树。"""
     global driver
     browser = driver
     driver = None
-    if browser is not None:
+    roots, remaining = _terminate_chrome_profile_processes_sync()
+    if remaining and browser is not None:
+        # CIM 查询或按 profile 终止未能完成时，再用 WebDriver 返回的 PID 兜底。
         _force_terminate_browser_sync(browser)
-    terminated, remaining = _terminate_chrome_profile_processes_sync()
     return not remaining
+
+
 
 
 @selenium_locked
