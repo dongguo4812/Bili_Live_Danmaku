@@ -678,34 +678,6 @@ def get_tts_test_queue():
     return jsonify({"ok": True, "items": items})
 
 
-@app.post("/api/voice/tts/diagnostics")
-def post_tts_diagnostics():
-    """接收 OBS 全局语音源诊断事件，只记录白名单元数据。"""
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "诊断内容格式无效。"}), 400
-    event = str(payload.get("event") or "unknown")[:80]
-    details = payload.get("details", {})
-    if not isinstance(details, dict):
-        details = {}
-    allowed = {
-        "href", "visibility", "userAgent", "persisted", "reason", "type",
-        "moduleStateInitialized", "queueLength", "queueLimit", "audioContextState",
-        "state", "sampleRate", "previousState", "unlocked", "error", "ready",
-        "connected", "voiceModuleState", "voiceModuleActive", "settingsLoaded",
-        "speaking", "httpStatus", "ok", "hasAudioUrl", "duration", "channels",
-        "destinationConnected", "count", "typeCounts", "firstId", "lastId",
-        "latestId", "textLength"
-    }
-    safe_details = {key: value for key, value in details.items() if key in allowed}
-    try:
-        details_text = json.dumps(safe_details, ensure_ascii=False, separators=(",", ":"))[:1200]
-    except (TypeError, ValueError):
-        details_text = "{}"
-    logger.info("[TTS-DIAG] event=%s details=%s", event, details_text)
-    return jsonify({"ok": True})
-
-
 @app.get("/api/voice/tts/state")
 def get_tts_playback_state():
     with VOICE_PLAYBACK_STATE_LOCK:
