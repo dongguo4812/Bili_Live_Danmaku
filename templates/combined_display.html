@@ -541,7 +541,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     if(refreshInFlight) return;
     refreshInFlight=true;
     try{
-      // Music and video data are refreshed by their own embedded display pages.
+      // Music, video and LOL Hex data are refreshed by their own embedded display pages.
       // Keep only the shared voice/module state requests in the layout controller.
       const [voice,modules,hex]=await Promise.all([
         api("/api/voice/tts/settings"),api("/api/modules"),api("/api/extensions/lol-hex")
