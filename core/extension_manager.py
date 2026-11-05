@@ -97,10 +97,10 @@ class LolHexExtensionManager:
                     "base_url": self.base_url,
                     "error": self._last_error,
                 }
-            if self._process is not None and self._process.poll() is None:
+            if (self._process is not None and self._process.poll() is None) or self._elevated_managed:
                 return {
                     "ok": True, "state": "starting", "running": False,
-                    "owned": self._owned, "external": False,
+                    "owned": bool(self._owned or self._elevated_managed), "external": False,
                     "port": self.port, "base_url": self.base_url,
                     "error": self._last_error,
                 }
@@ -127,9 +127,8 @@ class LolHexExtensionManager:
         python = os.environ.get("LOL_HEX_PYTHON", "").strip()
         if python:
             return [python, str(script)]
-        launcher = shutil.which("py") if os.name == "nt" else None
-        if launcher:
-            return [launcher, "-3", str(script)]
+        # 使用当前主程序正在运行的 Python 解释器，避免提权后 py 启动器
+        # 选择到另一套 Python 环境，导致 Hex 缺少依赖。
         return [sys.executable, str(script)]
 
     def start(self) -> dict[str, Any]:
