@@ -1121,6 +1121,7 @@ VIDEO_MODULE = VideoModuleFacade(
     config=_module_config_with_system_admins("video"),
     cookie_provider=_music_cookie_provider,
     room_id=int(_load_user_settings()["bilibili"]["room_id"]),
+    music_module=MUSIC_MODULE.bot,
 )
 APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
 
