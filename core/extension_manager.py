@@ -182,9 +182,8 @@ class LolHexExtensionManager:
                 self._owned = False
                 if code not in (0, None):
                     self._last_error = f"LOL Hex 进程异常退出（退出码 {code}）。"
+            self._clear_stale_elevated_process()
             healthy = self._is_healthy()
-            if not healthy:
-                self._clear_stale_elevated_process()
             if healthy:
                 managed = bool((self._process is not None and self._owned) or self._elevated_managed)
                 return {
