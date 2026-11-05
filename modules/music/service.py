@@ -412,7 +412,8 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        # 当前 QQ 搜索接口的歌曲标题字段为 title，兼容旧字段名。\n        title = str(row.get("title") or row.get("name") or row.get("songname") or "").strip()
+        # 当前 QQ 搜索接口的歌曲标题字段为 title，兼容旧字段名。
+        title = str(row.get("title") or row.get("name") or row.get("songname") or "").strip()
         singers = row.get("singer", [])
         artist = "、".join(
             str(x.get("name", "")).strip()
@@ -443,7 +444,11 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
             "interval": str(row.get("interval") or row.get("duration") or ""),
             "types": _types_default(), "_search_source": "tx",
         })
-    # 再做一次数量上限保护，确保每个平台最多保留 SEARCH_LIMIT 条有效候选。\n    return out[:SEARCH_LIMIT]\n\n\n# 酷狗音乐（kg）
+    # 再做一次数量上限保护，确保每个平台最多保留 SEARCH_LIMIT 条有效候选。
+    return out[:SEARCH_LIMIT]
+
+
+# 酷狗音乐（kg）
 def search_kugou(keyword: str) -> list[dict[str, Any]]:
     url = "https://mobilecdn.kugou.com/api/v3/search/song?" + urllib.parse.urlencode({
         "format": "json", "keyword": keyword, "page": 1, "pagesize": SEARCH_LIMIT,
