@@ -91,8 +91,9 @@
         <p id="voice-control-message" class="muted module-control-message" role="status"></p>
       </div>
       <div class="module-control-row">
-        <div class="module-control-info"><strong>LOL 海克斯展示</strong></div>
+        <div class="module-control-info"><strong>LOL 海克斯展示</strong><span id="lol-hex-client-state" class="status-pill" data-state="unknown">正在识别英雄联盟客户端…</span></div>
         <div class="inline-controls action-controls"><button id="lol-hex-start" type="button">启动</button><button id="lol-hex-stop" type="button" class="secondary-button">停止</button></div>
+        <p id="lol-hex-client-message" class="muted module-control-message" role="status">客户端状态与 LOL 海克斯管理页面保持一致。</p>
       </div>
     </section>
 
@@ -306,6 +307,8 @@
     async function refreshLolHexControl() {
       const start = $("lol-hex-start");
       const stop = $("lol-hex-stop");
+      const clientState = $("lol-hex-client-state");
+      const clientMessage = $("lol-hex-client-message");
       const state = $("lol-hex-module-state");
       const message = $("lol-hex-module-message");
       try {
@@ -340,10 +343,42 @@
 
         start.disabled = data.running || currentState === "starting" || currentState === "unknown";
         stop.disabled = !data.running;
+
+        if (!data.running) {
+          clientState.textContent = "海克斯服务未运行";
+          clientState.dataset.state = "unknown";
+          clientState.style.color = "#aab4c5";
+          clientMessage.textContent = "启动 LOL 海克斯展示后，将显示与管理页面相同的英雄联盟客户端识别状态。";
+        } else {
+          try {
+            const client = await api("/api/extensions/lol-hex/client-status");
+            if (client.recognized && client.available) {
+              const source = client.source === "log" ? "客户端日志" : "客户端进程";
+              clientState.textContent = "客户端已识别（" + source + "）｜LCU 可用";
+              clientState.dataset.state = "running";
+              clientState.style.color = "#55c98a";
+              clientMessage.textContent = client.account ? "账号：" + client.account : "英雄联盟客户端已识别，LCU 连接可用。";
+            } else {
+              clientState.textContent = "未识别到可用客户端";
+              clientState.dataset.state = "stopped";
+              clientState.style.color = "#e0ad62";
+              clientMessage.textContent = client.message || "未识别到可用的英雄联盟客户端凭据";
+            }
+          } catch (clientError) {
+            clientState.textContent = "客户端状态读取失败";
+            clientState.dataset.state = "error";
+            clientState.style.color = "#e08b8b";
+            clientMessage.textContent = clientError.message || "客户端状态读取失败";
+          }
+        }
       } catch (error) {
         state.textContent = "状态未知";
         state.dataset.state = "unknown";
         message.textContent = "读取 LOL 海克斯状态失败：" + error.message + "。请确认主程序服务正常后重试。";
+        clientState.textContent = "海克斯服务状态读取失败";
+        clientState.dataset.state = "error";
+        clientState.style.color = "#e08b8b";
+        clientMessage.textContent = error.message;
         start.disabled = true;
         stop.disabled = true;
       }
