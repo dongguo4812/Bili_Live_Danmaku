@@ -356,7 +356,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
             return default
 
     return {
-        "scale": number("scale", 1.0, 0.20, 1.5),
+        "scale": number("scale", 1.0, 0.01, 1.5),
         "x": number("x", 0.0, -1.0, 1.0),
         "y": number("y", 0.0, -1.0, 1.0),
         "crop_top": number("crop_top", 0.0, 0.0, 45.0),
@@ -1436,7 +1436,7 @@ def save_display_settings():
 
     try:
         preferences = {
-            "scale": bounded_number("scale", 1.0, 0.20, 1.5),
+            "scale": bounded_number("scale", 1.0, 0.01, 1.5),
             "x": bounded_number("x", 0.0, -1.0, 1.0),
             "y": bounded_number("y", 0.0, -1.0, 1.0),
             "crop_top": bounded_number("crop_top", 0.0, 0.0, 45.0),
