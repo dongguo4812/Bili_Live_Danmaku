@@ -147,11 +147,13 @@ class LolHexExtensionManager:
                 executable = command[0]
                 parameters = subprocess.list2cmdline(command[1:])
                 self.logger.info("请求以 Windows 管理员权限启动 LOL Hex：%s", executable)
-                result = ctypes.windll.shell32.ShellExecuteW(
+                shell_execute = ctypes.windll.shell32.ShellExecuteW
+                shell_execute.restype = ctypes.c_void_p
+                result = shell_execute(
                     None, "runas", executable, parameters, str(self.extension_dir), 1
                 )
-                if result <= 32:
-                    error_code = int(result)
+                if not result or result <= 32:
+                    error_code = int(result or 0)
                     self._last_error = (
                         "LOL Hex 管理员权限启动失败（用户取消 UAC 或 Windows 拒绝启动，"
                         f"错误码：{error_code}）。"
