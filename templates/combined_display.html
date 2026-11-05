@@ -570,7 +570,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         const widget=stage.querySelector('[data-widget="'+item.type+'"]');
         if(!widget) return;
         const node=widget.querySelector(".widget-body");
-        // Music and video refresh themselves inside their embedded pages.
+        // Music, video and LOL Hex refresh themselves inside their embedded pages.
         if(node && ["lol_hex_bar","lol_hex_display"].includes(item.type)){
           const hexState=latestData.hex&&latestData.hex.running?"running":"stopped";
           if(node.dataset.hexState!==hexState) renderWidgetContent(node,item.type,item);
