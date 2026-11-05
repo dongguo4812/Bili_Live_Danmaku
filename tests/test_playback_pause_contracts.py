@@ -71,6 +71,8 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def _browser_process_alive_sync(browser)", video)
         self.assertIn("def _force_terminate_browser_sync(browser)", video)
         self.assertIn("timeout=4.0", video)
+        self.assertIn("await asyncio.wait_for(", video)
+        self.assertIn("timeout=1.5", video)
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _install_console_close_handler()", main)
         self.assertIn("SetConsoleCtrlHandler", main)
