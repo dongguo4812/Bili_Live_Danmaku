@@ -112,7 +112,7 @@
     const nextHeading=nextBox.querySelector(".md-heading");
     nextHeading.appendChild(node("span","md-next-icon","Ⅱ"));
     if(queue.length){
-      queueList(nextBox,queue,type);
+      queueList(nextBox,queue.slice(0,10),type);
     }else{
       nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
     }
