@@ -647,17 +647,24 @@ def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
     profile_literal = profile.replace("'", "''")
     script = (
         "$profile = '" + profile_literal + "'; "
-        "$needle = '--user-data-dir=' + $profile; "
+        # Chrome 在 Windows 命令行中通常会给 user-data-dir 路径加引号；
+        # 用正则同时兼容带引号/不带引号及路径大小写差异。
+        "$pattern = '(?i)--user-data-dir=\\\\?\"?' + [regex]::Escape($profile) + '\"?(\\s|$)'; "
         "$all = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\"); "
-        "$roots = @($all | Where-Object { $_.CommandLine -and "
-        "$_.CommandLine.Contains($needle) -and $_.CommandLine -notmatch '--type=' }); "
+        "$matched = @($all | Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern }); "
+        "$roots = @($matched | Where-Object { $_.CommandLine -notmatch '--type=' }); "
         "$ids = @($roots | ForEach-Object { $_.ProcessId }); "
         "foreach ($id in $ids) { & taskkill.exe /PID $id /T /F | Out-Null }; "
-        "Start-Sleep -Milliseconds 250; "
+        "Start-Sleep -Milliseconds 400; "
         "$left = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-        "Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) } | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern }); "
+        "$leftIds = @($left | ForEach-Object { $_.ProcessId }); "
+        "foreach ($id in $leftIds) { & taskkill.exe /PID $id /T /F | Out-Null }; "
+        "Start-Sleep -Milliseconds 250; "
+        "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } | "
         "ForEach-Object { $_.ProcessId }); "
-        "'ROOTS=' + ($ids -join ','); 'REMAINING=' + ($left -join ',')"
+        "'ROOTS=' + ($ids -join ','); 'REMAINING=' + ($remaining -join ',')"
     )
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     try:
@@ -1869,8 +1876,8 @@ class VideoModuleFacade:
                 )
             except Exception as exc:
                 logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
-        if driver is not None:
-            old_driver = driver
+        old_driver = driver
+        if old_driver is not None:
             # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
             driver = None
             try:
@@ -1885,14 +1892,34 @@ class VideoModuleFacade:
                     logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
                     closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
                     if not closed:
-                        logger.error("Chrome 进程树兜底清理未能确认成功，请检查 WebDriver/Chrome 进程。")
+                        logger.error("按 WebDriver PID 清理 Chrome 未能确认成功。")
                 else:
-                    logger.info("Selenium Chrome 会话已关闭，未检测到残留浏览器进程。")
+                    logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
             except Exception as exc:
-                logger.warning("Selenium 关闭 Chrome 未完成（%s），尝试按进程树兜底清理。", type(exc).__name__)
-                closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
-                if not closed:
-                    logger.error("Chrome 进程树兜底清理未能确认成功，请检查 WebDriver/Chrome 进程。")
+                logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
+                if not await asyncio.to_thread(_force_terminate_browser_sync, old_driver):
+                    logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+
+        # 不依赖 driver.quit() 的结果：始终按本程序专用 Profile 清理并核验，
+        # 即使 driver 已丢失或 Selenium 会话状态异常，也能回收遗留 Chrome 子进程。
+        try:
+            roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync)
+            if (not roots or remaining) and old_driver is not None:
+                logger.warning(
+                    "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
+                    roots, remaining,
+                )
+                await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync)
+            if remaining:
+                logger.error("Chrome 专用 Profile 仍有残留进程，PID=%s。", remaining)
+            elif roots:
+                logger.info("Chrome 专用 Profile 进程树已清理并确认无残留。")
+            else:
+                logger.info("未发现本程序专用 Profile 的 Chrome 残留进程。")
+        except Exception as exc:
+            logger.exception("按专用 Chrome Profile 清理进程树失败：%s", type(exc).__name__)
+
         try:
             await set_obs_visibility_async(False)
         except Exception as exc:
