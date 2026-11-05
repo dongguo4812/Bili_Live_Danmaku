@@ -92,7 +92,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await asyncio.to_thread(_terminate_chrome_profile_processes_sync)", video)
         self.assertIn("await asyncio.to_thread(emergency_close_browser_sync)", video)
         video_shutdown_body = video[video.index("async def shutdown(self):", video.index("class VideoModuleFacade")):]
-        video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\\n    async def close", 1)]
+        video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\n    async def close", 1)]
         self.assertLess(video_shutdown_body.index("module_enabled = False"), video_shutdown_body.index("emergency_close_browser_sync"))
         self.assertIn("if cleanup_browser else ([], [])", video)
         video_close_body = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
