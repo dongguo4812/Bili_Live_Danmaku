@@ -67,7 +67,14 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("if self._shutting_down:", manager)
         app_shutdown = application[application.index("def shutdown("):]
         self.assertLess(app_shutdown.index("self._started = False"), app_shutdown.index("self.async_runtime.submit"))
-        self.assertIn("await self.bot.resume_after_video(force=True)", music)
+        self.assertNotIn("await self.bot.resume_after_video(force=True)", music)
+        music_shutdown = music[music.index("async def shutdown(self):", music.index("class MusicModuleFacade")):]
+        music_shutdown = music_shutdown[:music_shutdown.index("\n    def update_room_id", 1)]
+        self.assertIn("await self.bot.close(stop_playback=False)", music_shutdown)
+        self.assertNotIn("_lx_control", music_shutdown)
+        self.assertNotIn("emergency_resume_video_paused_music_sync", music)
+        video_close = video[video.index("async def close(self):", video.index("class VideoModuleFacade")):]
+        self.assertNotIn("await _resume_music_if_video_finished()", video_close)
         self.assertIn("def _browser_process_alive_sync(browser)", video)
         self.assertIn("def _force_terminate_browser_sync(browser)", video)
         self.assertIn("timeout=4.0", video)
@@ -77,7 +84,12 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def _install_console_close_handler()", main)
         self.assertIn("SetConsoleCtrlHandler", main)
         self.assertIn("emergency_close_browser_sync", main)
-        self.assertIn("emergency_resume_video_paused_music_sync", main)
+        self.assertNotIn("emergency_resume_video_paused_music_sync", main)
+        console_handler = main[main.index("def _install_console_close_handler()"):]
+        console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
+        self.assertIn("emergency_close_browser_sync", console_handler)
+        self.assertNotIn("MUSIC_MODULE", console_handler)
+        self.assertIn("洛雪播放器保持原状", console_handler)
         self.assertIn("timeout=1.5", video)
         self.assertLess(main.index("APPLICATION_RUNTIME.shutdown()", main.index("if __name__ == \"__main__\"")),
                         main.index("LIVE_CLIENT.stop()", main.index("if __name__ == \"__main__\"")))
