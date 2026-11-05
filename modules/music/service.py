@@ -621,30 +621,6 @@ def get_lx_status() -> Optional[dict[str, Any]]:
 
 
 
-def emergency_resume_video_paused_music_sync(bot) -> bool:
-    """CMD 窗口关闭事件的同步兜底：恢复本程序因视频而暂停的原曲。"""
-    if bot is None or not getattr(bot, "_video_pause_active", False):
-        return False
-    expected = getattr(bot, "_video_pause_track", None)
-    status = get_lx_status()
-    if get_lx_playback_state(status) != "paused" or not expected or not expected[0]:
-        return False
-    actual = (
-        normalize_name(str(status.get("name", "") or "")),
-        normalize_name(str(status.get("singer", "") or "")),
-    )
-    if actual != expected:
-        return False
-    ok, detail = _lx_control("resume", timeout=2.0)
-    if ok:
-        bot._video_pause_active = False
-        bot._video_pause_track = None
-        log.info("CMD 窗口关闭事件：已同步恢复视频自动暂停的洛雪歌曲。")
-        return True
-    log.warning("CMD 窗口关闭事件：恢复洛雪歌曲失败：%s", detail)
-    return False
-
-
 def get_lx_playback_state(status: Optional[dict[str, Any]]) -> str:
     """将洛雪状态归一为 playing / paused / stopped / unknown。"""
     if not isinstance(status, dict):
@@ -1612,11 +1588,8 @@ class MusicModuleFacade:
         await self.bot.close(stop_playback=True)
 
     async def shutdown(self):
-        # 如果程序退出时仍有视频自动暂停标记，最后兜底恢复原曲。
-        # 这也覆盖退出瞬间 B 站断线回调已将模块状态标记为 paused 的情况。
-        if self.bot._video_pause_active:
-            await self.bot.resume_after_video(force=True)
-        # 程序退出时只结束机器人任务和清空内存队列，不停止洛雪播放。
+        # 程序退出时只清理本程序的点歌任务和内存队列。
+        # 不调用洛雪 API：不恢复、不暂停、不停止，更不关闭洛雪播放器。
         await self.bot.close(stop_playback=False)
 
     def update_room_id(self, room_id: int) -> None:
