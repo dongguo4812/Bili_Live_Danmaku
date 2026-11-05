@@ -92,7 +92,7 @@ py -3 -m PyInstaller ^
     --noconfirm ^
     --clean ^
     --onedir ^
-    --console ^
+    --noconsole ^
     --manifest "lol_hex_display.manifest" ^
     --name "lol_hex_display" ^
     --collect-all rapidocr_onnxruntime ^
