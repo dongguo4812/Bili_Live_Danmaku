@@ -79,7 +79,8 @@
     const currentBox=section(root,"正在播放 ▶","current");
     const currentHeading=currentBox.querySelector(".md-heading");
     if(current){
-      titleLine(currentBox,current,type,"");
+      currentHeading.appendChild(node("span","md-current-title",current.title||(type==="video"?current.bvid:"未知歌曲")));
+      details(currentBox,current,type);
     }else{
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
