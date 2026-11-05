@@ -25,6 +25,10 @@ if not exist "config.txt" (
     echo [错误] 找不到 config.txt
     goto failed
 )
+if not exist "lol_hex_display.manifest" (
+    echo [错误] 找不到 lol_hex_display.manifest
+    goto failed
+)
 
 if not exist "templates" (
     echo [错误] 找不到 templates 文件夹
