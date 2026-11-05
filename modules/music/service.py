@@ -600,8 +600,8 @@ def get_lx_status() -> Optional[dict[str, Any]]:
                 LX_API + endpoint,
                 params={
                     "filter": (
-                        "status,name,singer,albumName,"
-                        "duration,progress,playbackRate,"
+                        "status,playStatus,state,playing,isPlaying,paused,isPaused,"
+                        "name,singer,albumName,duration,progress,playbackRate,"
                         "picUrl,img,coverUrl,cover_url,lyricLineText"
                     )
                 },
@@ -965,7 +965,7 @@ class MusicModule:
             ]
             queue_count = len(waiting)
         lx_status = await asyncio.to_thread(get_lx_status)
-        playback_state = get_lx_playback_state(lx_status) if current else "stopped"
+        playback_state = get_lx_playback_state(lx_status) if current and self._lx_playback_active else "stopped"
         now = time.time()
         with self._display_lock:
             events = [
