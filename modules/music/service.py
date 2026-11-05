@@ -887,14 +887,14 @@ class MusicModule:
         log.info("点播视频开始播放，已自动暂停洛雪音乐：%s%s", title or "当前歌曲", f" - {artist}" if artist else "")
         return True
 
-    async def resume_after_video(self) -> bool:
+    async def resume_after_video(self, force: bool = False) -> bool:
         """最后一条点播视频结束后，仅恢复本功能暂停且仍是原曲的音乐。"""
         if not self._video_pause_active:
             return False
         expected_track = self._video_pause_track
         self._video_pause_active = False
         self._video_pause_track = None
-        if self.paused:
+        if self.paused and not force:
             log.info("点播视频结束，但歌曲模块已手动暂停，不自动恢复洛雪音乐。")
             return False
         status = await asyncio.to_thread(get_lx_status)
@@ -1583,7 +1583,11 @@ class MusicModuleFacade:
         await self.bot.close(stop_playback=True)
 
     async def shutdown(self):
-        # 程序退出时只结束机器人任务和清空内存队列，不控制洛雪播放状态。
+        # 如果程序退出时仍有视频自动暂停标记，最后兜底恢复原曲。
+        # 这也覆盖退出瞬间 B 站断线回调已将模块状态标记为 paused 的情况。
+        if self.bot._video_pause_active:
+            await self.bot.resume_after_video(force=True)
+        # 程序退出时只结束机器人任务和清空内存队列，不停止洛雪播放。
         await self.bot.close(stop_playback=False)
 
     def update_room_id(self, room_id: int) -> None:
