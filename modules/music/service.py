@@ -95,13 +95,13 @@ def update_music_room_id(room_id: int) -> None:
     MEDAL_CACHE.clear()
 
 
-def _lx_control(action: str) -> tuple[bool, str]:
+def _lx_control(action: str, timeout: float | None = None) -> tuple[bool, str]:
     # 洛雪官方开放 API：播放使用 /play，暂停使用 /pause；没有独立停止接口。
     endpoint = {"pause": "/pause", "resume": "/play", "stop": "/pause"}.get(action)
     if not endpoint:
         return False, "不支持的洛雪控制操作"
     try:
-        response = requests.get(LX_API + endpoint, timeout=HTTP_TIMEOUT)
+        response = requests.get(LX_API + endpoint, timeout=HTTP_TIMEOUT if timeout is None else timeout)
         response.raise_for_status()
         if action == "stop":
             return True, "洛雪开放 API 没有停止接口；已暂停当前歌曲并结束机器人点播流程"
@@ -619,6 +619,30 @@ def get_lx_status() -> Optional[dict[str, Any]]:
     return None
 
 
+
+
+def emergency_resume_video_paused_music_sync(bot) -> bool:
+    """CMD 窗口关闭事件的同步兜底：恢复本程序因视频而暂停的原曲。"""
+    if bot is None or not getattr(bot, "_video_pause_active", False):
+        return False
+    expected = getattr(bot, "_video_pause_track", None)
+    status = get_lx_status()
+    if get_lx_playback_state(status) != "paused" or not expected or not expected[0]:
+        return False
+    actual = (
+        normalize_name(str(status.get("name", "") or "")),
+        normalize_name(str(status.get("singer", "") or "")),
+    )
+    if actual != expected:
+        return False
+    ok, detail = _lx_control("resume", timeout=2.0)
+    if ok:
+        bot._video_pause_active = False
+        bot._video_pause_track = None
+        log.info("CMD 窗口关闭事件：已同步恢复视频自动暂停的洛雪歌曲。")
+        return True
+    log.warning("CMD 窗口关闭事件：恢复洛雪歌曲失败：%s", detail)
+    return False
 
 
 def get_lx_playback_state(status: Optional[dict[str, Any]]) -> str:
