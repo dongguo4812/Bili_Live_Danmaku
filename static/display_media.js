@@ -77,10 +77,20 @@
     const queue=Array.isArray(data.queue)?data.queue:[];
 
     const currentBox=section(root,"正在播放 ▶","current");
-    titleLine(currentBox,current,type,type==="music"?"暂无机器人点播歌曲":"等待点播视频");
+    const currentHeading=currentBox.querySelector(".md-heading");
+    if(current){
+      titleLine(currentBox,current,type,"");
+    }else{
+      currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无机器人点播歌曲":"暂无机器人点播视频"));
+    }
 
     const nextBox=section(root,"接下来播放","next");
-    queueList(nextBox,queue,type);
+    const nextHeading=nextBox.querySelector(".md-heading");
+    if(queue.length){
+      queueList(nextBox,queue,type);
+    }else{
+      nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
+    }
 
     const notices=normalizeNotices(data,type);
     if(notices.length){
