@@ -25,6 +25,29 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             local_config = root / "config" / "local" / "lol_hex_display.json"
             self.assertTrue(local_config.is_file())
 
+    def test_existing_local_json_keeps_values_and_receives_new_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "config" / "default"
+            local = root / "config" / "local"
+            defaults.mkdir(parents=True)
+            local.mkdir(parents=True)
+            (defaults / "lol_hex_display.json").write_text(
+                '{"host":"127.0.0.1","port":8767,"scan_interval":1,"gameflow_check_interval":10}',
+                encoding="utf-8",
+            )
+            (local / "lol_hex_display.json").write_text(
+                '{"port":8879,"lol_client_path":"E:\\\\Games\\\\League"}',
+                encoding="utf-8",
+            )
+            manager = LolHexExtensionManager(root, logging.getLogger("test"))
+            self.assertEqual(manager.port, 8879)
+            saved = __import__("json").loads((local / "lol_hex_display.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["lol_client_path"], "E:\\\\Games\\\\League")
+            self.assertEqual(saved["host"], "127.0.0.1")
+            self.assertEqual(saved["gameflow_check_interval"], 10)
+            self.assertIn("screenshot_dir", saved)
+
     def test_migrates_existing_text_config_to_local_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
