@@ -143,7 +143,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn('_KUWO_SEARCH_URL = "https://www.kuwo.cn/search/searchMusicBykeyWord"', source)
         self.assertIn('_KUWO_SESSION_COOKIE = "Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324"', source)
         self.assertIn("def _kuwo_build_secret(cookie: str, nonce: int)", source)
-        self.assertIn('headers["Secret"]', source)
+        self.assertIn('"Secret": _kuwo_build_secret(_KUWO_SESSION_VALUE, nonce)', source)
         self.assertIn('"reqId": str(uuid.uuid4())', source)
         self.assertIn('rows = data_section.get("list") or data.get("abslist") or []', source)
         self.assertIn('row.get("rid") or row.get("MUSICRID") or row.get("id")', source)
