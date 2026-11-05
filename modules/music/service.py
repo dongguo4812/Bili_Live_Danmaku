@@ -9,8 +9,10 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 import urllib.parse
+import uuid
 import webbrowser
 import threading
 from collections import deque
@@ -457,29 +459,144 @@ def search_netease(keyword: str) -> list[dict[str, Any]]:
 
 
 # 酷我音乐（kw）
+# 酷我网页搜索已改为带会话签名的接口。旧 search.kuwo.cn/r.s 在部分网络环境
+# 会返回空响应或拦截页，不能再依赖 JSON/Python 字面量解析兜底。
+_KUWO_HOME = "https://www.kuwo.cn/"
+_KUWO_SEARCH_URL = "https://www.kuwo.cn/search/searchMusicBykeyWord"
+_KUWO_SESSION_COOKIE = "Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324"
+_KUWO_SESSION_TTL = 30 * 60
+_KUWO_SESSION = requests.Session()
+_KUWO_SESSION_LOCK = threading.RLock()
+_KUWO_SESSION_VALUE = ""
+_KUWO_SESSION_EXPIRES = 0.0
+_KUWO_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+)
+
+
+def _kuwo_valid_session_cookie(value: str) -> bool:
+    return 16 <= len(value) <= 128 and value.isalnum()
+
+
+def _kuwo_build_secret(cookie: str, nonce: int) -> str:
+    state = 59910100
+    encoded = bytearray()
+    for value in cookie.encode("ascii"):
+        state = (state * 9253 + 23) % 2147483647
+        encoded.append(value ^ (state * 255 // 2147483647))
+    return encoded.hex() + f"{nonce:08x}"
+
+
+def _kuwo_get_search_payload(keyword: str) -> dict[str, Any]:
+    """通过酷我当前网页搜索协议获取 JSON，自动刷新失效会话一次。"""
+    global _KUWO_SESSION_VALUE, _KUWO_SESSION_EXPIRES
+
+    with _KUWO_SESSION_LOCK:
+        for attempt in range(2):
+            if not _kuwo_valid_session_cookie(_KUWO_SESSION_VALUE) or time.time() >= _KUWO_SESSION_EXPIRES:
+                home_response = _KUWO_SESSION.get(
+                    _KUWO_HOME,
+                    headers={"User-Agent": _KUWO_USER_AGENT},
+                    timeout=10,
+                )
+                home_response.raise_for_status()
+                cookie = (
+                    home_response.cookies.get(_KUWO_SESSION_COOKIE)
+                    or _KUWO_SESSION.cookies.get(_KUWO_SESSION_COOKIE)
+                    or ""
+                )
+                if not _kuwo_valid_session_cookie(cookie):
+                    raise RuntimeError(
+                        "酷我首页未下发有效搜索会话 Cookie，可能暂时无法访问酷我接口"
+                    )
+                _KUWO_SESSION_VALUE = cookie
+                _KUWO_SESSION_EXPIRES = time.time() + _KUWO_SESSION_TTL
+
+            nonce = secrets.randbelow(90000000) + 10000000
+            params = {
+                "vipver": "1",
+                "client": "kt",
+                "ft": "music",
+                "cluster": "0",
+                "strategy": "2012",
+                "encoding": "utf8",
+                "rformat": "json",
+                "mobi": "1",
+                "issubtitle": "1",
+                "show_copyright_off": "1",
+                "pn": "0",
+                "rn": str(SEARCH_LIMIT),
+                "all": keyword,
+                "reqId": str(uuid.uuid4()),
+            }
+            headers = {
+                "User-Agent": _KUWO_USER_AGENT,
+                "Referer": "https://www.kuwo.cn/search/list?key="
+                + urllib.parse.quote(keyword, safe=""),
+                "Secret": _kuwo_build_secret(_KUWO_SESSION_VALUE, nonce),
+            }
+            response = _KUWO_SESSION.get(
+                _KUWO_SEARCH_URL,
+                params=params,
+                headers=headers,
+                cookies={_KUWO_SESSION_COOKIE: _KUWO_SESSION_VALUE},
+                timeout=10,
+            )
+            body = response.text.strip()
+            illegal = "the request is illegal" in body.lower()
+            if response.status_code in (401, 403) or illegal:
+                _KUWO_SESSION_VALUE = ""
+                _KUWO_SESSION_EXPIRES = 0.0
+                if attempt == 0:
+                    continue
+            response.raise_for_status()
+            if not body:
+                raise ValueError(
+                    f"酷我搜索接口返回空内容（HTTP {response.status_code}）"
+                )
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                content_type = response.headers.get("Content-Type", "未知")
+                preview = body[:160].replace("\\r", " ").replace("\\n", " ")
+                raise ValueError(
+                    f"酷我搜索接口未返回有效 JSON（HTTP {response.status_code}，"
+                    f"Content-Type={content_type}，响应开头={preview!r}）"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise ValueError("酷我搜索接口返回的数据结构不是对象")
+            return payload
+
+        raise RuntimeError("酷我搜索会话刷新后仍被酷我接口拒绝")
+
+
 def search_kuwo(keyword: str) -> list[dict[str, Any]]:
-    url = "https://search.kuwo.cn/r.s?" + urllib.parse.urlencode({
-        "all": keyword, "ft": "music", "itemset": "web_2013", "client": "kt",
-        "pn": 0, "rn": SEARCH_LIMIT, "rformat": "json", "encoding": "utf8",
-    })
-    data = _music_get_json(url, allow_python_literal=True)
-    rows = data.get("abslist", []) if isinstance(data, dict) else []
+    data = _kuwo_get_search_payload(keyword)
+    data_section = data.get("data") if isinstance(data.get("data"), dict) else {}
+    rows = data_section.get("list") or data.get("abslist") or []
     out: list[dict[str, Any]] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        title = html.unescape(str(row.get("SONGNAME", ""))).strip()
-        artist = html.unescape(str(row.get("ARTIST", ""))).strip()
-        song_id = str(row.get("MUSICRID", row.get("MUSICID", ""))).strip()
-        if song_id.startswith("MUSIC_"):
+        title = html.unescape(str(row.get("name") or row.get("SONGNAME") or "")).strip()
+        artist = html.unescape(str(row.get("artist") or row.get("ARTIST") or "")).strip()
+        song_id = str(
+            row.get("rid") or row.get("MUSICRID") or row.get("id")
+            or row.get("MUSICID") or ""
+        ).strip()
+        if song_id.upper().startswith("MUSIC_"):
             song_id = song_id[6:]
         if not title or not artist or not song_id:
             continue
         out.append({
             "title": title, "artist": artist, "source": "kw", "songmid": song_id,
-            "albumId": str(row.get("ALBUMID", "")),
-            "albumName": html.unescape(str(row.get("ALBUM", ""))).strip(),
-            "interval": str(row.get("DURATION", "")), "types": _types_default(),
+            "albumId": str(row.get("albumid") or row.get("ALBUMID") or ""),
+            "albumName": html.unescape(str(row.get("album") or row.get("ALBUM") or "")).strip(),
+            "interval": str(
+                row.get("duration") or row.get("songTimeMinutes") or row.get("DURATION") or ""
+            ),
+            "types": _types_default(),
             "_search_source": "kw",
         })
     return out
