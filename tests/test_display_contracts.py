@@ -351,11 +351,17 @@ class CombinedDisplayContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
         display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('type: "combined-tts-state"', display_script)
         self.assertIn('speechQueue.map(entry => entry.text)', display_script)
         self.assertIn('正在播报', combined)
         self.assertIn('等待播报（', combined)
         self.assertIn('combined-tts-state', combined)
+        self.assertIn('api("/api/voice/tts/state")', combined)
+        self.assertIn('@app.get("/api/voice/tts/state")', main)
+        self.assertIn('@app.post("/api/voice/tts/state")', main)
+        self.assertIn('const showTts = displayMode === "tts";', display_script)
+        self.assertIn('refreshRemoteVoiceState, 100', display_script)
 
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
