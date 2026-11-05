@@ -1667,7 +1667,7 @@
       danmakuCursorInitialized = true;
       await pollDanmaku();
     } catch (error) {
-      console.debug("Unable to initialize danmaku cursor; will retry:", error);
+
     } finally {
       cursorInitializationInProgress = false;
     }
