@@ -16,3 +16,8 @@ object-fit:contain}.info{min-width:0}.info h2{font-size:16px;margin:0 0 2px}.inf
 .quality-prismatic{border:1px solid transparent!important;background:linear-gradient(rgba(45,37,66,.96),rgba(45,37,66,.96)) padding-box,linear-gradient(120deg,#8d68ff,#5ddcff,#f18cff,#ffd36a,#8d68ff) border-box!important;box-shadow:0 0 0 1px rgba(180,140,255,.22),0 2px 14px rgba(151,108,255,.24)}
 @media(max-width:900px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){header{align-items:flex-start;flex-direction:column}.cards{grid-template-columns:1fr}.thumb{height:64px}.toolbar{align-items:flex-start;flex-direction:column}}
 .toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.toolbar-actions button{white-space:nowrap}button:disabled{opacity:.55;cursor:wait}
+
+/* 未匹配到名称时，展示原始截图；固定显示高度，宽度保持图片原始比例。 */
+.display-cards{grid-template-columns:repeat(3,max-content)}
+.display-card.is-unmatched{width:max-content;max-width:calc(100vw - 32px);padding:6px;justify-content:center;overflow:hidden}
+.display-card.is-unmatched .unmatched-screenshot{display:block;flex:none;width:auto;height:140px;max-width:calc(100vw - 48px);object-fit:contain}
