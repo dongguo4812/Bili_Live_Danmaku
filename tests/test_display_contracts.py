@@ -264,7 +264,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
 
         self.assertIn('frame.src="/live2d/display?embedded=1"', template)
         self.assertIn('return render_template("combined_display.html", display_mode=False)', main)
-        self.assertIn("function syncLive2DFrame(widget)", template)
+        self.assertIn("function syncLive2DFrame(widget,item)", template)
         self.assertIn("frame.style.width=stage.clientWidth+\"px\"", template)
         self.assertIn("frame.style.height=stage.clientHeight+\"px\"", template)
         self.assertIn('frame.style.left=((body.clientWidth-stage.clientWidth)/2)+"px"', template)
