@@ -243,7 +243,9 @@ class ModuleManager:
         with self._lock:
             self._connection_active = False
             self._disconnect_snapshot = None
-            records = tuple(self._modules.values())
+            # 按注册顺序逆序清理：后注册的依赖模块（如视频依赖歌曲模块）
+            # 先释放资源并完成必要恢复，再关闭其依赖模块。
+            records = tuple(reversed(tuple(self._modules.values())))
 
         for record in records:
             with self._lock:
