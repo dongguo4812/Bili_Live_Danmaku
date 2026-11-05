@@ -38,7 +38,7 @@ class LolHexExtensionManager:
             "lol_client_path": r"D:\WeGameApps\英雄联盟（含经典模式）",
         })
         if not self.config_path.is_file():
-            self.config = self.config_manager.save("lol_hex_display", self.config) and self.config
+            self.config_manager.save("lol_hex_display", self.config)
         self._lock = threading.RLock()
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
