@@ -85,7 +85,7 @@
     }
 
     if(options.moduleState==="paused"){
-      root.appendChild(node("div","md-paused-status",type==="music"?"⏸ 歌曲点播已暂停":"⏸ 视频点播已暂停"));
+      root.appendChild(node("div","md-paused-status",type==="music"?"🚫 歌曲点播已暂停":"🚫 视频点播已暂停"));
     }
 
     const notices=normalizeNotices(data,type);
