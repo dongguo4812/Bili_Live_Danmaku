@@ -81,6 +81,7 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn("git submodule update --init --recursive", build)
         self.assertIn("extensions\\lol_hex_display\\build.bat", build)
         self.assertIn("dist\\lol_hex_display", build)
+        self.assertIn('"extensions\\lol_hex_display\\data"', build)
         self.assertIn("path = extensions/lol_hex_display", modules)
 
 
