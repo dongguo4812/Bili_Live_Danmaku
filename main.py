@@ -1812,10 +1812,19 @@ def _friendly_module_exception_message(exc: Exception, module_name: str, action:
             or "session not created" in exception_text
         )
     ):
+        if "user data directory is already in use" in exception_text or "profile appears to be in use" in exception_text:
+            reason = "Chrome 提示专用浏览器配置目录正在被占用，通常是上次运行的本程序 Chrome 尚未完全退出。"
+        elif "only supports chrome version" in exception_text:
+            reason = "ChromeDriver 与当前安装的 Chrome 版本不匹配。"
+        else:
+            reason = (
+                "可能是上次运行的本程序 Chrome 尚未完全退出、专用浏览器配置目录被占用，"
+                "或 Chrome 与 ChromeDriver 版本不兼容。"
+            )
         return (
             "视频播放器启动失败：Chrome 无法创建新的浏览器会话。"
-            "可能是上次运行的本程序 Chrome 尚未退出，或专用浏览器配置目录仍被占用。"
-            "请关闭本程序残留的 Chrome 后重试；详细错误已记录到程序日志。"
+            + reason
+            + "请关闭本程序残留的 Chrome 后重试；详细错误已记录到程序日志。"
         )
 
     action_labels = {
@@ -1930,7 +1939,7 @@ def api_music_widget():
         return jsonify(result)
     except Exception as exc:
         logger.exception("读取歌曲信息组件数据失败。")
-        return jsonify({"ok": False, "error": f"读取歌曲信息失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取当前歌曲信息，请检查程序日志中的详细错误。"}), 503
 
 
 @app.get("/api/video/queue")
