@@ -102,18 +102,6 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-if not exist "%OUT%\extensions" mkdir "%OUT%\extensions"
-if not exist "extensions\lol_hex_display\dist\lol_hex_display\lol_hex_display.exe" (
-    echo [错误] 未找到 LOL Hex 打包输出。
-    pause
-    exit /b 1
-)
-xcopy "extensions\lol_hex_display\dist\lol_hex_display" "%OUT%\extensions\lol_hex_display" /E /I /Y >nul
-if errorlevel 1 (
-    echo [错误] 复制 LOL Hex 扩展失败。
-    pause
-    exit /b 1
-)
 copy /Y "start_exe.bat" "%OUT%\start.bat" >nul
 
 echo.
