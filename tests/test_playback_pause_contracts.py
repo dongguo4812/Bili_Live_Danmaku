@@ -72,6 +72,11 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def _force_terminate_browser_sync(browser)", video)
         self.assertIn("timeout=4.0", video)
         main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def _install_console_close_handler()", main)
+        self.assertIn("SetConsoleCtrlHandler", main)
+        self.assertIn("emergency_close_browser_sync", main)
+        self.assertIn("emergency_resume_video_paused_music_sync", main)
+        self.assertIn("timeout=1.5", video)
         self.assertLess(main.index("APPLICATION_RUNTIME.shutdown()", main.index("if __name__ == \"__main__\"")),
                         main.index("LIVE_CLIENT.stop()", main.index("if __name__ == \"__main__\"")))
 
