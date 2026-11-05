@@ -156,5 +156,22 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertNotIn("--console", hex_build)
 
 
+    def test_local_hex_runtime_artifacts_are_ignored_by_git(self):
+        root = Path(__file__).resolve().parents[1]
+        entries = {
+            line.strip()
+            for line in (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        expected = {
+            "__pycache__/",
+            "extensions/lol_hex_display/data/",
+            "extensions/lol_hex_display/screenshots/",
+            "extensions/lol_hex_display/logs/",
+            "extensions/lol_hex_display/lol_hex_display.pid",
+        }
+        self.assertTrue(expected.issubset(entries))
+
+
 if __name__ == "__main__":
     unittest.main()
