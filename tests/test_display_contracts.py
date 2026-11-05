@@ -822,7 +822,7 @@ class Live2DMotionShortcutFeatureTests(unittest.TestCase):
         self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
         self.assertIn('refreshUrl.searchParams.set("_live2d_refresh"', script)
         self.assertIn('window.location.replace(refreshUrl.toString())', script)
-        self.assertIn('display.js?v=20261104-moc3-save-refresh', page)
+        self.assertIn('display.js?v=20261105-tts-cleanup', page)
 
     def test_display_adds_hotkeys_without_replacing_existing_motion_controls(self):
         root = Path(__file__).resolve().parents[1]
