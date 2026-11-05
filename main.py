@@ -884,21 +884,23 @@ def _obs_combined_display_refresh_watchdog() -> None:
 
 
 def _shutdown_application_and_refresh_obs() -> None:
-    """先完整关闭所有业务模块，再刷新 OBS 综合展示浏览器源。"""
+    """优先关闭独立的管理员 Hex 进程，再关闭业务模块并刷新 OBS。"""
     global OBS_COMBINED_DISPLAY_REFRESHED
     with APPLICATION_SHUTDOWN_LOCK:
         if APPLICATION_SHUTDOWN_FINISHED.is_set():
             return
-        logger.warning("开始程序退出清理：先关闭全部业务模块，再刷新 OBS 综合展示源。")
+        logger.warning("开始程序退出清理：先关闭 LOL Hex 管理员进程，再关闭业务模块并刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
+        try:
+            # Hex 是独立的管理员进程，优先请求其自身完成退出清理并核验 PID。
+            # 不让其他模块最长 30 秒的关闭等待延迟 Hex 退出。
+            LOL_HEX_EXTENSION.stop_if_owned()
+        except Exception:
+            logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行其他退出清理。")
         try:
             APPLICATION_RUNTIME.shutdown(timeout=30.0)
         except Exception:
             logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
-        try:
-            LOL_HEX_EXTENSION.stop_if_owned()
-        except Exception:
-            logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行 OBS 刷新。")
         try:
             LIVE_CLIENT.stop()
         except Exception:
