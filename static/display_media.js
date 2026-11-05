@@ -84,15 +84,6 @@
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
 
-    const nextBox=section(root,"接下来播放","next");
-    const nextHeading=nextBox.querySelector(".md-heading");
-    nextHeading.appendChild(node("span","md-next-icon","Ⅱ"));
-    if(queue.length){
-      queueList(nextBox,queue,type);
-    }else{
-      nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
-    }
-
     const notices=normalizeNotices(data,type);
     if(notices.length){
       const noticeBox=section(root,"点播通知","notices");
@@ -105,6 +96,15 @@
         stack.appendChild(row);
       });
       noticeBox.appendChild(stack);
+    }
+
+    const nextBox=section(root,"接下来播放","next");
+    const nextHeading=nextBox.querySelector(".md-heading");
+    nextHeading.appendChild(node("span","md-next-icon","Ⅱ"));
+    if(queue.length){
+      queueList(nextBox,queue,type);
+    }else{
+      nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
     }
   }
   global.MediaDisplay={render:render};
