@@ -818,7 +818,7 @@ def match_asset(text, is_mutated=False):
 
     # 兼容 OCR 偶尔识别出质变前缀的情况
     text = re.sub(
-        r'^已质变\s*[:：]\s*',
+        r'^已质变\\s*[:：]\\s*',
         '',
         text
     ).strip()
@@ -829,16 +829,22 @@ def match_asset(text, is_mutated=False):
     with assets_lock:
         items = list(assets.values())
 
-    norm = norm_name(text)
-
-    # 完全匹配
+    # 第一优先级：保留标点的精确匹配。
+    # 仅统一大小写和连续空白，不删除感叹号等可能区分不同强化的标点。
+    exact_key = ' '.join(text.casefold().split())
     exact = [
         a for a in items
-        if norm_name(a['name']) == norm
+        if ' '.join(str(a.get('name', '')).strip().casefold().split()) == exact_key
     ]
 
-    if len(exact) == 1:
-        asset = dict(exact[0])
+    exact_by_id = {
+        str(a.get('id', '')): a
+        for a in exact
+        if a.get('id') is not None
+    }
+
+    if len(exact_by_id) == 1:
+        asset = dict(next(iter(exact_by_id.values())))
         asset['display_name'] = (
             f"已质变：{asset['name']}"
             if is_mutated
@@ -846,19 +852,24 @@ def match_asset(text, is_mutated=False):
         )
         return asset, ''
 
-    # 安全的包含匹配
+    if len(exact_by_id) > 1:
+        return None, '名称精确匹配存在重复记录，未自动猜测'
+
+    # 第二优先级：兼容 OCR 标点差异，再进行忽略标点的匹配。
+    norm = norm_name(text)
     candidates = [
         a for a in items
-        if len(norm_name(a['name'])) >= 3
+        if len(norm_name(a.get('name', ''))) >= 3
         and (
-            norm_name(a['name']) in norm
-            or norm in norm_name(a['name'])
+            norm_name(a.get('name', '')) in norm
+            or norm in norm_name(a.get('name', ''))
         )
     ]
 
     uniq = {
-        a['id']: a
+        str(a.get('id', '')): a
         for a in candidates
+        if a.get('id') is not None
     }
 
     if len(uniq) == 1:
