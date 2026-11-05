@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import asyncio
+import ctypes
 import base64
 import hashlib
 import json
@@ -30,8 +31,8 @@ from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from core.logger_manager import setup_logging
-from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
-from modules.video.service import VideoModuleFacade
+from modules.music.service import (MusicModuleFacade, get_lx_status, is_lx_playing, emergency_resume_video_paused_music_sync)
+from modules.video.service import VideoModuleFacade, emergency_close_browser_sync
 from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
 
@@ -2480,11 +2481,63 @@ def _credential_watchdog() -> None:
 _initialize_login_state()
 
 
+_CONSOLE_CTRL_HANDLER = None
+
+
+def _install_console_close_handler() -> None:
+    """捕获 Windows CMD 右上角关闭事件；该事件不保证执行 Python finally/atexit。"""
+    global _CONSOLE_CTRL_HANDLER
+    if os.name != "nt":
+        return
+
+    handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+    def handle_console_event(event_type: int) -> bool:
+        # CTRL_CLOSE_EVENT=2，CTRL_LOGOFF_EVENT=5，CTRL_SHUTDOWN_EVENT=6。
+        if event_type not in {2, 5, 6}:
+            return False
+        logger.warning("检测到 Windows 控制台关闭事件，开始执行紧急资源清理。")
+
+        tasks = [
+            threading.Thread(
+                target=emergency_close_browser_sync,
+                name="emergency-close-chrome",
+                daemon=True,
+            ),
+            threading.Thread(
+                target=emergency_resume_video_paused_music_sync,
+                args=(MUSIC_MODULE.bot,),
+                name="emergency-resume-lx-music",
+                daemon=True,
+            ),
+        ]
+        deadline = time.monotonic() + 4.0
+        for task in tasks:
+            task.start()
+        for task in tasks:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            task.join(remaining)
+        logger.warning(
+            "控制台关闭事件紧急清理结束：Chrome线程存活=%s，洛雪恢复线程存活=%s。",
+            tasks[0].is_alive(), tasks[1].is_alive(),
+        )
+        return True
+
+    _CONSOLE_CTRL_HANDLER = handler_type(handle_console_event)
+    if not ctypes.windll.kernel32.SetConsoleCtrlHandler(_CONSOLE_CTRL_HANDLER, True):
+        logger.warning("注册 Windows 控制台关闭事件处理器失败。")
+    else:
+        logger.info("已注册 Windows CMD 关闭事件清理处理器。")
+
+
 if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
     APPLICATION_RUNTIME.start()
+    _install_console_close_handler()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     atexit.register(APPLICATION_RUNTIME.shutdown)
     _restore_saved_live_connection()
