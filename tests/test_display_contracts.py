@@ -86,6 +86,21 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         self.assertIn('body.embedded{padding:0}', video)
 
 
+class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
+    def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        start = script.index("async function pollTtsTestQueue()")
+        end = script.index("async function pollDanmaku()", start)
+        test_poll = script[start:end]
+        self.assertIn('fetch("/api/voice/tts/test-queue"', test_poll)
+        self.assertIn("testQueuePollInProgress", test_poll)
+        self.assertIn('enqueueSpeech({ type: "test", text: item.text })', test_poll)
+        self.assertIn("pollTtsTestQueue();", script[script.index("function refreshDanmakuPolling()"):])
+        danmaku_poll_start = script.index("async function pollDanmaku()")
+        danmaku_poll_end = script.index("async function initializeDanmakuCursor()", danmaku_poll_start)
+        self.assertNotIn("/api/voice/tts/test-queue", script[danmaku_poll_start:danmaku_poll_end])
+
+
 class CombinedDisplayContractTests(unittest.TestCase):
     def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
@@ -101,7 +116,15 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn("target=_obs_combined_display_refresh_watchdog", main)
         self.assertNotIn("_obs_live2d_watchdog", main)
         self.assertNotIn("_shutdown_obs_live2d_sources", main)
-        self.assertNotIn("SetSceneItemEnabled", main)
+        self.assertIn("def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:", main)
+        self.assertIn('"CreateSceneItem"', main)
+        self.assertIn('"SetSceneItemEnabled"', main)
+        self.assertIn('"shutdown": False', main)
+        self.assertIn('"reroute_audio": True', main)
+        refresh_flow = main[main.index("def _refresh_obs_combined_display_sources"):main.index("def _obs_combined_display_refresh_watchdog")]
+        self.assertNotIn("SetSceneItemEnabled", refresh_flow)
+        self.assertIn("result.get(\"voice_engine\")", main)
+        self.assertIn("_refresh_obs_combined_display_sources(ensure_voice_engine=False)", main)
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
@@ -179,7 +202,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/voice/tts/settings', display_script)
         self.assertIn('/api/voice/tts/synthesize', display_script)
         self.assertIn('/api/voice/tts/settings', voice_page)
-        self.assertIn('/api/voice/tts/synthesize', voice_page)
+        self.assertIn('/api/voice/tts/test', voice_page)
         self.assertIn('/api/music/settings', music_page)
         self.assertIn('/api/video/settings', video_page)
 
@@ -315,7 +338,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn('live2d-preview-toggle', template)
         self.assertNotIn('live2dPreviewEnabled', template)
         self.assertNotIn('silentPreview', display_script)
-        self.assertIn('const showTts = displayMode === "all" || displayMode === "tts";', display_script)
+        self.assertIn('const showTts = displayMode === "tts";', display_script)
         self.assertNotIn("live2d-preview-export", display_script)
         self.assertNotIn('/api/live2d/preview', main)
         self.assertNotIn('static/live2d_preview', template + display_script + main)
@@ -344,11 +367,17 @@ class CombinedDisplayContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
         display_script = (root / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        main = (root / "main.py").read_text(encoding="utf-8")
         self.assertIn('type: "combined-tts-state"', display_script)
         self.assertIn('speechQueue.map(entry => entry.text)', display_script)
         self.assertIn('正在播报', combined)
         self.assertIn('等待播报（', combined)
         self.assertIn('combined-tts-state', combined)
+        self.assertIn('api("/api/voice/tts/state")', combined)
+        self.assertIn('@app.get("/api/voice/tts/state")', main)
+        self.assertIn('@app.post("/api/voice/tts/state")', main)
+        self.assertIn('const showTts = displayMode === "tts";', display_script)
+        self.assertIn('refreshRemoteVoiceState, 100', display_script)
 
     def test_video_widget_does_not_embed_video_player(self):
         source = (Path(__file__).resolve().parents[1] / "templates" / "combined_display.html").read_text(encoding="utf-8")
@@ -793,7 +822,7 @@ class Live2DMotionShortcutFeatureTests(unittest.TestCase):
         self.assertIn('if (live2dRuntimeVersion === "moc3")', script)
         self.assertIn('refreshUrl.searchParams.set("_live2d_refresh"', script)
         self.assertIn('window.location.replace(refreshUrl.toString())', script)
-        self.assertIn('display.js?v=20261104-moc3-save-refresh', page)
+        self.assertIn('display.js?v=20261105-tts-cleanup', page)
 
     def test_display_adds_hotkeys_without_replacing_existing_motion_controls(self):
         root = Path(__file__).resolve().parents[1]

@@ -592,10 +592,15 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     try{
       // Music, video and LOL Hex data are refreshed by their own embedded display pages.
       // Keep only the shared voice/module state requests in the layout controller.
-      const [voice,modules,hex]=await Promise.all([
-        api("/api/voice/tts/settings"),api("/api/modules"),api("/api/extensions/lol-hex")
+      const [voice,modules,hex,voiceSpeech]=await Promise.all([
+        api("/api/voice/tts/settings"),api("/api/modules"),api("/api/extensions/lol-hex"),
+        api("/api/voice/tts/state")
       ]);
       latestData.voice=voice;
+      latestData.voiceSpeech={
+        current:String(voiceSpeech.current||""),
+        queue:Array.isArray(voiceSpeech.queue)?voiceSpeech.queue.map(value=>String(value)):[],
+      };
       latestData.hex=hex;
       latestData.modules=modules.modules||{};
       latestData.voice.module_state=(latestData.modules.voice||{}).state||"stopped";
