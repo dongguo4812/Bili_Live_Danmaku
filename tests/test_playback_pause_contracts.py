@@ -73,9 +73,9 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await self.bot.close(stop_playback=False)", music_shutdown)
         self.assertNotIn("_lx_control", music_shutdown)
         self.assertNotIn("emergency_resume_video_paused_music_sync", music)
-        video_close = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
-        self.assertIn("await self.close(restore_music=False)", video)
-        self.assertIn("async def close(self, restore_music: bool = True):", video)
+        video_close = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
+        self.assertIn("await self.close(restore_music=False, cleanup_browser=False)", video)
+        self.assertIn("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video)
         self.assertIn("if restore_music:", video_close)
         self.assertIn("await _resume_music_if_video_finished()", video_close)
         self.assertIn("def _browser_process_alive_sync(browser)", video)
@@ -95,7 +95,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\n    async def close", 1)]
         self.assertLess(video_shutdown_body.index("module_enabled = False"), video_shutdown_body.index("emergency_close_browser_sync"))
         self.assertIn("if cleanup_browser else ([], [])", video)
-        video_close_body = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
+        video_close_body = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
         self.assertLess(video_close_body.index("_quit_browser_sync"), video_close_body.index("_terminate_chrome_profile_processes_sync"))
         self.assertIn("即使 driver 已丢失或 Selenium 会话状态异常", video_close_body)
@@ -131,7 +131,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _friendly_module_exception_message(", main)
         self.assertIn("Chrome 无法创建新的浏览器会话", main)
-        self.assertIn("专用浏览器配置目录仍被占用", main)
+        self.assertIn("专用浏览器配置目录正在被占用", main)
         self.assertIn("详细错误已记录到程序日志", main)
         self.assertIn("_friendly_module_exception_message(exc, module_name, action)", main)
         self.assertIn('_friendly_module_exception_message(exc, "video", "action")', main)
