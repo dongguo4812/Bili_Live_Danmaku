@@ -770,6 +770,8 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
 OBS_DISPLAY_LOCK = threading.RLock()
 OBS_COMBINED_REFRESH_STOP = threading.Event()
 OBS_COMBINED_DISPLAY_REFRESHED = False
+APPLICATION_SHUTDOWN_LOCK = threading.RLock()
+APPLICATION_SHUTDOWN_FINISHED = threading.Event()
 
 
 def _display_service_address() -> tuple[str, int]:
@@ -876,6 +878,48 @@ def _obs_combined_display_refresh_watchdog() -> None:
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
             break
+
+
+def _shutdown_application_and_refresh_obs() -> None:
+    """先完整关闭所有业务模块，再刷新 OBS 综合展示浏览器源。"""
+    global OBS_COMBINED_DISPLAY_REFRESHED
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_FINISHED.is_set():
+            return
+        logger.warning("开始程序退出清理：先关闭全部业务模块，再刷新 OBS 综合展示源。")
+        OBS_COMBINED_REFRESH_STOP.set()
+        try:
+            APPLICATION_RUNTIME.shutdown(timeout=30.0)
+        except Exception:
+            logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
+        try:
+            LIVE_CLIENT.stop()
+        except Exception:
+            logger.exception("停止 B 站连接时发生异常，仍将继续执行 OBS 刷新。")
+
+        # 所有模块 shutdown 已完成后才刷新，确保 OBS 重新加载的是最终页面状态。
+        last_result = None
+        for attempt in range(1, 4):
+            last_result = _refresh_obs_combined_display_sources()
+            if last_result.get("ok") and last_result.get("refreshed", 0) > 0:
+                OBS_COMBINED_DISPLAY_REFRESHED = True
+                logger.info(
+                    "程序退出阶段 OBS 综合展示源刷新成功：第 %s 次，刷新 %s 个浏览器源。",
+                    attempt, last_result["refreshed"],
+                )
+                break
+            logger.warning(
+                "程序退出阶段 OBS 综合展示源刷新未成功：第 %s/3 次，%s",
+                attempt, (last_result or {}).get("message", "未知错误"),
+            )
+            if attempt < 3:
+                time.sleep(0.8)
+        else:
+            logger.error(
+                "程序退出阶段 OBS 综合展示源最终刷新失败：%s",
+                (last_result or {}).get("message", "没有获得刷新结果"),
+            )
+        APPLICATION_SHUTDOWN_FINISHED.set()
 
 
 def _available_models(version: str = "moc2") -> list[dict[str, str]]:
@@ -2501,15 +2545,16 @@ def _install_console_close_handler() -> None:
         # 退出时只清理本程序启动的 Chrome；不向洛雪发送任何控制请求，
         # 不恢复、不暂停、不停止，也不关闭洛雪播放器。
         task = threading.Thread(
-            target=emergency_close_browser_sync,
-            name="emergency-close-chrome",
+            target=_shutdown_application_and_refresh_obs,
+            name="emergency-application-shutdown",
             daemon=True,
         )
         task.start()
-        task.join(4.0)
+        # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
+        task.join(40.0)
         logger.warning(
-            "控制台关闭事件紧急清理结束：Chrome线程存活=%s；洛雪播放器保持原状。",
-            task.is_alive(),
+            "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
+            task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
         )
         return True
 
@@ -2538,9 +2583,5 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
-        # 先清理业务模块：避免 LIVE_CLIENT.stop() 的断线回调触发歌曲模块自动暂停，
-        # 并确保视频模块在异步运行时停止前有机会关闭 Selenium Chrome。
-        OBS_COMBINED_REFRESH_STOP.set()
-        APPLICATION_RUNTIME.shutdown()
-        # 业务模块已进入退出清理阶段，随后断开 B 站连接不会再触发模块暂停。
-        LIVE_CLIENT.stop()
+        # 与 CMD 关闭事件共用同一退出流程，保证所有模块关闭后再刷新 OBS 综合展示源。
+        _shutdown_application_and_refresh_obs()
