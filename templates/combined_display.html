@@ -302,6 +302,12 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       frame.style.transform="scale("+scale+")";
       frame.style.width=(100/scale)+"%";
       frame.style.height=(100/scale)+"%";
+    }else if(item.type==="clock"){
+      // 时钟内容按模块中心缩放，模块本身的位置和边界保持不变。
+      frame.style.transformOrigin="center center";
+      frame.style.transform="scale("+scale+")";
+      frame.style.width=(100/scale)+"%";
+      frame.style.height=(100/scale)+"%";
     }
   }
 
@@ -474,6 +480,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       frame.loading="eager";
       frame.setAttribute("allowtransparency","true");
       frame.style.background="transparent";
+      frame.addEventListener("load",()=>applyContentScale(item));
       body.appendChild(frame);
     }
     else if(type==="voice") renderVoice(body);
