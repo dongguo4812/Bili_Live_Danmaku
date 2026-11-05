@@ -139,5 +139,10 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertNotIn('$("video-queue-count")', self.page)
 
 
+    def test_music_and_video_sidebar_links_open_in_new_tabs(self):
+        self.assertIn('<a href="/music" target="_blank" rel="noopener noreferrer">歌曲点播</a>', self.page)
+        self.assertIn('<a href="/video" target="_blank" rel="noopener noreferrer">视频点播</a>', self.page)
+
+
 if __name__ == "__main__":
     unittest.main()
