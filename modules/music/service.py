@@ -476,7 +476,7 @@ _KUWO_USER_AGENT = (
 
 
 def _kuwo_valid_session_cookie(value: str) -> bool:
-    return 16 <= len(value) <= 128 and value.isalnum()
+    return 16 <= len(value) <= 128 and all(ch.isascii() and ch.isalnum() for ch in value)
 
 
 def _kuwo_build_secret(cookie: str, nonce: int) -> str:
