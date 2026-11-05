@@ -697,14 +697,19 @@ def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
 
 
 def emergency_close_browser_sync() -> bool:
-    """CMD 窗口关闭事件：按独立 chrome_profile 清理整个 Chrome 进程树。"""
+    """程序退出时优先按 WebDriver PID、再按独立 chrome_profile 清理 Chrome。"""
     global driver
     browser = driver
     driver = None
-    roots, remaining = _terminate_chrome_profile_processes_sync()
-    if (not roots or remaining) and browser is not None:
-        # CIM 未匹配到浏览器主进程，或清理后仍有残留时，再用 WebDriver PID 兜底。
+    # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
+    if browser is not None:
         _force_terminate_browser_sync(browser)
+    roots, remaining = _terminate_chrome_profile_processes_sync()
+    if remaining:
+        # Profile 查询仍发现残留时，再执行一次定向清理并回查。
+        roots, remaining = _terminate_chrome_profile_processes_sync()
+    if remaining:
+        logger.error("紧急 Chrome 清理后仍有专用 Profile 进程：%s", remaining)
     return not remaining
 
 
@@ -1847,10 +1852,11 @@ class VideoModuleFacade:
         logger.info("视频模块已恢复。")
 
     async def shutdown(self):
-        """程序退出时关闭本模块启动的 Chrome/Selenium 视频播放器，不触碰洛雪。"""
-        await self.close(restore_music=False)
+        """程序退出时先快速回收专用 Chrome，再清理模块状态；不触碰洛雪。"""
+        await asyncio.to_thread(emergency_close_browser_sync)
+        await self.close(restore_music=False, cleanup_browser=False)
 
-    async def close(self, restore_music: bool = True):
+    async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
         global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
         global video_session_generation, video_request_generation
         video_session_generation += 1
@@ -1867,7 +1873,7 @@ class VideoModuleFacade:
                 pass
             except Exception:
                 logger.debug("关闭视频监控任务时发生异常。", exc_info=True)
-        if driver is not None:
+        if cleanup_browser and driver is not None:
             try:
                 # Selenium 锁可能被卡住；暂停动作必须有超时，不能挡住后续浏览器强制清理。
                 await asyncio.wait_for(
@@ -1876,7 +1882,9 @@ class VideoModuleFacade:
                 )
             except Exception as exc:
                 logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
-        old_driver = driver
+        old_driver = driver if cleanup_browser else None
+        if not cleanup_browser:
+            driver = None
         if old_driver is not None:
             # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
             driver = None
@@ -1900,10 +1908,9 @@ class VideoModuleFacade:
                 if not await asyncio.to_thread(_force_terminate_browser_sync, old_driver):
                     logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
 
-        # 不依赖 driver.quit() 的结果：始终按本程序专用 Profile 清理并核验，
-        # 即使 driver 已丢失或 Selenium 会话状态异常，也能回收遗留 Chrome 子进程。
+        # 普通手动关闭时再次核验 Profile；程序退出的快速路径已在 shutdown() 开头完成。
         try:
-            roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync)
+            roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync) if cleanup_browser else ([], [])
             if (not roots or remaining) and old_driver is not None:
                 logger.warning(
                     "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
