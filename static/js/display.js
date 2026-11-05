@@ -220,7 +220,7 @@
         queue: speechQueue.map(entry => entry.text)
       }, window.location.origin);
     } catch (error) {
-      console.debug("Unable to publish TTS display state:", error);
+      
     }
   }
 
@@ -297,7 +297,7 @@
       model.lipSync = null;
       model.lipSyncValue = Math.max(0, Math.min(1, value));
     } catch (error) {
-      console.debug("Live2D mouth sync unavailable:", error);
+      
     }
   }
 
@@ -621,7 +621,7 @@
         processSpeechQueue();
       }
     } catch (error) {
-      console.debug("Unable to check live connection for TTS:", error);
+      
     }
   }
 
@@ -1650,7 +1650,7 @@
         }
       }
     } catch (error) {
-      console.debug("Danmaku polling temporarily unavailable:", error);
+      
     } finally {
       pollInProgress = false;
     }
