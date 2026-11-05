@@ -1785,10 +1785,10 @@ class VideoModuleFacade:
         logger.info("视频模块已恢复。")
 
     async def shutdown(self):
-        """程序退出时关闭本模块启动的 Chrome/Selenium 视频播放器。"""
-        await self.close()
+        """程序退出时关闭本模块启动的 Chrome/Selenium 视频播放器，不触碰洛雪。"""
+        await self.close(restore_music=False)
 
-    async def close(self):
+    async def close(self, restore_music: bool = True):
         global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
         global video_session_generation, video_request_generation
         video_session_generation += 1
@@ -1847,8 +1847,12 @@ class VideoModuleFacade:
         is_playing = False
         playback_state = "stopped"
         current_bv = None
-        # 应用退出时不再控制洛雪；保持播放器当前状态，由正常运行期间的视频结束逻辑负责恢复。
-        logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空；未触碰洛雪播放器。")
+        if restore_music:
+            await _resume_music_if_video_finished()
+            logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
+        else:
+            # 应用退出时保持洛雪原状：不恢复、不暂停、不停止，也不关闭播放器。
+            logger.info("程序退出：视频模块已关闭，Chrome 清理流程已执行；未触碰洛雪播放器。")
 
     def update_room_id(self, room_id: int) -> None:
         global roomid, _streamer_uid_cache, _streamer_uid_cache_at
