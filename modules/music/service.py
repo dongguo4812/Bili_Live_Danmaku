@@ -736,17 +736,10 @@ def find_matching_songs(
             selected = exact_matches[0] if exact_matches else (
                 contains_matches[0] if contains_matches else None
             )
-            match_level = "歌手完全匹配" if exact_matches else (
-                "歌手包含匹配" if contains_matches else ""
-            )
         except Exception as exc:
             # 完整关键词可能被上游接口拒绝（例如带空格的组合词）。
             # 仍继续尝试拆分后的纯歌名，不能因此跳过当前平台的后备匹配。
             errors.append(f"{source}:{type(exc).__name__}: {exc}")
-            log.warning(
-                "音乐平台完整关键词搜索失败，仍尝试歌名拆分搜索：平台=%s（%s），关键词=%s，原因=%s",
-                provider_name, source, keyword, exc,
-            )
 
         if not selected and not artist:
             parts = str(title or "").rsplit(None, 1)
@@ -762,10 +755,6 @@ def find_matching_songs(
                         fallback_contains[0] if fallback_contains else None
                     )
                     if selected:
-                        match_level = (
-                            "空格拆分后歌手完全匹配"
-                            if fallback_exact else "空格拆分后歌手包含匹配"
-                        )
                 except Exception as exc:
                     errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
                     log.warning(
