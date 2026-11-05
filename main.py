@@ -2497,7 +2497,9 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
-        # 先停止唯一的 B 站 WebSocket 连接，再统一关闭业务模块和异步运行时。
-        LIVE_CLIENT.stop()
+        # 先清理业务模块：避免 LIVE_CLIENT.stop() 的断线回调触发歌曲模块自动暂停，
+        # 并确保视频模块在异步运行时停止前有机会关闭 Selenium Chrome。
         OBS_COMBINED_REFRESH_STOP.set()
         APPLICATION_RUNTIME.shutdown()
+        # 业务模块已进入退出清理阶段，随后断开 B 站连接不会再触发模块暂停。
+        LIVE_CLIENT.stop()
