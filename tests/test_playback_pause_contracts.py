@@ -73,7 +73,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await self.bot.close(stop_playback=False)", music_shutdown)
         self.assertNotIn("_lx_control", music_shutdown)
         self.assertNotIn("emergency_resume_video_paused_music_sync", music)
-        video_close = video[video.index("async def close(self):", video.index("class VideoModuleFacade")):]
+        video_close = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
         self.assertIn("await self.close(restore_music=False)", video)
         self.assertIn("async def close(self, restore_music: bool = True):", video)
         self.assertIn("if restore_music:", video_close)
