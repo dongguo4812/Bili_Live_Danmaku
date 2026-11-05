@@ -754,7 +754,6 @@ def find_matching_songs(
                     selected = fallback_exact[0] if fallback_exact else (
                         fallback_contains[0] if fallback_contains else None
                     )
-                    if selected:
                 except Exception as exc:
                     errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
                     log.warning(
