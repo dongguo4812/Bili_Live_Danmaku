@@ -32,6 +32,7 @@ config/local/
 extensions/lol_hex_display/data/
 extensions/lol_hex_display/screenshots/
 extensions/lol_hex_display/logs/
+extensions/lol_hex_display/lol_hex_display.pid
 
 # Unified runtime data and logs (keep documentation tracked)
 logs/
