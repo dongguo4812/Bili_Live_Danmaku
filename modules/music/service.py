@@ -1078,6 +1078,8 @@ class MusicModule:
         self._user_request_locks: dict[int, asyncio.Lock] = {}
         self.queue_lock = asyncio.Lock()
         self.play_lock = asyncio.Lock()
+        # 队列为空时让 worker 保持待命；新请求或模块关闭时唤醒。
+        self._queue_event = asyncio.Event()
         self.current: Optional[dict[str, Any]] = None
         # 只有机器人确实向洛雪发起过当前曲目的播放后，生命周期操作才可控制洛雪。
         # current 也可能只是已出队、正在查询音源的请求，不能据此暂停用户自己的歌曲。
@@ -1204,6 +1206,7 @@ class MusicModule:
         self._video_pause_active = False
         self._video_pause_track = None
         self._skip_requested.set()
+        self._queue_event.set()
         worker = self._worker
         if worker and not worker.done() and worker is not asyncio.current_task():
             # 不立即 cancel 正在执行的 to_thread(Scheme) 调用，避免暂停先于歌曲启动，
@@ -1570,6 +1573,7 @@ class MusicModule:
             # 第四步：确认没有重复后，才加入机器人待播队列。
             self.queue.append(item)
             self.queued_keys.add(key)
+            self._queue_event.set()
 
             log.info(
                 "点歌匹配成功并入队：%s - %s（音源：%s；点歌人：%s，UID:%s；队列 %s/%s）",
@@ -1601,11 +1605,21 @@ class MusicModule:
                     if not self.queue:
                         self.current = None
                         self._lx_playback_active = False
+                        # 在锁内清除事件并检查队列，避免新请求入队时丢失唤醒。
+                        self._queue_event.clear()
+                        item = None
+                    else:
+                        item = self.queue.popleft()
+                        self.queued_keys.discard(item["key"])
+                        self.current = item
+                        self._lx_playback_active = False
+
+                if item is None:
+                    if not self.enabled or self._closing:
                         return
-                    item = self.queue.popleft()
-                    self.queued_keys.discard(item["key"])
-                    self.current = item
-                    self._lx_playback_active = False
+                    log.info("机器人点歌队列为空，洛雪继续自己的播放列表；机器人等待新的点歌请求。")
+                    await self._queue_event.wait()
+                    continue
 
                 self._skip_requested.clear()
                 candidates = [item.get("music_info") or {}]
@@ -1728,8 +1742,31 @@ class MusicModule:
                     continue
 
                 await self.wait_song_end()
-                # 自然结束或管理员切歌时释放播放归属；若是模块关闭触发的退出，
-                # 则保留标志交给 close() 暂停当前机器人歌曲。
+                # 管理员切歌、关闭模块时不额外推进洛雪列表。
+                if self._skip_requested.is_set() or not self.enabled or self._closing:
+                    if not self._closing:
+                        self._lx_playback_active = False
+                    continue
+
+                # 机器人歌曲结束后，若队列为空则交还给洛雪自己的播放列表。
+                # 如果洛雪已经自动切到列表下一首，不再重复调用 skip-next。
+                async with self.queue_lock:
+                    if not self.queue and self.enabled and not self._closing:
+                        lx_status = await asyncio.to_thread(get_lx_status)
+                        lx_key = get_lx_current_song_key(lx_status)
+                        bot_key = (
+                            normalize_name(str(item.get("title", ""))),
+                            normalize_name(str(item.get("artist", ""))),
+                        )
+                        if lx_key is None or lx_key == bot_key:
+                            ok, detail = await asyncio.to_thread(skip_lx_next)
+                            if ok:
+                                log.info("机器人队列为空，已交还洛雪播放列表：%s", detail)
+                            else:
+                                log.warning("机器人队列为空，切换洛雪播放列表下一首失败：%s", detail)
+                        else:
+                            log.info("洛雪已自动切换到自己的列表歌曲，保持当前播放：%s - %s", *lx_key)
+
                 if not self._closing:
                     self._lx_playback_active = False
                 log.info("机器人点播流程结束：%s", item["title"])
