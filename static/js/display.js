@@ -270,8 +270,11 @@
   }
 
   function enqueueSpeech(item) {
-    if (!voiceModuleActive || !ttsSettings || !item || !item.text) return;
-    if (item.type === "danmaku" && !ttsSettings.danmaku_enabled) return;
+    if (!voiceModuleActive || !ttsSettings || !item || !item.text) {
+      
+      return;
+    }
+    if (item.type === "danmaku" && !ttsSettings.danmaku_enabled) {  return; }
     if (item.type === "gift") {
       if (!ttsSettings.gift_enabled) return;
       if ((Number(item.gift_value_yuan) || 0) < Number(ttsSettings.gift_min_amount || 0)) return;
@@ -297,6 +300,7 @@
       type: item.type
     });
     speechQueue.sort((a, b) => a.priority - b.priority || a.sequence - b.sequence);
+    
     publishSpeechState();
     processSpeechQueue();
   }
@@ -383,21 +387,27 @@
     if (!AudioContextClass) throw new Error("当前浏览器不支持 Web Audio，无法进行嘴型同步。");
     if (!audioContext) {
       audioContext = new AudioContextClass();
+      
       audioContext.onstatechange = () => {
+        
         audioUnlocked = audioContext.state === "running";
         if (audioUnlocked) processSpeechQueue();
       };
     }
     if (audioContext.state !== "running") {
       try {
+        
         await audioContext.resume();
+        
       } catch (error) {
         audioUnlocked = false;
+        
         if (!options.silent) throw error;
         return false;
       }
     }
     audioUnlocked = audioContext.state === "running";
+    
     if (!audioUnlocked && !options.silent) {
       throw new Error("OBS 浏览器尚未允许自动播放；请检查 OBS 浏览器源的自动播放策略。");
     }
@@ -407,6 +417,7 @@
   async function initializeAutomaticAudio() {
     try {
       const ready = await unlockSpeechAudio({ silent: true });
+      
       if (ready) {
         setTtsStatus("Web Audio 已自动启动，等待直播间连接。");
         processSpeechQueue();
@@ -414,6 +425,7 @@
         setTtsStatus("已尝试自动启动 Web Audio；正在等待 OBS 浏览器允许播放。");
       }
     } catch (error) {
+      
       console.warn("Automatic Web Audio initialization failed:", error);
       setTtsStatus("Web Audio 自动启动失败：" + error.message, true);
     }
@@ -636,6 +648,7 @@
         return;
       }
       applyModuleStates(data.modules || {});
+      
       if (showDanmaku) setIdleConnectionState(connected);
       if (showTts && connected !== lastConnectionState) {
         lastConnectionState = connected;
@@ -676,6 +689,7 @@
   }
 
   async function playSpeechText(text) {
+    
     await unlockSpeechAudio();
     const response = await fetch("/api/voice/tts/synthesize", {
       method: "POST",
@@ -683,12 +697,15 @@
       body: JSON.stringify({ text })
     });
     const data = await response.json();
+    
     if (!response.ok || !data.ok) throw new Error(data.error || "语音生成失败。");
 
     const audioResponse = await fetch(data.url, { cache: "no-store" });
+    
     if (!audioResponse.ok) throw new Error("无法读取生成的语音文件。");
     const encodedAudio = await audioResponse.arrayBuffer();
     const decodedAudio = await audioContext.decodeAudioData(encodedAudio);
+    
     const source = audioContext.createBufferSource();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
@@ -711,22 +728,29 @@
         currentAnalyser = null;
         try { source.disconnect(); } catch (_) {}
         try { analyser.disconnect(); } catch (_) {}
+        
         if (error) reject(error);
         else resolve();
       };
       source.onended = () => finish();
       try {
         source.start(0);
+        
         startMouthSync(analyser);
       } catch (error) {
+        
         finish(error);
       }
     });
   }
 
   async function processSpeechQueue() {
-    if (!voiceModuleActive || speaking || !speechQueue.length) return;
+    if (!voiceModuleActive || speaking || !speechQueue.length) {
+      if (showTts && speechQueue.length && !voiceModuleActive) 
+      return;
+    }
     speaking = true;
+    
     publishSpeechState();
     try {
       if (!audioUnlocked) {
@@ -745,6 +769,7 @@
           currentSpeech = null;
           publishSpeechState();
           setTtsStatus("语音播放失败：" + error.message, true);
+          
           console.warn("TTS playback failed:", error);
           if (/允许播放|支持 Web Audio|自动播放|suspended/i.test(error.message)) {
             speechQueue.unshift(next);
@@ -1720,10 +1745,11 @@
       if (!response.ok) throw new Error("无法初始化弹幕游标（HTTP " + response.status + "）。");
       const data = await response.json();
       lastDanmakuId = Number(data.latest_id) || 0;
+      
       danmakuCursorInitialized = true;
       await pollDanmaku();
     } catch (error) {
-
+      
     } finally {
       cursorInitializationInProgress = false;
     }

@@ -1073,6 +1073,21 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
             voice_engine = None
             if ensure_voice_engine:
                 voice_engine = _ensure_obs_voice_engine_source(ws)
+                # OBS WebSocket 创建/配置 Browser Source 成功，不代表其 Chromium 页面已实际启动。
+                # 尤其复用已有来源且 URL 未变化时，SetInputSettings 不保证触发页面重新加载。
+                # 在启动阶段场景项全部启用后主动刷新一次，确保 /voice/display 真正发起加载。
+                if voice_engine and voice_engine.get("ready"):
+                    source_name = str(voice_engine.get("source_name") or "").strip()
+                    if source_name:
+                        _obs_ws_request(ws, "PressInputPropertiesButton", {
+                            "inputName": source_name,
+                            "propertyName": "refreshnocache",
+                        })
+                        voice_engine["refreshed"] = True
+                        logger.info(
+                            "OBS 全局语音引擎已触发启动页面刷新：共享浏览器源“%s”。",
+                            source_name,
+                        )
 
             if refreshed or (voice_engine and voice_engine.get("ready")):
                 details = []
