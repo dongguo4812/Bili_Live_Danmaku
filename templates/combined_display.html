@@ -275,6 +275,13 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       frame.contentWindow?.postMessage({type:"music-widget-scale",scale},window.location.origin);
     }else if(item.type==="music"||item.type==="video"){
       frame.contentWindow?.postMessage({type:"combined-display-scale",scale},window.location.origin);
+    }else if(item.type==="lol_hex_bar"||item.type==="lol_hex_display"){
+      // Scale the full embedded Hex page while expanding its CSS viewport inversely,
+      // so the page does not reflow before the visual scale is applied.
+      frame.style.transformOrigin="top left";
+      frame.style.transform="scale("+scale+")";
+      frame.style.width=(100/scale*100)+"%";
+      frame.style.height=(100/scale*100)+"%";
     }
   }
 
@@ -361,7 +368,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     body.appendChild(frame);
   }
 
-  function renderLolHex(body,type){
+  function renderLolHex(body,type,item){
     const running=!!(latestData.hex&&latestData.hex.running);
     body.dataset.hexState=running?"running":"stopped";
     if(!running){
@@ -375,6 +382,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     frame.setAttribute("allowtransparency","true");
     frame.style.background="transparent";
     frame.style.colorScheme="dark";
+    frame.addEventListener("load",()=>applyContentScale(item));
     body.appendChild(frame);
   }
 
@@ -434,7 +442,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     }else if(type==="music_widget") renderMusicWidget(body,item);
     else if(type==="music") renderMusic(body,item);
     else if(type==="video") renderVideo(body,item);
-    else if(type==="lol_hex_bar"||type==="lol_hex_display") renderLolHex(body,type);
+    else if(type==="lol_hex_bar"||type==="lol_hex_display") renderLolHex(body,type,item);
     else if(type==="voice") renderVoice(body);
     else if(type==="danmaku") renderDanmaku(body);
   }
