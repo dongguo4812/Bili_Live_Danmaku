@@ -684,6 +684,8 @@ def get_tts_playback_state():
         state = dict(VOICE_PLAYBACK_STATE)
         state["queue"] = list(VOICE_PLAYBACK_STATE.get("queue", []))
     if time.monotonic() - float(state.get("updated_at", 0.0) or 0.0) > 2.0:
+        state["current"] = ""
+        state["queue"] = []
         state["speaking"] = False
         state["level"] = 0.0
     state.pop("updated_at", None)
