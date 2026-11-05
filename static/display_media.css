@@ -3,6 +3,7 @@
 .md-section{margin:0 0 9px;min-width:0}
 .md-heading{display:flex;align-items:center;gap:8px;margin:0 0 4px;color:#9fc0ff;font-size:calc(14px * var(--content-scale, 1));font-weight:800;line-height:1.4}
 .md-heading.next{color:#d5dbea}
+.md-next-icon{color:#ffd66b;font-weight:900}
 .md-primary{min-width:0;font-size:calc(19px * var(--content-scale, 1));font-weight:800;line-height:1.45;overflow-wrap:anywhere}
 .md-empty{color:#aeb9ca;font-size:calc(14px * var(--content-scale, 1));font-weight:800}
 .md-meta{display:flex;flex-wrap:wrap;gap:5px 12px;margin-top:2px;color:#bdc7d8;font-size:calc(12px * var(--content-scale, 1));line-height:1.4}
