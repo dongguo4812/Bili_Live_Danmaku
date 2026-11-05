@@ -233,14 +233,14 @@ def check_admin_privileges():
             executable = sys.executable
             parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:]])
 
-        result = ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", executable, parameters, str(ROOT), 1
-        )
-        if result > 32:
+        shell_execute = ctypes.windll.shell32.ShellExecuteW
+        shell_execute.restype = ctypes.c_void_p
+        result = shell_execute(None, "runas", executable, parameters, str(ROOT), 1)
+        if result and result > 32:
             logging.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
             return False
 
-        error_code = int(result)
+        error_code = int(result or 0)
         logging.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s", error_code)
         try:
             ctypes.windll.user32.MessageBoxW(
