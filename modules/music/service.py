@@ -386,10 +386,16 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
         },
         timeout=10,
     )
+    log.info("QQ 音乐搜索 HTTP 响应：status=%s, content_type=%s, bytes=%s",
+             response.status_code, response.headers.get("Content-Type", ""),
+             len(response.content))
     response.raise_for_status()
     data = response.json()
     if not isinstance(data, dict):
-        raise ValueError("QQ 音乐搜索接口返回格式异常")
+        raise ValueError(
+            f"QQ 音乐搜索接口返回格式异常：type={type(data).__name__}"
+        )
+    log.info("QQ 音乐搜索响应顶层字段：%s", list(data.keys()))
 
     req = data.get("req_1")
     if not isinstance(req, dict):
@@ -405,12 +411,33 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
             f"QQ 音乐搜索业务失败：code={top_code!r}, req_code={module_code!r}"
         )
 
-    body = ((req.get("data") or {}).get("body") or {})
-    song_data = body.get("song") or {}
-    rows = song_data.get("list") or []
+    req_data = req.get("data")
+    if not isinstance(req_data, dict):
+        req_data = {}
+    body = req_data.get("body")
+    if not isinstance(body, dict):
+        body = {}
+    song_data = body.get("song")
+    if not isinstance(song_data, dict):
+        song_data = {}
+    rows = song_data.get("list")
+    if not isinstance(rows, list):
+        rows = []
+    log.info(
+        "QQ 音乐搜索响应结构：响应键=%s, req键=%s, req_code=%r, data键=%s, "
+        "body键=%s, song键=%s, 原始歌曲数=%s",
+        "req_1" if data.get("req_1") is req else "module",
+        list(req.keys()), req.get("code"), list(req_data.keys()),
+        list(body.keys()), list(song_data.keys()), len(rows),
+    )
+    if rows:
+        first = rows[0]
+        log.info("QQ 音乐首条歌曲字段：%s", list(first.keys()) if isinstance(first, dict) else type(first).__name__)
     out: list[dict[str, Any]] = []
-    for row in rows if isinstance(rows, list) else []:
+    missing_title = missing_artist = missing_id = invalid_row = 0
+    for row in rows:
         if not isinstance(row, dict):
+            invalid_row += 1
             continue
         # 当前 QQ 搜索接口的歌曲标题字段为 title，兼容旧字段名。
         title = str(row.get("title") or row.get("name") or row.get("songname") or "").strip()
@@ -435,6 +462,12 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
         album_mid = str(album.get("mid") or row.get("albummid") or "").strip()
         album_id = str(album.get("id") or row.get("albumid") or "")
         album_name = str(album.get("name") or row.get("albumname") or "").strip()
+        if not title:
+            missing_title += 1
+        if not artist:
+            missing_artist += 1
+        if not song_id:
+            missing_id += 1
         if not title or not artist or not song_id:
             continue
         out.append({
@@ -444,6 +477,12 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
             "interval": str(row.get("interval") or row.get("duration") or ""),
             "types": _types_default(), "_search_source": "tx",
         })
+    log.info(
+        "QQ 音乐候选解析统计：原始=%s, 有效=%s, 缺标题=%s, 缺歌手=%s, "
+        "缺歌曲ID=%s, 非对象行=%s, 上限=%s",
+        len(rows), len(out), missing_title, missing_artist, missing_id,
+        invalid_row, SEARCH_LIMIT,
+    )
     # 再做一次数量上限保护，确保每个平台最多保留 SEARCH_LIMIT 条有效候选。
     return out[:SEARCH_LIMIT]
 
