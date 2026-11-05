@@ -961,6 +961,9 @@ class MusicModule:
         self._closing = True
         self.enabled = False
         self.paused = False
+        # 用户主动关闭歌曲模块时，不应在视频结束后重新启动其歌曲。
+        self._video_pause_active = False
+        self._video_pause_track = None
         self._skip_requested.set()
         worker = self._worker
         if worker and not worker.done() and worker is not asyncio.current_task():
@@ -1369,6 +1372,8 @@ class MusicModule:
                 verified = False
 
                 for candidate_index, candidate in enumerate(candidates):
+                    while self._video_pause_active and self.enabled and not self._closing:
+                        await asyncio.sleep(0.25)
                     if self._skip_requested.is_set() or not self.enabled or self._closing:
                         break
                     candidate_song = dict(item)
@@ -1398,11 +1403,11 @@ class MusicModule:
                         continue
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
-                    if self.paused and self.enabled and not self._closing:
+                    if (self.paused or self._video_pause_active) and self.enabled and not self._closing:
                         pause_ok, pause_detail = await asyncio.to_thread(_lx_control, "pause")
                         if not pause_ok:
                             log.warning("播放启动期间补充暂停失败：%s", pause_detail)
-                        while self.paused and self.enabled and not self._closing:
+                        while (self.paused or self._video_pause_active) and self.enabled and not self._closing:
                             await asyncio.sleep(0.25)
                     if not self.enabled or self._closing or self._skip_requested.is_set():
                         break
@@ -1419,8 +1424,8 @@ class MusicModule:
                         )
                         if self._skip_requested.is_set() or not self.enabled or self._closing:
                             break
-                        if self.paused:
-                            while self.paused and self.enabled and not self._closing:
+                        if self.paused or self._video_pause_active:
+                            while (self.paused or self._video_pause_active) and self.enabled and not self._closing:
                                 await asyncio.sleep(0.25)
                             if self.enabled and not self._closing:
                                 continue
