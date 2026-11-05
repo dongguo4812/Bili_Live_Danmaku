@@ -55,7 +55,7 @@ body.embedded{padding:0}
       if(!response.ok)throw new Error("HTTP "+response.status);
       const data=await response.json();
       if(!data||!Array.isArray(data.queue)||!Array.isArray(data.operations))throw new Error("视频队列数据无效");
-      MediaDisplay.render(root,"video",data,{moduleState});
+      MediaDisplay.render(root,"video",data,{moduleState,queueDisplayLimit:{{ queue_display_limit|int }}});
     }catch(error){
 
     }finally{queueInFlight=false;}

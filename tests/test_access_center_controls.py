@@ -37,6 +37,10 @@ class AccessCenterModuleControlTests(unittest.TestCase):
                 self.assertNotIn(f'id="{module}-pause"', self.page)
                 self.assertNotIn(f'id="{module}-resume"', self.page)
 
+    def test_runtime_status_notice_excludes_live2d_messages(self):
+        self.assertIn('$("status-message").textContent = data.bilibili.message;', self.page)
+        self.assertNotIn('$("status-message").textContent = data.bilibili.message + " " + data.live2d.message;', self.page)
+
     def test_live2d_has_a_single_enable_disable_toggle(self):
         self.assertEqual(self.page.count('id="live2d-toggle"'), 1)
         self.assertIn('setLive2DEnabled(!currentlyEnabled)', self.page)

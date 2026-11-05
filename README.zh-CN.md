@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-一个用于 B 站直播间的本地弹幕助手，支持二维码登录、直播间弹幕/礼物/醒目留言接收、Live2D 模型展示、Edge TTS 语音播报，以及 OBS 综合展示源刷新。
+一个用于 B 站直播间的本地互动助手，支持二维码登录、弹幕/礼物/醒目留言接收、Live2D 与 Edge TTS、歌曲/视频点播、LOL Hex 海克斯与战绩展示，以及 OBS 综合展示。
 
 ## 目录
 
@@ -16,6 +16,7 @@
 - [OBS 配置与自动控制](#obs-配置与自动控制)
 - [本地数据与安全](#本地数据与安全)
 - [统一模块与综合展示](#统一模块与综合展示)
+- [LOL Hex 扩展](#lol-hex-扩展)
 - [常见问题](#常见问题)
 - [当前测试状态](#当前测试状态)
 
@@ -205,6 +206,23 @@ OBS WebSocket 普通配置保存在 `config/local/obs.json`，包含地址、端
 - Live2D 设置 API 使用 `/api/live2d/` 前缀；模块生命周期 API 使用统一模块路由。
 - 综合展示布局编辑页：`/dashboard`。可添加/移除模块、拖动位置、调整大小，并手动保存；支持多套布局的创建、复制、重命名、删除和设为默认。
 - OBS 默认综合展示地址：`/display/combined`；指定布局使用 `/display/combined/<布局ID>`，不同 OBS 场景可分别绑定不同布局。视频模块只显示当前播放、下一条、待播队列和通知，不嵌入视频画面。
+
+
+### LOL Hex 扩展
+
+LOL Hex 以独立进程方式运行，由接入中心的「功能启停控制」统一启动和停止；这里仅管理启停，不把 Hex 的内部设置、截图或识别操作混入主项目模块控制。
+
+- Windows 下启动 Hex 会请求管理员权限。F1 全局截图依赖管理员权限，因此需要在 UAC 提示中允许启动；取消授权会导致启动失败。
+- 主项目负责 Hex 进程生命周期和页面入口；Hex 负责英雄联盟客户端识别、F1 截图、本地 OCR、海克斯数据与战绩条展示。
+- 主项目托管模式下，OBS WebSocket 连接、重连和浏览器源刷新由主项目统一负责；Hex 不另行建立 OBS WebSocket 连接。
+- 接入中心可打开 Hex 管理页：`/extensions/lol-hex/`；海克斯展示页：`/extensions/lol-hex/display`；战绩条：`/extensions/lol-hex/bar`。独立运行 Hex 时，默认服务端口为 `8767`，页面分别为 `http://127.0.0.1:8767/`、`/display` 和 `/bar`。
+- Hex 默认配置模板为 `config/default/lol_hex_display.json`，本机实际配置为 `config/local/lol_hex_display.json`。首次升级时，如果本机 JSON 尚不存在且旧版 `extensions/lol_hex_display/config.txt` 存在，程序会将可识别字段迁移到 JSON；JSON 已存在时不会被旧文件覆盖。
+- 默认配置包含服务地址/端口、截图目录、截图扫描间隔、资源与版本检查间隔、游戏客户端状态检查间隔和英雄联盟客户端路径。请在本机 JSON 中修改，不要编辑默认模板来保存个人路径。
+- 本机运行数据位于 `extensions/lol_hex_display/data/`、`screenshots/` 和 `logs/`；进程号记录在 `lol_hex_display.pid`。这些目录和 PID 文件由 `.gitignore` 排除，不作为源码提交。Python 运行时生成的 `__pycache__/` 同样会被忽略。
+- 扩展单独打包脚本不会打包本机数据；主项目 `build.bat` 会在生成扩展后，将当前电脑上已经存在的 Hex `data/`、`screenshots/`、`logs/` 复制到文件夹版输出中。这是本机打包行为，与 GitHub 是否跟踪这些文件相互独立。
+- 在综合展示编辑器中，`LOL 战绩条` 和 `LOL 海克斯展示` 是两个独立组件，可分别添加、移动、缩放和移除。
+
+独立扩展说明见 [LOL Hex 扩展文档](extensions/lol_hex_display/README.md)。\n\n歌曲和视频展示页的待播列表显示数量可分别在 `/music/settings` 与 `/video/settings` 配置，范围为 1～1000，默认各显示 10 条；页面同时显示完整待播总数，不会因展示条数限制而改变实际队列。
 
 GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与离线回归测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置退役测试。CI 通过不等于所有设备上的人工联调均已完成；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 

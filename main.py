@@ -356,7 +356,7 @@ def _model_preferences(settings: dict[str, Any], model_id: str, model_version: s
             return default
 
     return {
-        "scale": number("scale", 1.0, 0.25, 1.5),
+        "scale": number("scale", 1.0, 0.01, 1.5),
         "x": number("x", 0.0, -1.0, 1.0),
         "y": number("y", 0.0, -1.0, 1.0),
         "crop_top": number("crop_top", 0.0, 0.0, 45.0),
@@ -1322,9 +1322,25 @@ def music_settings_page():
     return render_template("music_settings.html")
 
 
+def _queue_display_limit(module_name: str) -> int:
+    """读取歌曲/视频展示页各自的待播列表显示条数。"""
+    config = ConfigManager().load(module_name, {})
+    display = config.get("display", {})
+    if not isinstance(display, dict):
+        display = {}
+    try:
+        limit = int(display.get("queue_display_limit", 10))
+    except (TypeError, ValueError):
+        limit = 10
+    return max(1, min(1000, limit))
+
+
 @app.get("/music/display")
 def music_display_page():
-    return render_template("music_display.html")
+    return render_template(
+        "music_display.html",
+        queue_display_limit=_queue_display_limit("music"),
+    )
 
 
 @app.get("/music/widget")
@@ -1345,7 +1361,10 @@ def video_settings_page():
 
 @app.get("/video/display")
 def video_display_page():
-    return render_template("video_display.html")
+    return render_template(
+        "video_display.html",
+        queue_display_limit=_queue_display_limit("video"),
+    )
 
 
 @app.get("/api/models")
@@ -1436,7 +1455,7 @@ def save_display_settings():
 
     try:
         preferences = {
-            "scale": bounded_number("scale", 1.0, 0.25, 1.5),
+            "scale": bounded_number("scale", 1.0, 0.01, 1.5),
             "x": bounded_number("x", 0.0, -1.0, 1.0),
             "y": bounded_number("y", 0.0, -1.0, 1.0),
             "crop_top": bounded_number("crop_top", 0.0, 0.0, 45.0),
@@ -2111,6 +2130,7 @@ def get_music_settings():
     lx = config.get("lx_music", {})
     search = config.get("search", {})
     requests_config = config.get("requests", {})
+    display_config = config.get("display", {})
     return jsonify({
         "ok": True,
         "lx_music": {
@@ -2125,6 +2145,9 @@ def get_music_settings():
             "cooldown_seconds": requests_config.get("cooldown_seconds", 10),
             "queue_limit": requests_config.get("queue_limit", 100),
             "require_fans_medal": bool(requests_config.get("require_fans_medal", False)),
+        },
+        "display": {
+            "queue_display_limit": display_config.get("queue_display_limit", 10),
         },
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("music", {}).get("state", "stopped"),
     })
@@ -2142,6 +2165,7 @@ def save_music_settings():
         lx = config.setdefault("lx_music", {})
         search = config.setdefault("search", {})
         req = config.setdefault("requests", {})
+        display = config.setdefault("display", {})
         base_url = str(payload.get("base_url", lx.get("base_url", ""))).strip().rstrip("/")
         if not base_url.startswith(("http://", "https://")):
             raise ValueError("洛雪 API 地址必须以 http:// 或 https:// 开头。")
@@ -2161,6 +2185,7 @@ def save_music_settings():
             raise ValueError("至少选择一个音乐查询平台。")
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
+        display_limit = int(payload.get("queue_display_limit", display.get("queue_display_limit", 10)))
         raw_require_medal = payload.get("require_fans_medal", req.get("require_fans_medal", False))
         if isinstance(raw_require_medal, bool):
             require_medal = raw_require_medal
@@ -2173,8 +2198,8 @@ def save_music_settings():
             raise ValueError("粉丝牌选项必须是布尔值。")
         if not 2 <= timeout <= 30 or not 1 <= max_results <= 50:
             raise ValueError("接口超时应为 2–30 秒，单平台搜索数量应为 1–50。")
-        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000:
-            raise ValueError("冷却时间、队列上限或粉丝牌选项无效。")
+        if not 0 <= cooldown <= 3600 or not 1 <= queue_limit <= 1000 or not 1 <= display_limit <= 1000:
+            raise ValueError("冷却时间、队列上限或展示页队列显示数量无效。")
         lx.update({"base_url": base_url, "timeout_seconds": timeout})
         search["max_results_per_platform"] = max_results
         search["enabled_platforms"] = enabled_platforms
@@ -2183,6 +2208,7 @@ def save_music_settings():
             "queue_limit": queue_limit,
             "require_fans_medal": bool(require_medal),
         })
+        display["queue_display_limit"] = display_limit
         ConfigManager().save("music", config)
         runtime_config = dict(config)
         runtime_config["admin_uids"] = _load_system_admin_uids()
@@ -2197,6 +2223,7 @@ def get_video_settings():
     config = ConfigManager().load("video", {})
     chrome = config.get("chrome", {})
     req = config.get("requests", {})
+    display = config.get("display", {})
     return jsonify({
         "ok": True,
         "chrome": {
@@ -2209,6 +2236,9 @@ def get_video_settings():
             "queue_limit": req.get("queue_limit", 30),
             "max_video_duration_seconds": req.get("max_video_duration_seconds", 300),
             "require_fan_medal": bool(req.get("require_fans_medal", False)),
+        },
+        "display": {
+            "queue_display_limit": display.get("queue_display_limit", 10),
         },
         "module_state": APPLICATION_RUNTIME.modules.list_status().get("video", {}).get("state", "stopped"),
     })
@@ -2225,6 +2255,7 @@ def save_video_settings():
         config = ConfigManager().load("video", {})
         chrome = config.setdefault("chrome", {})
         req = config.setdefault("requests", {})
+        display = config.setdefault("display", {})
         binary_path = str(payload.get("binary_path", chrome.get("binary_path", ""))).strip()
         profile_dir = str(payload.get("profile_dir", chrome.get("profile_dir", "data/video/chrome_profile"))).strip()
         if "\n" in binary_path or "\r" in binary_path or not profile_dir or "\n" in profile_dir or "\r" in profile_dir:
@@ -2232,12 +2263,13 @@ def save_video_settings():
         timeout = int(payload.get("page_load_timeout_seconds", chrome.get("page_load_timeout_seconds", 45)))
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 60)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 30)))
+        display_limit = int(payload.get("queue_display_limit", display.get("queue_display_limit", 10)))
         max_duration = int(payload.get("max_video_duration_seconds", req.get("max_video_duration_seconds", 300)))
         require_medal = bool(payload.get("require_fan_medal", req.get("require_fans_medal", False)))
         if not 10 <= timeout <= 180 or not 0 <= cooldown <= 3600:
             raise ValueError("页面加载超时应为 10–180 秒，冷却时间应为 0–3600 秒。")
-        if not 1 <= queue_limit <= 1000 or not 1 <= max_duration <= 3600:
-            raise ValueError("视频队列上限或视频时长限制无效。")
+        if not 1 <= queue_limit <= 1000 or not 1 <= display_limit <= 1000 or not 1 <= max_duration <= 3600:
+            raise ValueError("视频队列上限、展示页队列显示数量或视频时长限制无效。")
         chrome.update({
             "binary_path": binary_path,
             "profile_dir": profile_dir,
@@ -2249,6 +2281,7 @@ def save_video_settings():
             "max_video_duration_seconds": max_duration,
             "require_fans_medal": require_medal,
         })
+        display["queue_display_limit"] = display_limit
         ConfigManager().save("video", config)
         runtime_config = dict(config)
         runtime_config["admin_uids"] = _load_system_admin_uids()

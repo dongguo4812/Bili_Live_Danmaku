@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | **English**
 
-A modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2D display.
+A modular Bilibili live-stream assistant with danmaku, Live2D, Edge TTS, music/video requests, LOL Hex displays and OBS integration.
 
 ## Run on Windows
 
@@ -105,6 +105,21 @@ The management center is available at `http://127.0.0.1:8768/`. The access cente
 - When OBS WebSocket becomes available, the application refreshes matching combined-display browser sources (`/display/combined` or `/display/combined/<layout-id>`) once. This is independent of Bilibili connection state and never changes OBS source visibility. If OBS is not yet available or the source has not been added, connection/source discovery is retried every three seconds until one successful refresh.
 - After clicking **保存当前布局** in the combined-display layout editor, the application asynchronously attempts an OBS WebSocket refresh. If OBS is connected, matching combined-display browser sources are refreshed so OBS loads the newly saved layout. This does not block saving; if OBS is unavailable, the save still succeeds and that refresh is skipped.
 - The video widget shows current video, next item, queue and notifications only; it does not embed the video player.
+
+
+### LOL Hex extension
+
+LOL Hex runs as a separate process. The access center only starts and stops it; its game recognition, F1 screenshots, OCR, augment display and match-history bar remain in the extension.
+
+- On Windows, starting the extension requests elevation. The F1 global screenshot hotkey requires administrator privileges; cancelling the UAC prompt prevents startup.
+- In host-managed mode, the main application owns OBS WebSocket connections, reconnection and browser-source refreshes. LOL Hex does not open a second OBS WebSocket connection.
+- Host-managed pages: manager `/extensions/lol-hex/`, augment display `/extensions/lol-hex/display`, and match-history bar `/extensions/lol-hex/bar`. Standalone mode defaults to port `8767` (`http://127.0.0.1:8767/`, `/display`, and `/bar`).
+- The tracked default template is `config/default/lol_hex_display.json`; the machine-specific file is `config/local/lol_hex_display.json`. On upgrade, a legacy `extensions/lol_hex_display/config.txt` is migrated only when the local JSON file does not yet exist.
+- Local runtime data lives under `extensions/lol_hex_display/data/`, `screenshots/` and `logs/`; `lol_hex_display.pid` records the process ID. These files, as well as Python `__pycache__/`, are ignored by Git.
+- The extension's own build excludes local runtime data. The root `build.bat` intentionally copies existing local Hex data, screenshots and logs into the folder-based distribution. This packaging behavior is separate from Git tracking.
+- The combined-display editor treats **LOL match-history bar** and **LOL augment display** as independent widgets.
+- See the [LOL Hex extension guide](extensions/lol_hex_display/README.md) for standalone and host-managed operation.\n- Music and video display queue limits are configured independently on `/music/settings` and `/video/settings` (1–1000, default 10). The displayed pending total still reflects the full queue.
+
 
 GitHub Actions runs Python compilation, configuration and offline regression tests on Ubuntu, plus real DPAPI and retired-configuration checks on Windows. Passing CI does not mean every device has completed manual integration testing; music and video still need local validation with LX Music, Chrome, OBS WebSocket and a real live room.
 

@@ -1,0 +1,10 @@
+{
+  "screenshot_dir": "screenshots/inbox",
+  "host": "127.0.0.1",
+  "port": 8767,
+  "scan_interval": 1,
+  "asset_check_interval": 3600,
+  "version_check_interval": 3600,
+  "gameflow_check_interval": 10,
+  "lol_client_path": "D:\\WeGameApps\\英雄联盟（含经典模式）"
+}

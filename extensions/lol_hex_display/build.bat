@@ -21,10 +21,6 @@ if not exist "bar_integration.py" (
     goto failed
 )
 
-if not exist "config.txt" (
-    echo [错误] 找不到 config.txt
-    goto failed
-)
 if not exist "lol_hex_display.manifest" (
     echo [错误] 找不到 lol_hex_display.manifest
     goto failed
@@ -104,12 +100,9 @@ py -3 -m PyInstaller ^
 
 if errorlevel 1 goto failed
 
-REM 6. 复制外部配置和网页资源
+REM 6. 复制网页资源
 echo.
 echo [6/6] 复制外部文件...
-
-copy /Y "config.txt" "dist\lol_hex_display\config.txt" >nul
-if errorlevel 1 goto failed
 
 xcopy /E /I /Y "templates" "dist\lol_hex_display\templates" >nul
 if errorlevel 1 goto failed
@@ -131,7 +124,6 @@ echo EXE 位置：
 echo dist\lol_hex_display\lol_hex_display.exe
 echo.
 echo 已复制：
-echo config.txt
 echo templates\
 echo static\
 echo.

@@ -28,6 +28,12 @@ house.txt
 # Local runtime configuration (default templates remain tracked)
 config/local/
 
+# LOL Hex 本机运行数据：不提交截图、OCR/状态缓存和运行期生成文件
+extensions/lol_hex_display/data/
+extensions/lol_hex_display/screenshots/
+extensions/lol_hex_display/logs/
+extensions/lol_hex_display/lol_hex_display.pid
+
 # Unified runtime data and logs (keep documentation tracked)
 logs/
 data/*

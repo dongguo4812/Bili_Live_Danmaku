@@ -9,10 +9,32 @@ from pathlib import Path
 
 
 class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
-    def test_standalone_music_and_video_displays_limit_pending_queue_to_ten(self):
+    def test_standalone_music_and_video_displays_use_independent_configured_queue_limits(self):
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "static" / "display_media.js").read_text(encoding="utf-8")
-        self.assertIn('queueList(nextBox,queue.slice(0,10),type);', renderer)
+        main = (root / "main.py").read_text(encoding="utf-8")
+        music_page = (root / "templates" / "music_display.html").read_text(encoding="utf-8")
+        video_page = (root / "templates" / "video_display.html").read_text(encoding="utf-8")
+        music_settings = (root / "templates" / "music_settings.html").read_text(encoding="utf-8")
+        video_settings = (root / "templates" / "video_settings.html").read_text(encoding="utf-8")
+        music_defaults = json.loads((root / "config" / "default" / "music.json").read_text(encoding="utf-8"))
+        video_defaults = json.loads((root / "config" / "default" / "video.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(music_defaults["display"]["queue_display_limit"], 10)
+        self.assertEqual(video_defaults["display"]["queue_display_limit"], 10)
+        self.assertIn('queue_display_limit=_queue_display_limit("music")', main)
+        self.assertIn('queue_display_limit=_queue_display_limit("video")', main)
+        self.assertIn('"queue_display_limit": display_config.get("queue_display_limit", 10)', main)
+        self.assertIn('"queue_display_limit": display.get("queue_display_limit", 10)', main)
+        self.assertIn('display["queue_display_limit"] = display_limit', main)
+        for settings_page, label in ((music_settings, "展示页待播歌曲显示数量"), (video_settings, "展示页待播视频显示数量")):
+            self.assertIn('id="display-queue-limit"', settings_page)
+            self.assertIn(label, settings_page)
+            self.assertIn('d.display.queue_display_limit??10', settings_page)
+            self.assertIn('queue_display_limit:Number($("display-queue-limit").value)', settings_page)
+        self.assertIn('queueDisplayLimit:{{ queue_display_limit|int }}', music_page)
+        self.assertIn('queueDisplayLimit:{{ queue_display_limit|int }}', video_page)
+        self.assertIn('queue.slice(0,queueLimit)', renderer)
         self.assertIn('String(queue.length)+"首歌曲待播"', renderer)
         self.assertIn('String(queue.length)+"个视频待播"', renderer)
         self.assertIn('node("span","md-pending-count",pendingLabel)', renderer)
@@ -339,7 +361,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('target.style.clipPath = clip', script)
         self.assertIn('target.style.webkitClipPath = clip', script)
         # The model viewport crop stays inside Live2D; the combined widget clips the full iframe (model + bubble).
-        self.assertIn('.widget{position:absolute;min-width:10%;min-height:10%;overflow:hidden;', combined)
+        self.assertIn('.widget{position:absolute;min-width:10%;min-height:5%;overflow:hidden;', combined)
         self.assertIn('.widget.live2d iframe,.widget.music_widget iframe{width:100%;height:100%;border:0;background:transparent}', combined)
         self.assertIn('frame.src="/live2d/display?embedded=1"', combined)
         self.assertNotIn('frame.src="/live2d/display?embedded=1&silent=1"', combined)

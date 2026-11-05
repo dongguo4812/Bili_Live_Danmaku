@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """lol_hex_display：F1 自由区域截图 + 本地 OCR + 海克斯强化卡片展示。Python 3.10+"""
 from __future__ import annotations
-import ctypes, subprocess, faulthandler, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
+import argparse, ctypes, subprocess, faulthandler, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
 from logging.handlers import QueueHandler, QueueListener
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +15,11 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; PROCESSED = SHOTS / 'processed'; LOG_DIR = ROOT / 'logs'
 for p in (DATA, ICON_DIR, SHOTS, PROCESSED, LOG_DIR): p.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = ROOT / 'config.txt'; ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_SOURCE_PATH = DATA / 'hex_icon_sources.json'
+_config_parser = argparse.ArgumentParser(add_help=False)
+_config_parser.add_argument("--config", type=Path)
+_config_args, _ = _config_parser.parse_known_args()
+CONFIG_PATH = (_config_args.config.resolve() if _config_args.config else ROOT / "config.json")
+ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_SOURCE_PATH = DATA / 'hex_icon_sources.json'
 AUGMENTS_URL = 'https://game.gtimg.cn/images/lol/act/img/js/kiwi/kiwi_augments.json'
 # 日志格式
 LOG_FORMAT = '%(asctime)s [%(levelname)s] %(message)s'
@@ -86,8 +90,7 @@ file_handler.setLevel(LOG_LEVEL)
 formatter = logging.Formatter(LOG_FORMAT)
 file_handler.setFormatter(formatter)
 
-# 暂时关闭控制台输出，只保留文件输出
-# 本次实验用于判断 StreamHandler 是否导致日志监听线程阻塞
+# Hex 由主项目以隐藏的管理员后台进程启动，仅保留文件日志输出，不创建控制台处理器。
 
 # 创建日志监听线程
 log_listener = QueueListener(
@@ -203,11 +206,11 @@ def stop_thread_diagnostics():
 DEFAULT_CONFIG = {
     'screenshot_dir': 'screenshots/inbox',
     'host': '127.0.0.1',
-    'port': '8767',
-    'scan_interval': '1',
-    'asset_check_interval': '3600',
-    'version_check_interval': '60',
-    'gameflow_check_interval': '10',
+    'port': 8767,
+    'scan_interval': 1,
+    'asset_check_interval': 3600,
+    'version_check_interval': 3600,
+    'gameflow_check_interval': 10,
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
 def check_admin_privileges():
@@ -267,16 +270,19 @@ def check_admin_privileges():
     return False
 
 def read_config():
+    """读取主项目传入的 JSON 配置；独立启动时使用程序默认值。"""
     cfg = DEFAULT_CONFIG.copy()
-    if CONFIG_PATH.exists():
-        for line in CONFIG_PATH.read_text(encoding='utf-8-sig', errors='replace').splitlines():
-            s=line.strip()
-            if not s or s.startswith('#') or '=' not in s: continue
-            k,v=s.split('=',1); cfg[k.strip()]=v.strip()
+    try:
+        if CONFIG_PATH.is_file():
+            payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
+            if isinstance(payload, dict):
+                cfg.update({key: value for key, value in payload.items() if key in DEFAULT_CONFIG})
+    except (OSError, json.JSONDecodeError) as exc:
+        log.error("[配置] 读取 JSON 配置失败 %s：%s；使用默认值", CONFIG_PATH, exc)
     return cfg
 
 def screenshot_dir():
-    raw=read_config().get('screenshot_dir','screenshots/inbox')
+    raw=str(read_config().get('screenshot_dir','screenshots/inbox') or 'screenshots/inbox')
     p=Path(os.path.expandvars(os.path.expanduser(raw)))
     if not p.is_absolute(): p=ROOT/p
     try: p.mkdir(parents=True, exist_ok=True); return p.resolve()
@@ -1591,7 +1597,7 @@ def main():
     threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
     threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
     cfg_for_gameflow = read_config()
-    log.info('LCU 对局阶段检测间隔：%s 秒（config.txt: gameflow_check_interval）', cfg_for_gameflow.get('gameflow_check_interval', '10'))
+    log.info('LCU 对局阶段检测间隔：%s 秒（lol_hex_display.json: gameflow_check_interval）', cfg_for_gameflow.get('gameflow_check_interval', 10))
         # 程序启动时只输出一次客户端安装目录
     client_path = str(
         cfg_for_gameflow.get('lol_client_path', '')

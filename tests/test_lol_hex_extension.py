@@ -2,6 +2,7 @@
 """Regression contracts for the optional LOL Hex extension integration."""
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 import unittest
@@ -11,17 +12,87 @@ from core.extension_manager import LolHexExtensionManager
 
 
 class LolHexExtensionManagerTests(unittest.TestCase):
-    def test_reads_extension_port_from_its_own_config(self):
+    def test_loads_port_from_unified_local_json_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "config" / "default"
+            defaults.mkdir(parents=True)
+            (defaults / "lol_hex_display.json").write_text(
+                '{"host":"127.0.0.1","port":8877}', encoding="utf-8"
+            )
+            manager = LolHexExtensionManager(root, logging.getLogger("test"))
+            self.assertEqual(manager.port, 8877)
+            self.assertEqual(manager.base_url, "http://127.0.0.1:8877")
+            local_config = root / "config" / "local" / "lol_hex_display.json"
+            self.assertTrue(local_config.is_file())
+
+    def test_existing_local_json_keeps_values_and_receives_new_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            defaults = root / "config" / "default"
+            local = root / "config" / "local"
+            defaults.mkdir(parents=True)
+            local.mkdir(parents=True)
+            (defaults / "lol_hex_display.json").write_text(
+                '{"host":"127.0.0.1","port":8767,"scan_interval":1,"gameflow_check_interval":10}',
+                encoding="utf-8",
+            )
+            (local / "lol_hex_display.json").write_text(
+                '{"port":8879,"lol_client_path":"E:\\\\Games\\\\League"}',
+                encoding="utf-8",
+            )
+            manager = LolHexExtensionManager(root, logging.getLogger("test"))
+            self.assertEqual(manager.port, 8879)
+            saved = json.loads((local / "lol_hex_display.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["lol_client_path"], "E:\\Games\\League")
+            self.assertEqual(saved["host"], "127.0.0.1")
+            self.assertEqual(saved["gameflow_check_interval"], 10)
+            self.assertIn("screenshot_dir", saved)
+
+    def test_migrates_existing_text_config_to_local_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extension = root / "extensions" / "lol_hex_display"
             extension.mkdir(parents=True)
             (extension / "config.txt").write_text(
-                "host=127.0.0.1\nport=8877\n", encoding="utf-8"
+                "host=127.0.0.1\nport=8878\nlol_client_path=D:\\Games\\League\n",
+                encoding="utf-8",
             )
             manager = LolHexExtensionManager(root, logging.getLogger("test"))
-            self.assertEqual(manager.port, 8877)
-            self.assertEqual(manager.base_url, "http://127.0.0.1:8877")
+            self.assertEqual(manager.port, 8878)
+            self.assertEqual(manager.config["lol_client_path"], "D:\\Games\\League")
+            self.assertTrue((root / "config" / "local" / "lol_hex_display.json").is_file())
+
+    def test_status_clears_elevated_ownership_when_hex_process_has_exited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
+            manager._elevated_managed = True
+            manager._is_healthy = lambda: False
+            manager._pid_is_running = lambda pid: False
+            manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+            manager.pid_file.write_text("987654321", encoding="ascii")
+
+            state = manager.status()
+
+            self.assertEqual(state["state"], "stopped")
+            self.assertFalse(state["running"])
+            self.assertFalse(state["owned"])
+            self.assertFalse(manager._elevated_managed)
+            self.assertFalse(manager.pid_file.exists())
+
+    def test_healthy_hex_without_managed_pid_is_reported_as_external(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
+            manager._elevated_managed = True
+            manager._is_healthy = lambda: True
+
+            state = manager.status()
+
+            self.assertTrue(state["running"])
+            self.assertTrue(state["external"])
+            self.assertFalse(state["owned"])
+            self.assertFalse(manager._elevated_managed)
+            self.assertEqual(state["error"], "")
 
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,6 +137,12 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
         self.assertIn('str(self.extension_dir), 0', manager)
+        self.assertIn('self.config_path', manager)
+        self.assertIn('"--config"', manager)
+        self.assertIn('config/local/lol_hex_display.json', manager)
+        self.assertIn('argparse.ArgumentParser', hex_main)
+        self.assertIn('json.loads(CONFIG_PATH.read_text', hex_main)
+        self.assertFalse((root / "extensions" / "lol_hex_display" / "config.txt").exists())
 
     def test_bar_and_hex_display_are_two_independent_layout_widgets(self):
         root = Path(__file__).resolve().parents[1]
@@ -108,6 +185,23 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         hex_build = (extension / "build.bat").read_text(encoding="utf-8")
         self.assertIn("--noconsole", hex_build)
         self.assertNotIn("--console", hex_build)
+
+
+    def test_local_hex_runtime_artifacts_are_ignored_by_git(self):
+        root = Path(__file__).resolve().parents[1]
+        entries = {
+            line.strip()
+            for line in (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        expected = {
+            "__pycache__/",
+            "extensions/lol_hex_display/data/",
+            "extensions/lol_hex_display/screenshots/",
+            "extensions/lol_hex_display/logs/",
+            "extensions/lol_hex_display/lol_hex_display.pid",
+        }
+        self.assertTrue(expected.issubset(entries))
 
 
 if __name__ == "__main__":

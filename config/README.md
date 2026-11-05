@@ -23,6 +23,7 @@
 | `video.json` | 视频模块普通设置 |
 | `obs.json` | OBS 地址、端口、超时和来源名称 |
 | `logging.json` | 日志等级与保留天数 |
+| `lol_hex_display.json` | LOL Hex 服务地址/端口、截图目录、扫描/资源/版本/游戏状态检查间隔和英雄联盟客户端路径；默认模板在 `config/default/`，本机配置在 `config/local/` |
 
 点歌和视频点播的粉丝牌配置统一使用布尔值：`true` 表示要求本直播间粉丝牌，`false` 表示不要求。新用户默认均为 `false`。旧版点歌配置的数字 `0/1` 会按原有含义转换（`0` 转为 `true`，`1` 转为 `false`）。
 
@@ -33,6 +34,6 @@ Live2D 模型资源本身不存放在普通配置目录：MOC2 模型放在 `mod
 
 - `credentials/`：B 站 Cookie、OBS 密码等敏感凭据，由凭据管理模块安全保存；不得放入普通配置或提交到 Git。
 - `data/`：Chrome Profile、队列运行状态、综合展示布局等本机运行数据。
-- `logs/`：日志文件，按保留策略清理。
+- `logs/`：日志文件，按保留策略清理。\n- `extensions/lol_hex_display/data/`、`screenshots/`、`logs/`：LOL Hex 本机 OCR/状态缓存、截图和日志；`extensions/lol_hex_display/lol_hex_display.pid` 是运行期进程号文件。这些内容由根目录 `.gitignore` 排除。
 
-普通配置同样禁止保存 Cookie、密码、访问令牌、API Key、Authorization 等秘密。OBS 密码必须通过凭据管理页面保存；B 站登录通过二维码流程完成。
+歌曲和视频展示页的待播显示条数分别由 `music.json`、`video.json` 的 `display.queue_display_limit` 控制，默认 10，允许 1～1000；它只限制展示条数，不改变实际队列。\n\n普通配置同样禁止保存 Cookie、密码、访问令牌、API Key、Authorization 等秘密。OBS 密码必须通过凭据管理页面保存；B 站登录通过二维码流程完成。

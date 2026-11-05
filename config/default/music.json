@@ -5,11 +5,19 @@
   },
   "search": {
     "max_results_per_platform": 20,
-    "enabled_platforms": ["tx", "kg", "wy", "kw"]
+    "enabled_platforms": [
+      "tx",
+      "kg",
+      "wy",
+      "kw"
+    ]
   },
   "requests": {
     "cooldown_seconds": 10,
     "queue_limit": 100,
     "require_fans_medal": false
+  },
+  "display": {
+    "queue_display_limit": 10
   }
 }

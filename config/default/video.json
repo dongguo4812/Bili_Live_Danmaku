@@ -9,5 +9,8 @@
     "queue_limit": 30,
     "max_video_duration_seconds": 300,
     "require_fans_medal": false
+  },
+  "display": {
+    "queue_display_limit": 10
   }
 }
