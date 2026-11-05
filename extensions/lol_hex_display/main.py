@@ -829,6 +829,22 @@ def match_asset(text, is_mutated=False):
     with assets_lock:
         items = list(assets.values())
 
+    # 优先按原始名称精确匹配，保留标点差异。
+    exact_raw = [
+        a for a in items
+        if str(a['name']).strip() == text
+    ]
+
+    if len(exact_raw) == 1:
+        asset = dict(exact_raw[0])
+        asset['display_name'] = (
+            f"已质变：{asset['name']}"
+            if is_mutated
+            else asset['name']
+        )
+        return asset, ''
+
+    # 原有规范化精确匹配及兼容匹配规则保持不变。
     norm = norm_name(text)
 
     # 完全匹配

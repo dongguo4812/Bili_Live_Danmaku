@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>海克斯展示</title>
-<link rel="stylesheet" href="/static/style.css?v=20261105-fixed-bottom-left">
+<link rel="stylesheet" href="/static/style.css?v=20261105-unmatched-screenshot">
 </head>
 <body class="display-body">
 <main class="display-main">
@@ -41,22 +41,34 @@ async function load(){
             const el=document.createElement('div');
             el.className=('display-card '+qualityClass(c.level)).trim();
 
+            const screenshot = `/asset/screenshot/${encodeURIComponent(c.filename)}`;
+
+            // 没有匹配到海克斯名称时，只展示原始截图，不再显示文字区域。
+            if(!c.name){
+                el.classList.add('is-unmatched');
+                el.innerHTML = `
+                    <img class="unmatched-screenshot"
+                         src="${screenshot}"
+                         alt="未匹配到海克斯名称的原始截图">
+                `;
+                root.appendChild(el);
+                return;
+            }
+
             const img=c.augment_id
                 ? `/asset/hex/${encodeURIComponent(c.augment_id)}.png`
-                : `/asset/screenshot/${encodeURIComponent(c.filename)}`;
+                : screenshot;
 
             // 根据 OCR 原始文本判断是否为质变海克斯
-            const isMutated=/^已质变\s*[:：]/.test((c.ocr_text||'').trim());
+            const isMutated=/^已质变\\s*[:：]/.test((c.ocr_text||'').trim());
 
             // 标题使用数据库名称，质变时添加前缀
-            const displayName=c.name
-                ? (isMutated?'已质变：':'')+c.name
-                : c.ocr_text||'';
+            const displayName=(isMutated?'已质变：':'')+c.name;
 
             el.innerHTML=`
                 <img
                     src="${img}"
-                    onerror="this.onerror=null;this.src='/asset/screenshot/${encodeURIComponent(c.filename)}'"
+                    onerror="this.onerror=null;this.src='${screenshot}'"
                     alt=""
                 >
                 <div class="display-name">${esc(displayName)}</div>
