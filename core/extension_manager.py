@@ -28,23 +28,32 @@ class LolHexExtensionManager:
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
         self._last_error = ""
+        self.host = self._read_host()
         self.port = self._read_port()
-        self.base_url = f"http://127.0.0.1:{self.port}"
+        formatted_host = f"[{self.host}]" if ":" in self.host else self.host
+        self.base_url = f"http://{formatted_host}:{self.port}"
 
-    def _read_port(self) -> int:
+    def _read_config_value(self, name: str, default: str) -> str:
         config = self.extension_dir / "config.txt"
-        port = 8767
         try:
             for line in config.read_text(encoding="utf-8-sig").splitlines():
                 key, separator, value = line.partition("=")
-                if separator and key.strip() == "port":
-                    candidate = int(value.strip())
-                    if 1 <= candidate <= 65535:
-                        port = candidate
-                    break
-        except (OSError, ValueError):
+                if separator and key.strip() == name:
+                    return value.strip()
+        except OSError:
             pass
-        return port
+        return default
+
+    def _read_host(self) -> str:
+        host = self._read_config_value("host", "127.0.0.1").strip().strip("[]")
+        return "127.0.0.1" if host in {"", "0.0.0.0", "::"} else host
+
+    def _read_port(self) -> int:
+        try:
+            candidate = int(self._read_config_value("port", "8767"))
+            return candidate if 1 <= candidate <= 65535 else 8767
+        except (TypeError, ValueError):
+            return 8767
 
     def _request(self, path: str, payload: dict[str, Any] | None = None, timeout: float = 1.0) -> dict[str, Any]:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
