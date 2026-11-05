@@ -127,5 +127,26 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("_shutdown_application_and_refresh_obs()", main[main.index("finally:", main.index("if __name__ == \"__main__\"")):])
 
 
+    def test_module_errors_are_explained_to_users_without_exposing_exception_names(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def _friendly_module_exception_message(", main)
+        self.assertIn("Chrome 无法创建新的浏览器会话", main)
+        self.assertIn("专用浏览器配置目录仍被占用", main)
+        self.assertIn("详细错误已记录到程序日志", main)
+        self.assertIn("_friendly_module_exception_message(exc, module_name, action)", main)
+        self.assertIn('_friendly_module_exception_message(exc, "video", "action")', main)
+        self.assertNotIn('f"模块操作失败：{type(exc).__name__}"', main)
+        self.assertNotIn('f"操作失败：{type(exc).__name__}"', main)
+
+    def test_chrome_session_creation_failure_cleans_only_the_dedicated_profile(self):
+        video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")
+        create_body = video[video.index("def create_browser():"):]
+        create_body = create_body[:create_body.index("\n\n@selenium_locked", 1)]
+        self.assertIn("logger.exception(\"创建视频点播 Chrome 会话失败", create_body)
+        self.assertIn("_terminate_chrome_profile_processes_sync()", create_body)
+        self.assertIn("raise", create_body)
+        self.assertNotIn("taskkill.exe /IM chrome.exe", create_body)
+
+
 if __name__ == "__main__":
     unittest.main()
