@@ -1661,8 +1661,27 @@
   }
 
   let pollInProgress = false;
+  let testQueuePollInProgress = false;
   let danmakuCursorInitialized = false;
   let cursorInitializationInProgress = false;
+
+  // 试听队列必须独立于弹幕接口轮询；弹幕接口异常或尚未初始化时也不能阻断试听。
+  async function pollTtsTestQueue() {
+    if (!showTts || !voiceModuleActive || !voiceModuleStateInitialized || !ttsSettings || testQueuePollInProgress) return;
+    testQueuePollInProgress = true;
+    try {
+      const response = await fetch("/api/voice/tts/test-queue", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      for (const item of data.items || []) {
+        enqueueSpeech({ type: "test", text: item.text });
+      }
+    } catch (error) {
+      console.warn("Unable to poll TTS test queue:", error);
+    } finally {
+      testQueuePollInProgress = false;
+    }
+  }
 
   async function pollDanmaku() {
     if (!danmakuCursorInitialized || pollInProgress || (showTts && (!ttsSettings || !voiceModuleStateInitialized))) return;
@@ -1684,15 +1703,6 @@
           if (showTts && voiceModuleActive) enqueueSpeech(item);
         } catch (speechError) {
           console.warn("Unable to enqueue danmaku speech:", speechError);
-        }
-      }
-      if (showTts && voiceModuleActive && ttsSettings) {
-        const testResponse = await fetch("/api/voice/tts/test-queue", { cache: "no-store" });
-        if (testResponse.ok) {
-          const testData = await testResponse.json();
-          for (const item of testData.items || []) {
-            enqueueSpeech({ type: "test", text: item.text });
-          }
         }
       }
     } catch (error) {
@@ -1720,6 +1730,8 @@
   }
 
   function refreshDanmakuPolling() {
+    // 即使弹幕游标尚未初始化，也要单独检查管理页提交的试听请求。
+    pollTtsTestQueue();
     if (!danmakuCursorInitialized) {
       initializeDanmakuCursor();
       return;
