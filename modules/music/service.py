@@ -9,8 +9,10 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 import urllib.parse
+import uuid
 import webbrowser
 import threading
 from collections import deque
@@ -37,6 +39,11 @@ REQUIRE_FANS_MEDAL = bool(_MUSIC_CONFIG.get("requests", {}).get("require_fans_me
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
 QUEUE_LIMIT = max(1, int(_MUSIC_CONFIG.get("requests", {}).get("queue_limit", 100)))
 SEARCH_LIMIT = min(20, max(1, int(_MUSIC_CONFIG.get("search", {}).get("max_results_per_platform", 20))))
+DEFAULT_ENABLED_PROVIDERS = ("tx", "kg", "wy", "kw")
+ENABLED_PROVIDERS = tuple(
+    key for key in DEFAULT_ENABLED_PROVIDERS
+    if key in (_MUSIC_CONFIG.get("search", {}).get("enabled_platforms") or DEFAULT_ENABLED_PROVIDERS)
+) or DEFAULT_ENABLED_PROVIDERS
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
 
@@ -57,7 +64,7 @@ def _require_fans_medal(value: Any) -> bool:
 def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id: int = 0) -> None:
     """由主程序注入普通配置和统一登录态；本模块不读取/保存 Cookie。"""
     global LX_API, HTTP_TIMEOUT, ROOM_ID, COOKIE_DICT, REQUIRE_FANS_MEDAL
-    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS
+    global COOLDOWN_SECONDS, QUEUE_LIMIT, SEARCH_LIMIT, ADMIN_UIDS, ENABLED_PROVIDERS
     lx = config.get("lx_music", {}) if isinstance(config.get("lx_music"), dict) else {}
     req = config.get("requests", {}) if isinstance(config.get("requests"), dict) else {}
     search = config.get("search", {}) if isinstance(config.get("search"), dict) else {}
@@ -68,6 +75,12 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
     COOLDOWN_SECONDS = max(0, int(req.get("cooldown_seconds", 10)))
     QUEUE_LIMIT = max(1, int(req.get("queue_limit", 100)))
     SEARCH_LIMIT = min(20, max(1, int(search.get("max_results_per_platform", 20))))
+    raw_enabled = search.get("enabled_platforms", list(DEFAULT_ENABLED_PROVIDERS))
+    if isinstance(raw_enabled, (list, tuple, set)):
+        selected = tuple(key for key in DEFAULT_ENABLED_PROVIDERS if key in raw_enabled)
+        ENABLED_PROVIDERS = selected or DEFAULT_ENABLED_PROVIDERS
+    else:
+        ENABLED_PROVIDERS = DEFAULT_ENABLED_PROVIDERS
     ADMIN_UIDS = set()
     configured_uids = config.get("admin_uids", [])
     if isinstance(configured_uids, list):
@@ -356,30 +369,87 @@ def _types_default() -> list[dict[str, Any]]:
 
 # QQ音乐（tx）
 def search_qq(keyword: str) -> list[dict[str, Any]]:
-    url = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?" + urllib.parse.urlencode({
-        "ct": 24, "qqmusic_ver": 1298,
-        # 不添加 new_json=1，否则该接口可能返回空列表。
-        "remoteplace": "txt.yqq.song", "t": 0, "aggr": 1, "cr": 1,
-        "catZhida": 1, "lossless": 0, "flag_qc": 0, "p": 1,
-        "n": SEARCH_LIMIT, "w": keyword, "format": "json",
-    })
-    data = _music_get_json(url, referer="https://y.qq.com/")
-    rows = (((data.get("data") or {}).get("song") or {}).get("list") or []) if isinstance(data, dict) else []
+    """使用 QQ 音乐当前网页端搜索接口；匿名搜索，无需登录 Cookie。"""
+    payload = {
+        "music.search.SearchCgiService": {
+            "module": "music.search.SearchCgiService",
+            "method": "DoSearchForQQMusicDesktop",
+            "param": {
+                "search_type": 0,
+                "query": keyword,
+                "page_num": 1,
+                "num_per_page": SEARCH_LIMIT,
+            },
+        },
+    }
+    response = requests.post(
+        "https://u.y.qq.com/cgi-bin/musicu.fcg",
+        json=payload,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://y.qq.com/",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"QQ 音乐搜索接口返回格式异常：type={type(data).__name__}"
+        )
+
+    req = data.get("req_1")
+    if not isinstance(req, dict):
+        # 兼容接口偶尔按 module 名称作为响应键的格式。
+        req = data.get("music.search.SearchCgiService")
+    if not isinstance(req, dict):
+        raise ValueError("QQ 音乐搜索响应缺少 req_1 数据")
+
+    top_code = data.get("code")
+    module_code = req.get("code")
+    if top_code not in (None, 0) or module_code not in (None, 0):
+        raise RuntimeError(
+            f"QQ 音乐搜索业务失败：code={top_code!r}, req_code={module_code!r}"
+        )
+
+    req_data = req.get("data")
+    if not isinstance(req_data, dict):
+        req_data = {}
+    body = req_data.get("body")
+    if not isinstance(body, dict):
+        body = {}
+    song_data = body.get("song")
+    if not isinstance(song_data, dict):
+        song_data = {}
+    rows = song_data.get("list")
+    if not isinstance(rows, list):
+        rows = []
     out: list[dict[str, Any]] = []
-    for row in rows if isinstance(rows, list) else []:
+    for row in rows:
         if not isinstance(row, dict):
             continue
-        title = str(row.get("songname") or row.get("name") or "").strip()
+        # 当前 QQ 搜索接口的歌曲标题字段为 title，兼容旧字段名。
+        title = str(row.get("title") or row.get("name") or row.get("songname") or "").strip()
         singers = row.get("singer", [])
         artist = "、".join(
             str(x.get("name", "")).strip()
             for x in singers if isinstance(x, dict) and x.get("name")
         ) if isinstance(singers, list) else ""
-        song_id = str(row.get("songmid") or row.get("mid") or "").strip()
+        song_id = str(row.get("mid") or row.get("songmid") or "").strip()
         file_info = row.get("file", {})
         if not isinstance(file_info, dict):
             file_info = {}
-        media_mid = str(file_info.get("media_mid") or row.get("strMediaMid") or row.get("media_mid") or "").strip()
+        media_mid = str(
+            file_info.get("media_mid")
+            or row.get("strMediaMid")
+            or row.get("media_mid")
+            or ""
+        ).strip()
         album = row.get("album", {})
         if not isinstance(album, dict):
             album = {}
@@ -391,10 +461,12 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
         out.append({
             "title": title, "artist": artist, "source": "tx", "songmid": song_id,
             "strMediaMid": media_mid, "albumMid": album_mid, "albumId": album_id,
-            "albumName": album_name, "interval": str(row.get("interval", "")),
+            "albumName": album_name,
+            "interval": str(row.get("interval") or row.get("duration") or ""),
             "types": _types_default(), "_search_source": "tx",
         })
-    return out
+    # 再做一次数量上限保护，确保每个平台最多保留 SEARCH_LIMIT 条有效候选。
+    return out[:SEARCH_LIMIT]
 
 
 # 酷狗音乐（kg）
@@ -457,29 +529,144 @@ def search_netease(keyword: str) -> list[dict[str, Any]]:
 
 
 # 酷我音乐（kw）
+# 酷我网页搜索已改为带会话签名的接口。旧 search.kuwo.cn/r.s 在部分网络环境
+# 会返回空响应或拦截页，不能再依赖 JSON/Python 字面量解析兜底。
+_KUWO_HOME = "https://www.kuwo.cn/"
+_KUWO_SEARCH_URL = "https://www.kuwo.cn/search/searchMusicBykeyWord"
+_KUWO_SESSION_COOKIE = "Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324"
+_KUWO_SESSION_TTL = 30 * 60
+_KUWO_SESSION = requests.Session()
+_KUWO_SESSION_LOCK = threading.RLock()
+_KUWO_SESSION_VALUE = ""
+_KUWO_SESSION_EXPIRES = 0.0
+_KUWO_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
+)
+
+
+def _kuwo_valid_session_cookie(value: str) -> bool:
+    return 16 <= len(value) <= 128 and all(ch.isascii() and ch.isalnum() for ch in value)
+
+
+def _kuwo_build_secret(cookie: str, nonce: int) -> str:
+    state = 59910100
+    encoded = bytearray()
+    for value in cookie.encode("ascii"):
+        state = (state * 9253 + 23) % 2147483647
+        encoded.append(value ^ (state * 255 // 2147483647))
+    return encoded.hex() + f"{nonce:08x}"
+
+
+def _kuwo_get_search_payload(keyword: str) -> dict[str, Any]:
+    """通过酷我当前网页搜索协议获取 JSON，自动刷新失效会话一次。"""
+    global _KUWO_SESSION_VALUE, _KUWO_SESSION_EXPIRES
+
+    with _KUWO_SESSION_LOCK:
+        for attempt in range(2):
+            if not _kuwo_valid_session_cookie(_KUWO_SESSION_VALUE) or time.time() >= _KUWO_SESSION_EXPIRES:
+                home_response = _KUWO_SESSION.get(
+                    _KUWO_HOME,
+                    headers={"User-Agent": _KUWO_USER_AGENT},
+                    timeout=10,
+                )
+                home_response.raise_for_status()
+                cookie = (
+                    home_response.cookies.get(_KUWO_SESSION_COOKIE)
+                    or _KUWO_SESSION.cookies.get(_KUWO_SESSION_COOKIE)
+                    or ""
+                )
+                if not _kuwo_valid_session_cookie(cookie):
+                    raise RuntimeError(
+                        "酷我首页未下发有效搜索会话 Cookie，可能暂时无法访问酷我接口"
+                    )
+                _KUWO_SESSION_VALUE = cookie
+                _KUWO_SESSION_EXPIRES = time.time() + _KUWO_SESSION_TTL
+
+            nonce = secrets.randbelow(90000000) + 10000000
+            params = {
+                "vipver": "1",
+                "client": "kt",
+                "ft": "music",
+                "cluster": "0",
+                "strategy": "2012",
+                "encoding": "utf8",
+                "rformat": "json",
+                "mobi": "1",
+                "issubtitle": "1",
+                "show_copyright_off": "1",
+                "pn": "0",
+                "rn": str(SEARCH_LIMIT),
+                "all": keyword,
+                "reqId": str(uuid.uuid4()),
+            }
+            headers = {
+                "User-Agent": _KUWO_USER_AGENT,
+                "Referer": "https://www.kuwo.cn/search/list?key="
+                + urllib.parse.quote(keyword, safe=""),
+                "Secret": _kuwo_build_secret(_KUWO_SESSION_VALUE, nonce),
+            }
+            response = _KUWO_SESSION.get(
+                _KUWO_SEARCH_URL,
+                params=params,
+                headers=headers,
+                cookies={_KUWO_SESSION_COOKIE: _KUWO_SESSION_VALUE},
+                timeout=10,
+            )
+            body = response.text.strip()
+            illegal = "the request is illegal" in body.lower()
+            if response.status_code in (401, 403) or illegal:
+                _KUWO_SESSION_VALUE = ""
+                _KUWO_SESSION_EXPIRES = 0.0
+                if attempt == 0:
+                    continue
+            response.raise_for_status()
+            if not body:
+                raise ValueError(
+                    f"酷我搜索接口返回空内容（HTTP {response.status_code}）"
+                )
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                content_type = response.headers.get("Content-Type", "未知")
+                preview = body[:160].replace("\\r", " ").replace("\\n", " ")
+                raise ValueError(
+                    f"酷我搜索接口未返回有效 JSON（HTTP {response.status_code}，"
+                    f"Content-Type={content_type}，响应开头={preview!r}）"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise ValueError("酷我搜索接口返回的数据结构不是对象")
+            return payload
+
+        raise RuntimeError("酷我搜索会话刷新后仍被酷我接口拒绝")
+
+
 def search_kuwo(keyword: str) -> list[dict[str, Any]]:
-    url = "https://search.kuwo.cn/r.s?" + urllib.parse.urlencode({
-        "all": keyword, "ft": "music", "itemset": "web_2013", "client": "kt",
-        "pn": 0, "rn": SEARCH_LIMIT, "rformat": "json", "encoding": "utf8",
-    })
-    data = _music_get_json(url, allow_python_literal=True)
-    rows = data.get("abslist", []) if isinstance(data, dict) else []
+    data = _kuwo_get_search_payload(keyword)
+    data_section = data.get("data") if isinstance(data.get("data"), dict) else {}
+    rows = data_section.get("list") or data.get("abslist") or []
     out: list[dict[str, Any]] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        title = html.unescape(str(row.get("SONGNAME", ""))).strip()
-        artist = html.unescape(str(row.get("ARTIST", ""))).strip()
-        song_id = str(row.get("MUSICRID", row.get("MUSICID", ""))).strip()
-        if song_id.startswith("MUSIC_"):
+        title = html.unescape(str(row.get("name") or row.get("SONGNAME") or "")).strip()
+        artist = html.unescape(str(row.get("artist") or row.get("ARTIST") or "")).strip()
+        song_id = str(
+            row.get("rid") or row.get("MUSICRID") or row.get("id")
+            or row.get("MUSICID") or ""
+        ).strip()
+        if song_id.upper().startswith("MUSIC_"):
             song_id = song_id[6:]
         if not title or not artist or not song_id:
             continue
         out.append({
             "title": title, "artist": artist, "source": "kw", "songmid": song_id,
-            "albumId": str(row.get("ALBUMID", "")),
-            "albumName": html.unescape(str(row.get("ALBUM", ""))).strip(),
-            "interval": str(row.get("DURATION", "")), "types": _types_default(),
+            "albumId": str(row.get("albumid") or row.get("ALBUMID") or ""),
+            "albumName": html.unescape(str(row.get("album") or row.get("ALBUM") or "")).strip(),
+            "interval": str(
+                row.get("duration") or row.get("songTimeMinutes") or row.get("DURATION") or ""
+            ),
+            "types": _types_default(),
             "_search_source": "kw",
         })
     return out
@@ -516,37 +703,75 @@ def match_candidates(
     return stage_one, stage_two
 
 
-def find_matching_songs(title: str, artist: str) -> tuple[list[dict[str, Any]], str]:
-    """按 QQ→酷狗→网易云→酷我顺序收集每个平台的首个有效匹配，供播放失败时回退。"""
+def find_matching_songs(
+    title: str,
+    artist: str,
+    after_source: str = "",
+) -> tuple[list[dict[str, Any]], str]:
+    """按平台顺序搜索；命中当前平台的首个匹配后立即返回。
+
+    after_source 用于播放核验失败后的延迟回退：从指定音源的下一个平台继续搜索，
+    不会重复搜索已经尝试过的平台。
+    """
     keyword = f"{title} {artist}".strip()
-    exact_matches: list[dict[str, Any]] = []
-    contains_matches: list[dict[str, Any]] = []
     errors: list[str] = []
     total_candidates = 0
+    passed_source = not bool(after_source)
+
     for provider_name, source, search_func in PROVIDERS:
+        if not passed_source:
+            if source == after_source:
+                passed_source = True
+            continue
+        if source not in ENABLED_PROVIDERS:
+            continue
+        candidates: list[dict[str, Any]] = []
+        selected: Optional[dict[str, Any]] = None
+        match_level = ""
+
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
-            stage_one, stage_two = match_candidates(candidates, title, artist)
-            if stage_one:
-                selected = dict(stage_one[0])
-                exact_matches.append(selected)
-                log.info("音乐匹配候选：平台=%s（%s），级别=完全匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-            elif stage_two:
-                selected = dict(stage_two[0])
-                contains_matches.append(selected)
-                log.info("音乐匹配候选：平台=%s（%s），级别=歌手包含匹配，歌曲=%s - %s", provider_name, source, selected.get("title", ""), selected.get("artist", ""))
-            else:
-                log.info("音乐平台无符合条件结果：%s（%s），有效候选=%s", provider_name, source, len(candidates))
+            exact_matches, contains_matches = match_candidates(candidates, title, artist)
+            selected = exact_matches[0] if exact_matches else (
+                contains_matches[0] if contains_matches else None
+            )
         except Exception as exc:
+            # 完整关键词可能被上游接口拒绝（例如带空格的组合词）。
+            # 仍继续尝试拆分后的纯歌名，不能因此跳过当前平台的后备匹配。
             errors.append(f"{source}:{type(exc).__name__}: {exc}")
-            log.exception("音乐平台搜索失败：%s（%s）", provider_name, source)
-            continue
 
-    # 全平台先使用精确歌手结果；只有不存在任何精确结果时才使用包含匹配。
-    matches = exact_matches + contains_matches
-    if matches:
-        return matches, f"已取得 {len(matches)} 个音源候选"
+        if not selected and not artist:
+            parts = str(title or "").rsplit(None, 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                fallback_title, fallback_artist = parts[0].strip(), parts[1].strip()
+                try:
+                    fallback_candidates = search_func(fallback_title)
+                    total_candidates += len(fallback_candidates)
+                    fallback_exact, fallback_contains = match_candidates(
+                        fallback_candidates, fallback_title, fallback_artist
+                    )
+                    selected = fallback_exact[0] if fallback_exact else (
+                        fallback_contains[0] if fallback_contains else None
+                    )
+                except Exception as exc:
+                    errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
+                    log.warning(
+                        "音乐平台拆分歌名搜索失败：%s（%s），歌名=%s，原因=%s",
+                        provider_name, source, fallback_title, exc,
+                    )
+
+        if selected:
+            selected = dict(selected)
+            log.info(
+                "歌曲匹配成功：%s - %s（音源：%s）",
+                selected.get("title", ""), selected.get("artist", ""), provider_name,
+            )
+            return [selected], f"已匹配音源：{provider_name}"
+
+ 
+    if after_source and not passed_source:
+        return [], f"未找到音源 {after_source}，无法继续后续平台搜索"
     if errors and total_candidates == 0:
         return [], "音乐源搜索请求失败（" + ", ".join(errors) + "）"
     if artist:
@@ -581,10 +806,6 @@ def play_song_in_lx(song: dict[str, Any]) -> bool:
             os.startfile(uri)  # type: ignore[attr-defined]
         else:
             webbrowser.open(uri)
-        log.info(
-            "洛雪播放调用已发起：目标=%s - %s；source=%s；songmid=%s。此日志仅表示系统已调用 Scheme，不代表洛雪已成功播放。",
-            song.get("title", ""), song.get("artist", ""), song.get("source", ""), song.get("songmid", ""),
-        )
         return True
     except Exception:
         log.exception("调用已匹配歌曲播放失败：%s", song.get("title", "未知歌曲"))
@@ -844,6 +1065,8 @@ class MusicModule:
         self._user_request_locks: dict[int, asyncio.Lock] = {}
         self.queue_lock = asyncio.Lock()
         self.play_lock = asyncio.Lock()
+        # 队列为空时让 worker 保持待命；新请求或模块关闭时唤醒。
+        self._queue_event = asyncio.Event()
         self.current: Optional[dict[str, Any]] = None
         # 只有机器人确实向洛雪发起过当前曲目的播放后，生命周期操作才可控制洛雪。
         # current 也可能只是已出队、正在查询音源的请求，不能据此暂停用户自己的歌曲。
@@ -970,6 +1193,7 @@ class MusicModule:
         self._video_pause_active = False
         self._video_pause_track = None
         self._skip_requested.set()
+        self._queue_event.set()
         worker = self._worker
         if worker and not worker.done() and worker is not asyncio.current_task():
             # 不立即 cancel 正在执行的 to_thread(Scheme) 调用，避免暂停先于歌曲启动，
@@ -1177,10 +1401,6 @@ class MusicModule:
                 "failure",
             )
             return
-        log.info(
-            "[弹幕诊断] 收到弹幕：用户=%s，UID=%s，内容=%r",
-            uname, uid, message
-        )
         title, artist = parsed
         if uid not in self.admin_uids:
             # 同一 UID 的多条弹幕可能并行进入事件总线；锁住冷却检查与粉丝牌核验，
@@ -1233,16 +1453,6 @@ class MusicModule:
         key = (
             normalize_name(actual_title),
             normalize_name(actual_artist),
-        )
-        log.info(
-            "[查重诊断] 点歌人=%s，原始请求=%s - %s，"
-            "实际匹配=%s - %s，查重KEY=%r",
-            uname,
-            title,
-            artist,
-            actual_title,
-            actual_artist,
-            key,
         )
         item: dict[str, Any] = {
             "title": actual_title,
@@ -1336,6 +1546,7 @@ class MusicModule:
             # 第四步：确认没有重复后，才加入机器人待播队列。
             self.queue.append(item)
             self.queued_keys.add(key)
+            self._queue_event.set()
 
             log.info(
                 "点歌匹配成功并入队：%s - %s（音源：%s；点歌人：%s，UID:%s；队列 %s/%s）",
@@ -1367,11 +1578,20 @@ class MusicModule:
                     if not self.queue:
                         self.current = None
                         self._lx_playback_active = False
+                        # 在锁内清除事件并检查队列，避免新请求入队时丢失唤醒。
+                        self._queue_event.clear()
+                        item = None
+                    else:
+                        item = self.queue.popleft()
+                        self.queued_keys.discard(item["key"])
+                        self.current = item
+                        self._lx_playback_active = False
+
+                if item is None:
+                    if not self.enabled or self._closing:
                         return
-                    item = self.queue.popleft()
-                    self.queued_keys.discard(item["key"])
-                    self.current = item
-                    self._lx_playback_active = False
+                    await self._queue_event.wait()
+                    continue
 
                 self._skip_requested.clear()
                 candidates = [item.get("music_info") or {}]
@@ -1406,7 +1626,15 @@ class MusicModule:
                     if self._skip_requested.is_set():
                         break
                     if not started:
-                        log.warning("调用洛雪播放失败，准备回退音源：%s（%s）", candidate_song["title"], candidate_song["source"])
+                        log.warning("调用洛雪播放失败，准备搜索下一个平台：%s（%s）", candidate_song["title"], candidate_song["source"])
+                        next_candidates, next_reason = await asyncio.to_thread(
+                            find_matching_songs,
+                            str(item.get("requested_title") or item.get("title") or ""),
+                            str(item.get("requested_artist") or ""),
+                            candidate_song["source"],
+                        )
+                        if next_candidates:
+                            candidates.extend(next_candidates)
                         continue
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
@@ -1452,10 +1680,18 @@ class MusicModule:
                         break
 
                     log.warning(
-                        "音源播放核验失败，准备尝试下一个音源：歌曲=%s - %s；音源=%s；原因=%s",
+                        "音源播放核验失败，准备搜索下一个平台：歌曲=%s - %s；音源=%s；原因=%s",
                         candidate_song["title"], candidate_song["artist"],
                         candidate_song["source"], verify_message,
                     )
+                    next_candidates, next_reason = await asyncio.to_thread(
+                        find_matching_songs,
+                        str(item.get("requested_title") or item.get("title") or ""),
+                        str(item.get("requested_artist") or ""),
+                        candidate_song["source"],
+                    )
+                    if next_candidates:
+                        candidates.extend(next_candidates)
 
                 if self._skip_requested.is_set():
                     # 关闭模块也会设置 skip_event；此时必须保留播放归属，
@@ -1474,8 +1710,27 @@ class MusicModule:
                     continue
 
                 await self.wait_song_end()
-                # 自然结束或管理员切歌时释放播放归属；若是模块关闭触发的退出，
-                # 则保留标志交给 close() 暂停当前机器人歌曲。
+                # 管理员切歌、关闭模块时不额外推进洛雪列表。
+                if self._skip_requested.is_set() or not self.enabled or self._closing:
+                    if not self._closing:
+                        self._lx_playback_active = False
+                    continue
+
+                # 机器人歌曲结束后，若队列为空则交还给洛雪自己的播放列表。
+                # 如果洛雪已经自动切到列表下一首，不再重复调用 skip-next。
+                async with self.queue_lock:
+                    if not self.queue and self.enabled and not self._closing:
+                        lx_status = await asyncio.to_thread(get_lx_status)
+                        lx_key = get_lx_current_song_key(lx_status)
+                        bot_key = (
+                            normalize_name(str(item.get("title", ""))),
+                            normalize_name(str(item.get("artist", ""))),
+                        )
+                        if lx_key is None or lx_key == bot_key:
+                            ok, detail = await asyncio.to_thread(skip_lx_next)
+                            if not ok:
+                                log.warning("机器人队列为空，切换洛雪播放列表下一首失败：%s", detail)
+
                 if not self._closing:
                     self._lx_playback_active = False
                 log.info("机器人点播流程结束：%s", item["title"])

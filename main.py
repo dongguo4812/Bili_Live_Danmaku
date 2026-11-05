@@ -2108,7 +2108,10 @@ def get_music_settings():
             "base_url": lx.get("base_url", "http://127.0.0.1:23330"),
             "timeout_seconds": lx.get("timeout_seconds", 5),
         },
-        "search": {"max_results_per_platform": search.get("max_results_per_platform", 20)},
+        "search": {
+            "max_results_per_platform": search.get("max_results_per_platform", 20),
+            "enabled_platforms": search.get("enabled_platforms", ["tx", "kg", "wy", "kw"]),
+        },
         "requests": {
             "cooldown_seconds": requests_config.get("cooldown_seconds", 10),
             "queue_limit": requests_config.get("queue_limit", 100),
@@ -2135,6 +2138,18 @@ def save_music_settings():
             raise ValueError("洛雪 API 地址必须以 http:// 或 https:// 开头。")
         timeout = int(payload.get("timeout_seconds", lx.get("timeout_seconds", 5)))
         max_results = int(payload.get("max_results_per_platform", search.get("max_results_per_platform", 20)))
+        allowed_platforms = ("tx", "kg", "wy", "kw")
+        raw_platforms = payload.get(
+            "enabled_platforms",
+            search.get("enabled_platforms", list(allowed_platforms)),
+        )
+        if not isinstance(raw_platforms, list):
+            raise ValueError("查询平台必须是列表。")
+        enabled_platforms = [key for key in allowed_platforms if key in raw_platforms]
+        if len(enabled_platforms) != len(set(raw_platforms)) or any(key not in allowed_platforms for key in raw_platforms):
+            raise ValueError("查询平台选项无效。")
+        if not enabled_platforms:
+            raise ValueError("至少选择一个音乐查询平台。")
         cooldown = int(payload.get("cooldown_seconds", req.get("cooldown_seconds", 10)))
         queue_limit = int(payload.get("queue_limit", req.get("queue_limit", 100)))
         raw_require_medal = payload.get("require_fans_medal", req.get("require_fans_medal", False))
@@ -2153,6 +2168,7 @@ def save_music_settings():
             raise ValueError("冷却时间、队列上限或粉丝牌选项无效。")
         lx.update({"base_url": base_url, "timeout_seconds": timeout})
         search["max_results_per_platform"] = max_results
+        search["enabled_platforms"] = enabled_platforms
         req.update({
             "cooldown_seconds": cooldown,
             "queue_limit": queue_limit,

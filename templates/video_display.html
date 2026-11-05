@@ -44,7 +44,7 @@ body.embedded{padding:0}
       const state=data&&data.modules&&data.modules.video?data.modules.video.state:"stopped";
       moduleState=state;
       setOnline(state==="running"||state==="paused");
-    }catch(error){console.debug("获取视频点播模块状态失败，保留当前显示状态：",error);}
+    }catch(error){}
     finally{statusInFlight=false;}
   }
   async function refreshQueue(){
@@ -57,7 +57,7 @@ body.embedded{padding:0}
       if(!data||!Array.isArray(data.queue)||!Array.isArray(data.operations))throw new Error("视频队列数据无效");
       MediaDisplay.render(root,"video",data,{moduleState});
     }catch(error){
-      console.debug("获取视频点播展示数据失败：",error);
+
     }finally{queueInFlight=false;}
   }
   setOnline(false);

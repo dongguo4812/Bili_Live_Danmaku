@@ -73,9 +73,9 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await self.bot.close(stop_playback=False)", music_shutdown)
         self.assertNotIn("_lx_control", music_shutdown)
         self.assertNotIn("emergency_resume_video_paused_music_sync", music)
-        video_close = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
-        self.assertIn("await self.close(restore_music=False)", video)
-        self.assertIn("async def close(self, restore_music: bool = True):", video)
+        video_close = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
+        self.assertIn("await self.close(restore_music=False, cleanup_browser=False)", video)
+        self.assertIn("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video)
         self.assertIn("if restore_music:", video_close)
         self.assertIn("await _resume_music_if_video_finished()", video_close)
         self.assertIn("def _browser_process_alive_sync(browser)", video)
@@ -95,11 +95,13 @@ class PlaybackPauseContractTests(unittest.TestCase):
         video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\n    async def close", 1)]
         self.assertLess(video_shutdown_body.index("module_enabled = False"), video_shutdown_body.index("emergency_close_browser_sync"))
         self.assertIn("if cleanup_browser else ([], [])", video)
-        video_close_body = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
+        video_close_body = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
         self.assertLess(video_close_body.index("_quit_browser_sync"), video_close_body.index("_terminate_chrome_profile_processes_sync"))
-        self.assertIn("即使 driver 已丢失或 Selenium 会话状态异常", video_close_body)
-        self.assertIn("仍残留=%s", video)
+        # 即使 WebDriver 引用已不存在，也仍通过专用 Profile 清理流程处理残留进程。
+        self.assertIn("if cleanup_browser and driver is not None:", video_close_body)
+        self.assertIn("if cleanup_browser else ([], [])", video_close_body)
+        self.assertIn("Chrome 专用 Profile 仍有残留进程，PID=%s", video)
         self.assertIn("timeout=4.0", video)
         self.assertIn("await asyncio.wait_for(", video)
         self.assertIn("timeout=1.5", video)
@@ -131,12 +133,24 @@ class PlaybackPauseContractTests(unittest.TestCase):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _friendly_module_exception_message(", main)
         self.assertIn("Chrome 无法创建新的浏览器会话", main)
-        self.assertIn("专用浏览器配置目录仍被占用", main)
+        self.assertIn("专用浏览器配置目录正在被占用", main)
         self.assertIn("详细错误已记录到程序日志", main)
         self.assertIn("_friendly_module_exception_message(exc, module_name, action)", main)
         self.assertIn('_friendly_module_exception_message(exc, "video", "action")', main)
         self.assertNotIn('f"模块操作失败：{type(exc).__name__}"', main)
         self.assertNotIn('f"操作失败：{type(exc).__name__}"', main)
+
+    def test_kuwo_search_uses_current_signed_web_api(self):
+        source = (ROOT / "modules" / "music" / "service.py").read_text(encoding="utf-8")
+        self.assertIn('_KUWO_SEARCH_URL = "https://www.kuwo.cn/search/searchMusicBykeyWord"', source)
+        self.assertIn('_KUWO_SESSION_COOKIE = "Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324"', source)
+        self.assertIn("def _kuwo_build_secret(cookie: str, nonce: int)", source)
+        self.assertIn('"Secret": _kuwo_build_secret(_KUWO_SESSION_VALUE, nonce)', source)
+        self.assertIn('"reqId": str(uuid.uuid4())', source)
+        self.assertIn('rows = data_section.get("list") or data.get("abslist") or []', source)
+        self.assertIn('row.get("rid") or row.get("MUSICRID") or row.get("id")', source)
+        self.assertNotIn('url = "https://search.kuwo.cn/r.s?"', source)
+        self.assertNotIn("_music_get_json(url, allow_python_literal=True)", source)
 
     def test_chrome_session_creation_failure_cleans_only_the_dedicated_profile(self):
         video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")

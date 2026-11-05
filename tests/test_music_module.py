@@ -34,7 +34,7 @@ class MusicMatchingTests(unittest.TestCase):
 
 
 class MusicFallbackSearchTests(unittest.TestCase):
-    def test_collects_ordered_source_candidates(self):
+    def test_stops_after_first_platform_match(self):
         from unittest.mock import patch
         import modules.music.service as service
 
@@ -60,11 +60,101 @@ class MusicFallbackSearchTests(unittest.TestCase):
         with patch.object(service, "PROVIDERS", ordered):
             matches, message = service.find_matching_songs("晴天", "周杰伦")
 
-        self.assertEqual(calls, ["tx", "kg", "wy", "kw"])
-        self.assertEqual([item["source"] for item in matches], ["tx", "kg", "wy", "kw"])
-        self.assertEqual([item["songmid"] for item in matches], ["tx-id", "kg-id", "wy-id", "kw-id"])
+        self.assertEqual(calls, ["tx"])
+        self.assertEqual([item["source"] for item in matches], ["tx"])
+        self.assertEqual([item["songmid"] for item in matches], ["tx-id"])
 
-    def test_exact_artist_from_later_source_precedes_earlier_contains_match(self):
+    def test_disabled_providers_are_skipped(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def provider(source):
+            def search(keyword):
+                calls.append(source)
+                return [{
+                    "title": "晴天", "artist": "周杰伦", "source": source,
+                    "songmid": source + "-id",
+                }]
+            return search
+
+        providers = (
+            ("QQ音乐", "tx", provider("tx")),
+            ("酷狗音乐", "kg", provider("kg")),
+            ("网易云音乐", "wy", provider("wy")),
+            ("酷我音乐", "kw", provider("kw")),
+        )
+        with patch.object(service, "PROVIDERS", providers), patch.object(service, "ENABLED_PROVIDERS", ("kg", "kw")):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual(calls, ["kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
+
+    def test_trailing_space_artist_fallback_matches_song_and_artist(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+
+        def search(keyword):
+            calls.append(keyword)
+            return [{
+                "title": "稻香",
+                "artist": "周杰伦",
+                "source": "tx",
+                "songmid": "tx-dao-xiang-id",
+                "types": [{"type": "128k", "size": None}],
+            }]
+
+        providers = (
+            ("QQ音乐", "tx", search),
+            ("酷狗音乐", "kg", lambda keyword: []),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, message = service.find_matching_songs("稻香 周杰伦", "")
+
+        self.assertEqual(calls, ["稻香 周杰伦", "稻香"])
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["title"], "稻香")
+        self.assertEqual(matches[0]["artist"], "周杰伦")
+        self.assertEqual(matches[0]["songmid"], "tx-dao-xiang-id")
+        self.assertEqual(matches[0]["source"], "tx")
+        self.assertIn("QQ音乐", message)
+
+    def test_title_fallback_runs_when_full_keyword_search_raises(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+
+        def search(keyword):
+            calls.append(keyword)
+            if keyword == "稻香 周杰伦":
+                raise RuntimeError("simulated QQ business error 2001")
+            return [{
+                "title": "稻香",
+                "artist": "周杰伦",
+                "source": "tx",
+                "songmid": "tx-dao-xiang-id",
+                "types": [{"type": "128k", "size": None}],
+            }]
+
+        providers = (
+            ("QQ音乐", "tx", search),
+            ("酷狗音乐", "kg", lambda keyword: []),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, message = service.find_matching_songs("稻香 周杰伦", "")
+
+        self.assertEqual(calls, ["稻香 周杰伦", "稻香"])
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["title"], "稻香")
+        self.assertEqual(matches[0]["artist"], "周杰伦")
+        self.assertEqual(matches[0]["songmid"], "tx-dao-xiang-id")
+        self.assertEqual(matches[0]["source"], "tx")
+        self.assertIn("QQ音乐", message)
+
+    def test_first_platform_match_wins(self):
         from unittest.mock import patch
         import modules.music.service as service
 
@@ -77,7 +167,49 @@ class MusicFallbackSearchTests(unittest.TestCase):
         with patch.object(service, "PROVIDERS", providers):
             matches, _ = service.find_matching_songs("晴天", "周杰伦")
 
-        self.assertEqual([item["source"] for item in matches], ["kg", "tx"])
+        self.assertEqual([item["source"] for item in matches], ["tx"])
+
+
+    def test_fallback_search_starts_after_failed_provider(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def make_provider(source):
+            def search(keyword):
+                calls.append(source)
+                return [{"title": "晴天", "artist": "周杰伦", "source": source, "songmid": source + "-id"}]
+            return search
+
+        providers = (
+            ("QQ音乐", "tx", make_provider("tx")),
+            ("酷狗音乐", "kg", make_provider("kg")),
+            ("网易云音乐", "wy", make_provider("wy")),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦", after_source="tx")
+
+        self.assertEqual(calls, ["kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
+
+    def test_search_moves_to_next_platform_when_current_has_no_match(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def no_match(keyword):
+            calls.append("tx")
+            return []
+        def match(keyword):
+            calls.append("kg")
+            return [{"title": "晴天", "artist": "周杰伦", "source": "kg", "songmid": "kg-id"}]
+
+        providers = (("QQ音乐", "tx", no_match), ("酷狗音乐", "kg", match))
+        with patch.object(service, "PROVIDERS", providers):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual(calls, ["tx", "kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
 
 
 class FanMedalParsingTests(unittest.TestCase):

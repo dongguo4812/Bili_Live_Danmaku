@@ -22,7 +22,13 @@
 </section>
 <section class="panel">
 <h2>点歌规则</h2>
-<p class="muted">搜索顺序固定为 QQ 音乐 → 酷狗音乐 → 网易云音乐 → 酷我音乐。</p>
+<p class="muted">按固定顺序查询已选平台：QQ 音乐 → 酷狗音乐 → 网易云音乐 → 酷我音乐。至少选择一个平台。</p>
+<div class="setting-field"><span>查询平台</span><div class="platform-options">
+<label><input type="checkbox" name="music-platform" value="tx"> QQ 音乐</label>
+<label><input type="checkbox" name="music-platform" value="kg"> 酷狗音乐</label>
+<label><input type="checkbox" name="music-platform" value="wy"> 网易云音乐</label>
+<label><input type="checkbox" name="music-platform" value="kw"> 酷我音乐</label>
+</div></div>
 <label class="setting-field"><span>每个平台搜索结果数量</span><input id="max-results" type="number" min="1" max="50"></label>
 <label class="setting-field"><span>普通观众冷却时间（秒）</span><input id="cooldown" type="number" min="0" max="3600"></label>
 <label class="setting-field"><span>歌曲队列上限</span><input id="queue-limit" type="number" min="1" max="1000"></label>
@@ -34,7 +40,9 @@
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
-async function load(){try{const d=await api("/api/music/settings");$("base-url").value=d.lx_music.base_url;$("timeout").value=d.lx_music.timeout_seconds;$("max-results").value=d.search.max_results_per_platform;$("cooldown").value=d.requests.cooldown_seconds;$("queue-limit").value=d.requests.queue_limit;$("fan-medal").value=String(Boolean(d.requests.require_fans_medal));$("status").textContent="歌曲模块状态："+d.module_state+"。请先关闭模块再保存配置。";}catch(e){$("status").textContent="读取失败："+e.message}}
-$("save").addEventListener("click",async()=>{try{const d=await api("/api/music/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({base_url:$("base-url").value,timeout_seconds:Number($("timeout").value),max_results_per_platform:Number($("max-results").value),cooldown_seconds:Number($("cooldown").value),queue_limit:Number($("queue-limit").value),require_fans_medal:$("fan-medal").value==="true"})});$("status").textContent=d.message;}catch(e){$("status").textContent="保存失败："+e.message}});
+const platformBoxes=()=>Array.from(document.querySelectorAll('input[name="music-platform"]'));
+async function load(){try{const d=await api("/api/music/settings");$("base-url").value=d.lx_music.base_url;$("timeout").value=d.lx_music.timeout_seconds;$("max-results").value=d.search.max_results_per_platform;const enabled=Array.isArray(d.search.enabled_platforms)?d.search.enabled_platforms:["tx","kg","wy","kw"];platformBoxes().forEach(box=>box.checked=enabled.includes(box.value));$("cooldown").value=d.requests.cooldown_seconds;$("queue-limit").value=d.requests.queue_limit;$("fan-medal").value=String(Boolean(d.requests.require_fans_medal));$("status").textContent="歌曲模块状态："+d.module_state+"。请先关闭模块再保存配置。"}catch(e){$("status").textContent="读取失败："+e.message}}
+platformBoxes().forEach(box=>box.addEventListener("change",()=>{if(!platformBoxes().some(item=>item.checked)){box.checked=true;$("status").textContent="至少保留一个音乐查询平台。";}}));
+$("save").addEventListener("click",async()=>{try{const enabledPlatforms=platformBoxes().filter(box=>box.checked).map(box=>box.value);if(!enabledPlatforms.length)throw new Error("至少选择一个音乐查询平台。");const d=await api("/api/music/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({base_url:$("base-url").value,timeout_seconds:Number($("timeout").value),max_results_per_platform:Number($("max-results").value),enabled_platforms:enabledPlatforms,cooldown_seconds:Number($("cooldown").value),queue_limit:Number($("queue-limit").value),require_fans_medal:$("fan-medal").value==="true"})});$("status").textContent=d.message;}catch(e){$("status").textContent="保存失败："+e.message}});
 load();
 </script></body></html>

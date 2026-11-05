@@ -4,7 +4,8 @@
     "timeout_seconds": 5
   },
   "search": {
-    "max_results_per_platform": 20
+    "max_results_per_platform": 20,
+    "enabled_platforms": ["tx", "kg", "wy", "kw"]
   },
   "requests": {
     "cooldown_seconds": 10,
