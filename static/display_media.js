@@ -29,6 +29,23 @@
     parent.appendChild(node("div","md-primary",item.title|| (type==="video"?item.bvid:"未知歌曲")));
     details(parent,item,type);
   }
+  function queueList(parent,queue,type){
+    const list=node("div","md-queue");
+    queue.forEach((item,index)=>{
+      const row=node("div","md-queue-item"+(index===0?" is-next":""));
+      row.appendChild(node("span","md-queue-index",String(index+1)+"." ));
+      const main=node("div","md-queue-main");
+      main.appendChild(node("div","",item.title||(type==="video"?item.bvid:"未知歌曲")));
+      const meta=node("div","md-meta");
+      if(type==="music"&&item.artist) meta.appendChild(node("span","","歌手："+item.artist));
+      if(type==="video"&&item.bvid) meta.appendChild(node("span","",item.bvid));
+      if(item.uname) meta.appendChild(node("span","requester","点播人："+item.uname));
+      if(meta.childNodes.length) main.appendChild(meta);
+      row.appendChild(main);
+      list.appendChild(row);
+    });
+    if(queue.length) parent.appendChild(list);
+  }
   function normalizeNotices(data,type){
     const raw=type==="music"?(data.events||[]):(data.operations||[]);
     const now=Date.now()/1000;
@@ -54,34 +71,12 @@
 
     const current=data.current||null;
     const queue=Array.isArray(data.queue)?data.queue:[];
-    const next=queue.length?queue[0]:null;
 
     const currentBox=section(root,"正在播放 ▶","current");
     titleLine(currentBox,current,type,type==="music"?"暂无机器人点播歌曲":"等待点播视频");
 
     const nextBox=section(root,"接下来播放","next");
-    titleLine(nextBox,next,type,type==="music"?"暂无待播歌曲":"暂无待播视频");
-
-    const queueBox=section(root,"完整待播队列","queue");
-    const list=node("div","md-queue");
-    if(!queue.length){
-      list.appendChild(node("div","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
-    }else{
-      queue.forEach((item,index)=>{
-        const row=node("div","md-queue-item"+(index===0?" is-next":""));
-        row.appendChild(node("span","md-queue-index",String(index+1)+"." ));
-        const main=node("div","md-queue-main");
-        main.appendChild(node("div","",item.title||(type==="video"?item.bvid:"未知歌曲")));
-        const meta=node("div","md-meta");
-        if(type==="music"&&item.artist) meta.appendChild(node("span","","歌手："+item.artist));
-        if(type==="video"&&item.bvid) meta.appendChild(node("span","",item.bvid));
-        if(item.uname) meta.appendChild(node("span","requester","点播人："+item.uname));
-        if(meta.childNodes.length) main.appendChild(meta);
-        row.appendChild(main);
-        list.appendChild(row);
-      });
-    }
-    queueBox.appendChild(list);
+    queueList(nextBox,queue,type);
 
     const notices=normalizeNotices(data,type);
     if(notices.length){
