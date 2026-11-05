@@ -138,6 +138,18 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertNotIn('f"模块操作失败：{type(exc).__name__}"', main)
         self.assertNotIn('f"操作失败：{type(exc).__name__}"', main)
 
+    def test_kuwo_search_uses_current_signed_web_api(self):
+        source = (ROOT / "modules" / "music" / "service.py").read_text(encoding="utf-8")
+        self.assertIn('_KUWO_SEARCH_URL = "https://www.kuwo.cn/search/searchMusicBykeyWord"', source)
+        self.assertIn('_KUWO_SESSION_COOKIE = "Hm_Iuvt_cdb524f42f23cer9b268564v7y735ewrq2324"', source)
+        self.assertIn("def _kuwo_build_secret(cookie: str, nonce: int)", source)
+        self.assertIn('headers["Secret"]', source)
+        self.assertIn('"reqId": str(uuid.uuid4())', source)
+        self.assertIn('rows = data_section.get("list") or data.get("abslist") or []', source)
+        self.assertIn('row.get("rid") or row.get("MUSICRID") or row.get("id")', source)
+        self.assertNotIn('url = "https://search.kuwo.cn/r.s?"', source)
+        self.assertNotIn("_music_get_json(url, allow_python_literal=True)", source)
+
     def test_chrome_session_creation_failure_cleans_only_the_dedicated_profile(self):
         video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")
         create_body = video[video.index("def create_browser():"):]
