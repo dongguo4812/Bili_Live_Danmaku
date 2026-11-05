@@ -13,38 +13,38 @@
     root.appendChild(box);
     return box;
   }
-  function details(parent,item,type){
-    if(!item) return;
-    const meta=node("div","md-meta");
-    if(type==="music"&&item.artist) meta.appendChild(node("span","", "歌手："+item.artist));
-    if(type==="video"&&item.bvid) meta.appendChild(node("span","",item.bvid));
-    if(item.uname) meta.appendChild(node("span","requester","点播人："+item.uname));
-    if(meta.childNodes.length) parent.appendChild(meta);
-  }
-  function titleLine(parent,item,type,emptyText){
-    if(!item){
-      parent.appendChild(node("div","md-empty",emptyText));
-      return;
+  function appendVideoTitle(parent,title){
+    const text=String(title||"未知视频");
+    const viewport=node("span","md-video-title");
+    if(Array.from(text).length>10){
+      const track=node("span","md-video-title-track");
+      track.appendChild(node("span","",text));
+      track.appendChild(node("span","",text));
+      viewport.appendChild(track);
+      viewport.classList.add("is-scrolling");
+    }else{
+      viewport.textContent=text;
     }
-    parent.appendChild(node("div","md-primary",item.title|| (type==="video"?item.bvid:"未知歌曲")));
-    details(parent,item,type);
+    parent.appendChild(viewport);
+  }
+  function appendMediaLine(parent,item,type){
+    if(type==="music"){
+      const title=String(item.title||"未知歌曲");
+      const fullTitle=item.artist?title+"-"+item.artist:title;
+      parent.appendChild(node("span","md-inline-title",fullTitle));
+    }else{
+      appendVideoTitle(parent,item.title||item.bvid||"未知视频");
+      if(item.bvid) parent.appendChild(node("span","md-bvid",item.bvid));
+    }
+    if(item.uname) parent.appendChild(node("span","md-requester",item.uname));
   }
   function queueList(parent,queue,type){
-    if(!queue.length){
-      parent.appendChild(node("div","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
-      return;
-    }
     const list=node("div","md-queue");
     queue.forEach((item,index)=>{
       const row=node("div","md-queue-item"+(index===0?" is-next":""));
-      row.appendChild(node("span","md-queue-index",String(index+1)+"." ));
+      row.appendChild(node("span","md-queue-index",String(index+1)+"."));
       const main=node("div","md-queue-main");
-      main.appendChild(node("div","",item.title||(type==="video"?item.bvid:"未知歌曲")));
-      const meta=node("div","md-meta");
-      if(type==="music"&&item.artist) meta.appendChild(node("span","","歌手："+item.artist));
-      if(type==="video"&&item.bvid) meta.appendChild(node("span","",item.bvid));
-      if(item.uname) meta.appendChild(node("span","requester","点播人："+item.uname));
-      if(meta.childNodes.length) main.appendChild(meta);
+      appendMediaLine(main,item,type);
       row.appendChild(main);
       list.appendChild(row);
     });
@@ -79,8 +79,7 @@
     const currentBox=section(root,"正在播放 ▶","current");
     const currentHeading=currentBox.querySelector(".md-heading");
     if(current){
-      currentHeading.appendChild(node("span","md-current-title",current.title||(type==="video"?current.bvid:"未知歌曲")));
-      details(currentBox,current,type);
+      appendMediaLine(currentHeading,current,type);
     }else{
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
