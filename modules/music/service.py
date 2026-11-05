@@ -957,7 +957,7 @@ class MusicModule:
         if self.queue and (self._worker is None or self._worker.done()):
             self._worker = asyncio.create_task(self.play_worker(), name="MusicPlayWorker")
 
-    async def close(self) -> None:
+    async def close(self, stop_playback: bool = True) -> None:
         self._closing = True
         self.enabled = False
         self.paused = False
@@ -982,12 +982,14 @@ class MusicModule:
             self.queue.clear()
             self.queued_keys.clear()
             self.current = None
-        if had_current_song:
+        if had_current_song and stop_playback:
             ok, detail = await asyncio.to_thread(_lx_control, "stop")
             if not ok:
-                log.warning("关闭歌曲模块时暂停当前点播失败：%s", detail)
+                log.warning("关闭歌曲模块时停止当前点播失败：%s", detail)
             else:
                 log.info("关闭歌曲模块：%s", detail)
+        elif had_current_song:
+            log.info("程序退出：保留洛雪当前播放状态，不发送停止或暂停指令。")
         log.info("歌曲模块已关闭；清空待播队列 %s 首。", count)
 
 
@@ -1577,8 +1579,12 @@ class MusicModuleFacade:
         await self.bot.resume()
 
     async def close(self):
-        # 保留事件订阅，模块重新启动后可继续接收新弹幕。
-        await self.bot.close()
+        # 手动关闭歌曲模块时，仍按原行为停止机器人当前点播歌曲。
+        await self.bot.close(stop_playback=True)
+
+    async def shutdown(self):
+        # 程序退出时只结束机器人任务和清空内存队列，不控制洛雪播放状态。
+        await self.bot.close(stop_playback=False)
 
     def update_room_id(self, room_id: int) -> None:
         self.room_id = max(0, int(room_id or 0))
