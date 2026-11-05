@@ -63,6 +63,22 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertEqual(manager.config["lol_client_path"], "D:\\Games\\League")
             self.assertTrue((root / "config" / "local" / "lol_hex_display.json").is_file())
 
+    def test_status_clears_elevated_ownership_when_hex_process_has_exited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
+            manager._elevated_managed = True
+            manager._is_healthy = lambda: False
+            manager._pid_is_running = lambda pid: False
+            manager.pid_file.write_text("987654321", encoding="ascii")
+
+            state = manager.status()
+
+            self.assertEqual(state["state"], "stopped")
+            self.assertFalse(state["running"])
+            self.assertFalse(state["owned"])
+            self.assertFalse(manager._elevated_managed)
+            self.assertFalse(manager.pid_file.exists())
+
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
