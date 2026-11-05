@@ -142,8 +142,6 @@ class LolHexExtensionManager:
                     self.pid_file.unlink(missing_ok=True)
             except OSError:
                 self.logger.warning("清理已退出 LOL Hex 的 PID 文件失败。", exc_info=True)
-        if not self._last_error:
-            self._last_error = "LOL Hex 管理员进程已退出。"
         self.logger.warning("检测到 LOL Hex 管理员进程已退出，已清理托管状态。")
 
     def _request(self, path: str, payload: dict[str, Any] | None = None, timeout: float = 1.0) -> dict[str, Any]:
@@ -182,8 +180,11 @@ class LolHexExtensionManager:
                 self._owned = False
                 if code not in (0, None):
                     self._last_error = f"LOL Hex 进程异常退出（退出码 {code}）。"
+            was_elevated_managed = self._elevated_managed
             self._clear_stale_elevated_process()
             healthy = self._is_healthy()
+            if not healthy and was_elevated_managed and not self._elevated_managed and not self._last_error:
+                self._last_error = "LOL Hex 管理员进程已退出。"
             if healthy:
                 managed = bool((self._process is not None and self._owned) or self._elevated_managed)
                 return {
