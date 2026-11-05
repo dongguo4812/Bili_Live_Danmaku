@@ -92,6 +92,7 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertTrue(state["external"])
             self.assertFalse(state["owned"])
             self.assertFalse(manager._elevated_managed)
+            self.assertEqual(state["error"], "")
 
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
