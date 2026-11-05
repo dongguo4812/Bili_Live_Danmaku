@@ -33,6 +33,7 @@
 .md-notice.failure{color:#ff646e}
 .md-notice-time{margin-right:6px;color:#aeb9ca;font:11px Consolas,monospace}
 .md-request-status{margin:3px 0;color:#ff646e;font-size:calc(14px * var(--content-scale, 1));font-weight:800}
+.md-paused-status{margin:3px 0;color:#ffd66b;font-size:calc(14px * var(--content-scale, 1));font-weight:800}
 .md-instruction{margin:3px 0 8px;color:#ffd66b;font-size:calc(13px * var(--content-scale, 1));font-weight:700}
 .md-compact .md-section{margin-bottom:7px}
 .md-compact .md-heading{font-size:calc(12px * var(--content-scale, 1))}
@@ -43,5 +44,5 @@
 .md-compact .md-meta{font-size:calc(11px * var(--content-scale, 1))}
 .md-compact .md-queue-item{font-size:calc(12px * var(--content-scale, 1));padding:3px 0}
 .md-compact .md-notice{font-size:calc(11px * var(--content-scale, 1))}
-.md-compact .md-request-status,.md-compact .md-instruction{font-size:calc(11px * var(--content-scale, 1))}
+.md-compact .md-request-status,.md-compact .md-paused-status,.md-compact .md-instruction{font-size:calc(11px * var(--content-scale, 1))}
 @media(max-width:800px){.md-inline-title,.md-video-title{font-size:calc(16px * var(--content-scale, 1))}.md-queue-item{font-size:calc(12px * var(--content-scale, 1))}.md-heading{font-size:calc(12px * var(--content-scale, 1))}}
