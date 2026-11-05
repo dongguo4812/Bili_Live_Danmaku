@@ -8,6 +8,8 @@ import logging
 import re
 import time
 import threading
+import os
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -566,6 +568,45 @@ def _pause_video_for_close_sync():
 def _quit_browser_sync(browser):
     if browser is not None:
         browser.quit()
+
+
+def _force_terminate_browser_sync(browser) -> bool:
+    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
+    if browser is None or os.name != "nt":
+        return False
+
+    pids: list[int] = []
+    try:
+        chrome_pid = int((getattr(browser, "capabilities", {}) or {}).get("goog:processID") or 0)
+        if chrome_pid > 0:
+            pids.append(chrome_pid)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        service_process = getattr(getattr(browser, "service", None), "process", None)
+        service_pid = int(getattr(service_process, "pid", 0) or 0)
+        if service_pid > 0 and service_pid not in pids:
+            pids.append(service_pid)
+    except (TypeError, ValueError):
+        pass
+
+    closed = False
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                closed = True
+                logger.warning("已通过 Windows 进程树清理兜底关闭 Chrome/WebDriver：PID=%s", pid)
+        except Exception as exc:
+            logger.warning("强制清理 Chrome 进程树失败：PID=%s，错误=%s", pid, type(exc).__name__)
+    return closed
 
 
 @selenium_locked
@@ -1742,12 +1783,21 @@ class VideoModuleFacade:
         await _resume_music_if_video_finished()
         if driver is not None:
             old_driver = driver
+            # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
             driver = None
             try:
-                await asyncio.to_thread(_quit_browser_sync, old_driver)
+                # quit 可能因 Selenium 锁/Chrome 无响应而卡住，必须设置硬超时。
+                await asyncio.wait_for(
+                    asyncio.to_thread(_quit_browser_sync, old_driver),
+                    timeout=4.0,
+                )
+                logger.info("Selenium Chrome 会话已正常关闭。")
             except Exception as exc:
-                logger.warning("关闭 Chrome 会话失败：%s", type(exc).__name__)
-        logger.info("视频模块已关闭，Chrome 会话已释放，待播队列已清空。")
+                logger.warning("Selenium 关闭 Chrome 未完成（%s），尝试按进程树兜底清理。", type(exc).__name__)
+                closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                if not closed:
+                    logger.error("Chrome 进程树兜底清理未能确认成功，请检查 WebDriver/Chrome 进程。")
+        logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
 
     def update_room_id(self, room_id: int) -> None:
         global roomid, _streamer_uid_cache, _streamer_uid_cache_at
