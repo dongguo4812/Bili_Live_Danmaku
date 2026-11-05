@@ -1,0 +1,1036 @@
+# -*- coding: utf-8 -*-
+"""LOL 战绩条模块：供现有 Flask 海克斯展示项目接入。"""
+from __future__ import annotations
+
+import json
+import logging
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+import requests
+import urllib3
+from flask import Blueprint, jsonify, render_template, request
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+log = logging.getLogger(__name__)
+
+# 后台自动刷新间隔（秒）
+AUTO_REFRESH_INTERVAL = 30
+
+# 每个账号最多保留的本地对局数量
+CACHE_MATCH_LIMIT = 100
+
+REGION_NAMES = {
+    "HN1": "艾欧尼亚", "HN2": "祖安", "HN3": "诺克萨斯",
+    "HN4": "班德尔城", "HN5": "皮尔特沃夫", "HN6": "战争学院",
+    "HN7": "巨神峰", "HN8": "裁决之地", "HN9": "裁决之地",
+    "HN10": "黑色玫瑰", "HN11": "暗影岛", "HN12": "钢铁烈阳",
+    "HN13": "水晶之痕", "HN14": "均衡教派", "HN15": "影流",
+    "HN16": "守望之海", "HN17": "征服之海", "HN18": "卡拉曼达",
+    "HN19": "皮城警备", "BGP1": "男爵领域", "BGP2": "峡谷之巅",
+    "WT1": "比尔吉沃特", "WT2": "德玛西亚", "WT3": "弗雷尔卓德",
+    "WT4": "无畏先锋", "WT5": "恕瑞玛", "WT6": "扭曲丛林",
+    "WT7": "巨龙之巢", "EDU1": "教育网", "PBE": "体验服",
+    "NJ100": "联盟一区", "GZ100": "联盟二区",
+    "CQ100": "联盟三区", "TJ100": "联盟四区",
+    "TJ101": "联盟五区",
+}
+
+DEFAULTS = {
+    "max_games": 5,
+    "mode_filter": 1,
+    "batch_gap_min": 100000,
+}
+
+
+def register_bar_routes(
+    app, get_lcu_credentials: Callable, base_dir,
+    client_is_recognized: Callable[[], bool] | None = None,
+    lcu_is_available: Callable[[], bool] | None = None,
+):
+    """
+    接入现有 Flask app。
+
+    get_lcu_credentials 必须是 main.py 中已有的函数，返回 (port, token)
+    或 None。base_dir 使用 main.py 中的 BASE_DIR。
+    """
+    bp = Blueprint(
+        "lol_match_bar",
+        __name__,
+        template_folder=str(Path(base_dir) / "templates"),
+    )
+
+    data_dir = Path(base_dir) / "data"
+    config_path = data_dir / "bar_config.json"
+
+    # 旧版单账号缓存：只用于首次迁移，不再作为日常读写文件。
+    legacy_matches_path = data_dir / "bar_matches.json"
+
+    # 新版：每个 puuid 一份独立缓存。
+    accounts_dir = data_dir / "bar_accounts"
+
+    # 记录最近一次成功识别的账号，供网页快照和“开启新批次”使用。
+    active_account_path = data_dir / "bar_active_account.json"
+
+    lock = threading.RLock()
+    status = {"busy": False, "message": ""}
+    stop_event = threading.Event()
+
+    # 用于避免网页频繁轮询时反复输出相同的完整诊断日志。
+    last_snapshot_diag_signature = None
+
+    def safe_int(value, default=0):
+        """安全转换整数，避免异常数据导致整个快照生成失败。"""
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError, OverflowError):
+            return default
+
+    def format_timestamp(timestamp_ms):
+        """将毫秒时间戳转换为本地时间字符串。"""
+        timestamp_ms = safe_int(timestamp_ms)
+
+        if timestamp_ms <= 0:
+            return "无效时间"
+
+        try:
+            return datetime.fromtimestamp(
+                timestamp_ms / 1000
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, OSError, OverflowError):
+            return f"无效时间戳({timestamp_ms})"
+
+    def read_json(path, default):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError, TypeError):
+            return default
+
+    def write_json(path, obj):
+        """原子写入 JSON，避免程序中断时留下半截配置文件。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+            f.flush()
+
+        tmp.replace(path)
+
+    def account_cache_path(puuid):
+        """根据 puuid 生成账号专属缓存路径。"""
+        safe_puuid = str(puuid or "").strip()
+
+        if not safe_puuid:
+            raise ValueError("puuid 为空，无法生成账号缓存路径")
+
+        # puuid 来自 LCU，但仍限制为安全文件名字符。
+        safe_name = "".join(
+            ch for ch in safe_puuid
+            if ch.isalnum() or ch in ("-", "_")
+        )
+
+        if not safe_name:
+            raise ValueError("puuid 不包含有效文件名字符")
+
+        return accounts_dir / f"{safe_name}.json"
+
+    def get_config():
+        cfg = dict(DEFAULTS)
+        saved = read_json(config_path, {})
+
+        if isinstance(saved, dict):
+            cfg.update(saved)
+
+        try:
+            cfg["max_games"] = max(1, min(100, int(cfg["max_games"])))
+        except (TypeError, ValueError):
+            cfg["max_games"] = DEFAULTS["max_games"]
+
+        try:
+            cfg["mode_filter"] = (
+                1 if int(cfg["mode_filter"]) == 1 else 2
+            )
+        except (TypeError, ValueError):
+            cfg["mode_filter"] = 1
+
+        try:
+            cfg["batch_gap_min"] = max(
+                1, min(100000, int(cfg["batch_gap_min"]))
+            )
+        except (TypeError, ValueError):
+            cfg["batch_gap_min"] = DEFAULTS["batch_gap_min"]
+
+        return cfg
+
+    def save_active_account(puuid, account, platform):
+        """更新当前活动账号指针，不覆盖其他账号的缓存。"""
+        write_json(active_account_path, {
+            "puuid": str(puuid or ""),
+            "account": str(account or ""),
+            "platform": str(platform or ""),
+            "updated_at": time.time(),
+        })
+
+    def get_active_account():
+        saved = read_json(active_account_path, {})
+
+        if not isinstance(saved, dict):
+            return {}
+
+        puuid = str(saved.get("puuid") or "").strip()
+
+        if not puuid:
+            return {}
+
+        return saved
+
+    def load_account_cache(puuid, account, platform):
+        """
+        读取指定账号的缓存。
+
+        首次使用新版目录时，如果旧版 bar_matches.json 的 puuid
+        与当前账号一致，则迁移旧缓存；如果不一致，绝不继承旧账号数据。
+        """
+        path = account_cache_path(puuid)
+        old = read_json(path, None)
+
+        if isinstance(old, dict) and str(old.get("puuid") or "") == puuid:
+            return old, path, False
+
+        if path.exists():
+            log.warning(
+                "[战绩条诊断] 账号缓存文件存在但 puuid 不匹配，"
+                "将初始化该账号缓存：file=%s，当前 puuid=%s，"
+                "缓存 puuid=%s",
+                path,
+                puuid,
+                old.get("puuid") if isinstance(old, dict) else None,
+            )
+
+        # 新账号缓存不存在时，尝试从旧版单文件迁移。
+        legacy = read_json(legacy_matches_path, {})
+
+        if (
+            isinstance(legacy, dict)
+            and str(legacy.get("puuid") or "") == puuid
+        ):
+            migrated = dict(legacy)
+            migrated["puuid"] = puuid
+            migrated["account"] = account or migrated.get("account", "")
+            migrated["platform"] = platform or migrated.get("platform", "")
+
+            if not isinstance(migrated.get("matches"), list):
+                migrated["matches"] = []
+
+            if not isinstance(migrated.get("manual_pins"), list):
+                migrated["manual_pins"] = []
+
+            migrated["manual_boundary_ms"] = safe_int(
+                migrated.get("manual_boundary_ms")
+            )
+
+            write_json(path, migrated)
+
+            log.info(
+                "[战绩条诊断] 已迁移旧版单账号缓存：旧文件=%s，"
+                "新文件=%s，保留对局=%s，手动边界=%s",
+                legacy_matches_path,
+                path,
+                len(migrated.get("matches", [])),
+                migrated["manual_boundary_ms"],
+            )
+
+            return migrated, path, True
+
+        # 旧缓存属于其他账号，不能把它的对局或手动边界带给当前账号。
+        if isinstance(legacy, dict) and legacy.get("puuid"):
+            log.info(
+                "[战绩条诊断] 旧版缓存属于其他账号，不迁移："
+                "旧 puuid=%s，当前 puuid=%s",
+                legacy.get("puuid"),
+                puuid,
+            )
+
+        fresh = {
+            "puuid": puuid,
+            "account": account,
+            "platform": platform,
+            "matches": [],
+            "manual_boundary_ms": 0,
+            "manual_pins": [],
+        }
+
+        return fresh, path, False
+
+    def load_active_matches():
+        """根据活动账号指针读取对应账号的缓存。"""
+        active = get_active_account()
+        puuid = str(active.get("puuid") or "")
+
+        if not puuid:
+            return {}, None, active
+
+        path = account_cache_path(puuid)
+        saved = read_json(path, {})
+
+        if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
+            saved = {}
+
+        return saved, path, active
+
+    def lcu_get(path, timeout=(1.5, 3.0)):
+        if client_is_recognized is not None and not client_is_recognized():
+            raise RuntimeError("英雄联盟客户端尚未识别，已跳过 LCU 请求")
+        if lcu_is_available is not None and not lcu_is_available():
+            raise RuntimeError("LCU 凭据尚未验证通过，已跳过请求")
+        credentials = get_lcu_credentials()
+
+        if not credentials:
+            raise RuntimeError("未发现正在运行的英雄联盟客户端")
+
+        port, token = credentials
+
+        response = requests.get(
+            f"https://127.0.0.1:{int(port)}{path}",
+            auth=("riot", str(token)),
+            verify=False,
+            timeout=timeout,
+            headers={"Accept": "application/json"},
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    def refresh_matches():
+        """从 LoL 客户端获取战绩，并更新当前账号自己的缓存。"""
+        if client_is_recognized is not None and not client_is_recognized():
+            message = "英雄联盟客户端尚未识别，暂不刷新战绩；现有缓存保持不变"
+            with lock:
+                status["message"] = message
+            return False, message
+        if lcu_is_available is not None and not lcu_is_available():
+            message = "LCU 凭据尚未验证通过，暂不刷新战绩；现有缓存保持不变"
+            with lock:
+                status["message"] = message
+            return False, message
+        with lock:
+            if status["busy"]:
+                return False, "战绩刷新正在进行，请稍后再试"
+
+            status["busy"] = True
+            status["message"] = "正在刷新战绩……"
+
+        try:
+            summoner = lcu_get("/lol-summoner/v1/current-summoner")
+
+            puuid = str(summoner.get("puuid") or "").strip()
+            game_name = str(
+                summoner.get("gameName")
+                or summoner.get("displayName")
+                or ""
+            )
+            tag_line = str(summoner.get("tagLine") or "")
+            account = game_name + (f"#{tag_line}" if tag_line else "")
+
+            if not puuid:
+                raise RuntimeError("当前账号没有 puuid，无法读取战绩")
+
+            cfg = get_config()
+            end_index = max(20, min(100, cfg["max_games"] + 20))
+
+            log.info(
+                "[战绩条诊断] 开始刷新：账号=%s，puuid=%s，模式筛选=%s，"
+                "max_games=%s，查询区间=0..%s",
+                account,
+                puuid,
+                cfg["mode_filter"],
+                cfg["max_games"],
+                end_index - 1,
+            )
+
+            history = lcu_get(
+                f"/lol-match-history/v1/products/lol/{puuid}"
+                f"/matches?begIndex=0&endIndex={end_index - 1}"
+            )
+
+            platform = str(history.get("platformId") or "")
+            games = history.get("games", {}).get("games", [])
+
+            if not isinstance(games, list):
+                raise RuntimeError("战绩接口返回格式异常")
+
+            log.info(
+                "[战绩条诊断] LCU 战绩接口返回：platform=%s，"
+                "本次返回对局数=%s",
+                platform,
+                len(games),
+            )
+
+            old, matches_path, migrated = load_account_cache(
+                puuid, account, platform
+            )
+
+            if not isinstance(old, dict):
+                old = {}
+
+            old_matches = old.get("matches", [])
+
+            if not isinstance(old_matches, list):
+                old_matches = []
+
+            indexed = {
+                str(item.get("gameId")): item
+                for item in old_matches
+                if isinstance(item, dict) and item.get("gameId")
+            }
+
+            previously_cached_ids = set(indexed.keys())
+            newly_seen_ids = set()
+            parsed_count = 0
+            unable_to_locate_count = 0
+
+            for game in games:
+                try:
+                    game_id = str(game.get("gameId") or "")
+
+                    if not game_id:
+                        continue
+
+                    participants = game.get("participants") or []
+                    identities = game.get("participantIdentities") or []
+                    my_pid = None
+
+                    for identity in identities:
+                        player = identity.get("player") or {}
+
+                        if player.get("puuid") == puuid:
+                            my_pid = identity.get("participantId")
+                            break
+
+                    mine = None
+
+                    if my_pid is not None:
+                        mine = next(
+                            (
+                                p for p in participants
+                                if p.get("participantId") == my_pid
+                            ),
+                            None,
+                        )
+                    elif len(participants) == 1:
+                        mine = participants[0]
+
+                    if not mine:
+                        unable_to_locate_count += 1
+                        log.debug(
+                            "[战绩条诊断] 无法定位当前账号的对局：gameId=%s",
+                            game_id,
+                        )
+                        continue
+
+                    stats = mine.get("stats") or {}
+                    start_ms = safe_int(game.get("gameCreation"))
+                    duration = safe_int(game.get("gameDuration"))
+
+                    indexed[game_id] = {
+                        "gameId": game_id,
+                        "startMs": start_ms,
+                        "endMs": start_ms + duration * 1000,
+                        "durationS": duration,
+                        "gameMode": str(game.get("gameMode") or ""),
+                        "gameType": str(game.get("gameType") or ""),
+                        "queueId": safe_int(game.get("queueId")),
+                        "championId": safe_int(mine.get("championId")),
+                        "win": bool(stats.get("win", False)),
+                        "remake": bool(
+                            stats.get("gameEndedInEarlySurrender", False)
+                        ),
+                        "kills": safe_int(stats.get("kills")),
+                        "deaths": safe_int(stats.get("deaths")),
+                        "assists": safe_int(stats.get("assists")),
+                    }
+
+                    parsed_count += 1
+
+                    if game_id not in previously_cached_ids:
+                        newly_seen_ids.add(game_id)
+
+                except (TypeError, ValueError, AttributeError):
+                    log.exception("[战绩条诊断] 解析单局战绩失败")
+
+            # 本地对局缓存最多保留最近 100 局；每个账号独立计算。
+            cached_matches = sorted(
+                indexed.values(),
+                key=lambda item: (
+                    safe_int(item.get("startMs")),
+                    str(item.get("gameId") or ""),
+                ),
+                reverse=True,
+            )
+            evicted_count = max(0, len(cached_matches) - CACHE_MATCH_LIMIT)
+
+            if evicted_count:
+                evicted_matches = cached_matches[CACHE_MATCH_LIMIT:]
+                log.info(
+                    "[战绩条诊断] 账号缓存达到上限：保留最近 %s 局，"
+                    "清理最旧的 %s 局；最旧清理对局 gameId=%s",
+                    CACHE_MATCH_LIMIT,
+                    evicted_count,
+                    [str(item.get("gameId") or "") for item in evicted_matches[:5]],
+                )
+                cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
+
+            # 保留该账号自己的手动批次边界和历史标记。
+            old.update({
+                "puuid": puuid,
+                "account": account,
+                "platform": platform,
+                "matches": cached_matches,
+                "manual_boundary_ms": safe_int(
+                    old.get("manual_boundary_ms")
+                ),
+                "manual_pins": (
+                    old.get("manual_pins")
+                    if isinstance(old.get("manual_pins"), list)
+                    else []
+                ),
+                "fetched_at": time.time(),
+            })
+
+            write_json(matches_path, old)
+
+            # 只有成功取得当前账号战绩并保存后，才切换活动账号指针。
+            save_active_account(puuid, account, platform)
+
+            message = (
+                f"战绩刷新完成，账号 {account}，缓存 {len(cached_matches)} 局，"
+                f"新增 {len(newly_seen_ids)} 局，清理最旧 {evicted_count} 局"
+            )
+
+            with lock:
+                status["message"] = message
+
+            log.info(
+                "[战绩条诊断] 刷新合并完成：账号=%s，缓存文件=%s，"
+                "旧缓存迁移=%s，接口返回=%s，成功解析=%s，"
+                "无法定位账号=%s，缓存总数=%s，新增=%s，手动边界=%s",
+                account,
+                matches_path,
+                migrated,
+                len(games),
+                parsed_count,
+                unable_to_locate_count,
+                len(cached_matches),
+                len(newly_seen_ids),
+                safe_int(old.get("manual_boundary_ms")),
+            )
+
+            if newly_seen_ids:
+                log.info(
+                    "[战绩条诊断] 本轮新增 gameId：%s",
+                    ", ".join(sorted(newly_seen_ids)),
+                )
+
+            log.info("[战绩条] %s", message)
+            return True, message
+
+        except Exception as exc:
+            message = f"战绩刷新失败：{exc}"
+            log.exception("[战绩条诊断] %s", message)
+
+            with lock:
+                status["message"] = message
+
+            return False, message
+
+        finally:
+            with lock:
+                status["busy"] = False
+
+    def auto_refresh_worker():
+        """
+        后台自动刷新线程。
+
+        启动后先刷新一次，之后每隔 AUTO_REFRESH_INTERVAL 秒刷新。
+        刷新失败不会终止线程，下一轮继续尝试。
+        """
+        log.info(
+            "[战绩条] 后台自动刷新线程已启动，间隔 %s 秒",
+            AUTO_REFRESH_INTERVAL,
+        )
+
+        while not stop_event.is_set():
+            try:
+                refresh_matches()
+            except Exception:
+                log.exception("[战绩条] 后台自动刷新出现未处理异常")
+
+            if stop_event.wait(AUTO_REFRESH_INTERVAL):
+                break
+
+        log.info("[战绩条] 后台自动刷新线程已退出")
+
+    def snapshot():
+        """根据最近成功识别的账号生成战绩条快照。"""
+        nonlocal last_snapshot_diag_signature
+
+        cfg = get_config()
+        saved, matches_path, active = load_active_matches()
+
+        raw_matches = saved.get("matches", []) if isinstance(saved, dict) else []
+
+        if not isinstance(raw_matches, list):
+            raw_matches = []
+
+        matches = [
+            item for item in raw_matches
+            if isinstance(item, dict)
+        ]
+
+        raw_count = len(matches)
+        account = str(
+            (saved.get("account") if isinstance(saved, dict) else "")
+            or active.get("account")
+            or ""
+        )
+        platform = str(
+            (saved.get("platform") if isinstance(saved, dict) else "")
+            or active.get("platform")
+            or ""
+        )
+        puuid = str(active.get("puuid") or "")
+        boundary = safe_int(
+            saved.get("manual_boundary_ms")
+            if isinstance(saved, dict) else 0
+        )
+
+        # 统计筛选前的模式分布。
+        mode_stats = {}
+
+        for m in matches:
+            mode = str(m.get("gameMode") or "(空)")
+            mode_stats[mode] = mode_stats.get(mode, 0) + 1
+
+        # 第一步：先按模式筛选。
+        if cfg["mode_filter"] == 1:
+            mode_rule = "gameMode 以 KIWI 开头"
+            matches = [
+                m for m in matches
+                if str(m.get("gameMode") or "").startswith("KIWI")
+            ]
+        else:
+            mode_rule = "gameType 等于 MATCHED_GAME"
+            matches = [
+                m for m in matches
+                if m.get("gameType") == "MATCHED_GAME"
+            ]
+
+        mode_filtered_count = len(matches)
+
+        # 第二步：应用该账号自己的手动边界。
+        before_boundary_count = len(matches)
+
+        if boundary > 0:
+            matches = [
+                m for m in matches
+                if safe_int(m.get("startMs")) >= boundary
+            ]
+
+        after_boundary_count = len(matches)
+        boundary_filtered_count = (
+            before_boundary_count - after_boundary_count
+        )
+
+        # 第三步：排序。
+        matches.sort(
+            key=lambda m: (
+                safe_int(m.get("startMs")),
+                safe_int(m.get("gameId")),
+            )
+        )
+
+        # 第四步：按相邻对局间隔划分批次。
+        gap_ms = cfg["batch_gap_min"] * 60 * 1000
+        batches = []
+        i = 0
+
+        while i < len(matches):
+            j = i + 1
+
+            while j < len(matches):
+                gap = (
+                    safe_int(matches[j].get("startMs"))
+                    - safe_int(matches[j - 1].get("endMs"))
+                )
+
+                if gap > gap_ms:
+                    break
+
+                j += 1
+
+            batches.append((i, j))
+            i = j
+
+        current_batch = len(batches) - 1 if batches else -1
+
+        shown = []
+        wins = 0
+        losses = 0
+        remake_count = 0
+        current_batch_count = 0
+
+        if current_batch >= 0:
+            begin, end = batches[current_batch]
+            batch = matches[begin:end]
+            current_batch_count = len(batch)
+
+            remake_count = sum(
+                1 for m in batch if m.get("remake")
+            )
+
+            valid = [
+                m for m in batch
+                if not m.get("remake")
+            ]
+
+            shown = valid[-cfg["max_games"]:]
+
+            wins = sum(1 for m in shown if m.get("win"))
+            losses = sum(1 for m in shown if not m.get("win"))
+
+        has_games = bool(shown)
+        region = REGION_NAMES.get(platform, platform) if platform else ""
+
+        result_games = []
+
+        for m in shown:
+            result_games.append({
+                "win": bool(m.get("win")),
+                "champion_id": safe_int(m.get("championId")),
+                "k": safe_int(m.get("kills")),
+                "d": safe_int(m.get("deaths")),
+                "a": safe_int(m.get("assists")),
+                "gameId": str(m.get("gameId") or ""),
+            })
+
+        with lock:
+            message = status["message"]
+            busy = status["busy"]
+
+        # 仅当关键快照数据变化时，输出完整诊断日志。
+        signature = (
+            puuid,
+            account,
+            platform,
+            cfg["mode_filter"],
+            cfg["max_games"],
+            cfg["batch_gap_min"],
+            raw_count,
+            tuple(
+                (
+                    str(m.get("gameId") or ""),
+                    safe_int(m.get("startMs")),
+                    str(m.get("gameMode") or ""),
+                    str(m.get("gameType") or ""),
+                    bool(m.get("remake")),
+                )
+                for m in matches
+            ),
+            boundary,
+            tuple(m["gameId"] for m in result_games),
+            current_batch,
+        )
+
+        if signature != last_snapshot_diag_signature:
+            last_snapshot_diag_signature = signature
+
+            log.info(
+                "[战绩条诊断] 快照开始：file=%s，puuid=%s，"
+                "缓存记录=%s，有效字典记录=%s，账号=%r，平台=%r，"
+                "mode_filter=%s，max_games=%s，batch_gap_min=%s",
+                matches_path,
+                puuid,
+                len(raw_matches),
+                raw_count,
+                account,
+                platform,
+                cfg["mode_filter"],
+                cfg["max_games"],
+                cfg["batch_gap_min"],
+            )
+
+            log.info(
+                "[战绩条诊断] 筛选前 gameMode 统计：%s",
+                mode_stats,
+            )
+
+            log.info(
+                "[战绩条诊断] 模式筛选完成：规则=%s，"
+                "筛选前=%s，筛选后=%s，过滤掉=%s",
+                mode_rule,
+                raw_count,
+                mode_filtered_count,
+                raw_count - mode_filtered_count,
+            )
+
+            log.info(
+                "[战绩条诊断] 手动边界检查：boundary_ms=%s，"
+                "boundary_time=%s",
+                boundary,
+                format_timestamp(boundary) if boundary else "未设置",
+            )
+
+            if boundary > 0:
+                log.info(
+                    "[战绩条诊断] 边界筛选完成：筛选前=%s，"
+                    "边界后保留=%s，边界前过滤=%s",
+                    before_boundary_count,
+                    after_boundary_count,
+                    boundary_filtered_count,
+                )
+            else:
+                log.info(
+                    "[战绩条诊断] 未设置有效手动边界，"
+                    "未执行边界过滤；当前候选对局=%s",
+                    after_boundary_count,
+                )
+
+            if matches:
+                first = matches[0]
+                latest = matches[-1]
+
+                log.info(
+                    "[战绩条诊断] 排序完成：最早对局 ID=%s，时间=%s；"
+                    "最新对局 ID=%s，时间=%s",
+                    first.get("gameId"),
+                    format_timestamp(first.get("startMs")),
+                    latest.get("gameId"),
+                    format_timestamp(latest.get("startMs")),
+                )
+            else:
+                log.info(
+                    "[战绩条诊断] 当前没有符合模式及手动边界条件的对局"
+                )
+
+            log.info(
+                "[战绩条诊断] 批次划分完成：筛选后对局=%s，"
+                "批次数=%s，阈值=%s 分钟",
+                len(matches),
+                len(batches),
+                cfg["batch_gap_min"],
+            )
+
+            for batch_index, (begin, end) in enumerate(batches, start=1):
+                batch = matches[begin:end]
+
+                log.info(
+                    "[战绩条诊断] 批次 #%s：局数=%s，"
+                    "首局 ID=%s（%s），末局 ID=%s（%s）",
+                    batch_index,
+                    len(batch),
+                    batch[0].get("gameId"),
+                    format_timestamp(batch[0].get("startMs")),
+                    batch[-1].get("gameId"),
+                    format_timestamp(batch[-1].get("startMs")),
+                )
+
+            log.info(
+                "[战绩条诊断] 当前批次选择：current_batch=%s，"
+                "批次数=%s，当前批次局数=%s",
+                current_batch,
+                len(batches),
+                current_batch_count,
+            )
+
+            log.info(
+                "[战绩条诊断] 最终结果：当前批次局数=%s，"
+                "remake 数=%s，展示局数=%s，胜=%s，负=%s，"
+                "展示 gameId=%s",
+                current_batch_count,
+                remake_count,
+                len(result_games),
+                wins,
+                losses,
+                [m["gameId"] for m in result_games],
+            )
+
+            if not result_games:
+                log.warning(
+                    "[战绩条诊断] 最终结果为空！缓存记录=%s，"
+                    "模式筛选后=%s，边界后=%s，批次数=%s，"
+                    "手动边界=%s，当前批次=%s，"
+                    "当前批次局数=%s，remake 数=%s，最终展示=0",
+                    raw_count,
+                    mode_filtered_count,
+                    after_boundary_count,
+                    len(batches),
+                    (
+                        format_timestamp(boundary)
+                        if boundary else "未设置"
+                    ),
+                    current_batch,
+                    current_batch_count,
+                    remake_count,
+                )
+
+        return {
+            "games": result_games if has_games else [],
+            "account": account if has_games else "",
+            "region": region if has_games else "",
+            "wins": wins if has_games else "",
+            "losses": losses if has_games else "",
+            "config": cfg,
+            "status": message,
+            "busy": busy,
+            "fetched_at": (
+                saved.get("fetched_at", 0)
+                if isinstance(saved, dict) else 0
+            ),
+        }
+
+    @bp.get("/bar")
+    def bar_page():
+        return render_template("bar.html")
+
+    @bp.get("/api/snapshot")
+    def bar_snapshot_api():
+        return jsonify(snapshot())
+
+    @bp.get("/api/bar-config")
+    def bar_config_api():
+        return jsonify(get_config())
+
+    @bp.post("/api/bar-config")
+    def bar_save_config_api():
+        body = request.get_json(silent=True) or {}
+
+        try:
+            cfg = dict(DEFAULTS)
+            cfg.update({
+                "max_games": body.get(
+                    "max_games", DEFAULTS["max_games"]
+                ),
+                "mode_filter": body.get(
+                    "mode_filter", DEFAULTS["mode_filter"]
+                ),
+                "batch_gap_min": body.get(
+                    "batch_gap_min", DEFAULTS["batch_gap_min"]
+                ),
+            })
+
+            cfg["max_games"] = max(
+                1, min(100, int(cfg["max_games"]))
+            )
+            cfg["mode_filter"] = (
+                1 if int(cfg["mode_filter"]) == 1 else 2
+            )
+            cfg["batch_gap_min"] = max(
+                1, min(100000, int(cfg["batch_gap_min"]))
+            )
+
+            write_json(config_path, cfg)
+
+            log.info(
+                "[战绩条诊断] 配置已保存：max_games=%s，"
+                "mode_filter=%s，batch_gap_min=%s",
+                cfg["max_games"],
+                cfg["mode_filter"],
+                cfg["batch_gap_min"],
+            )
+
+            return jsonify({"ok": True, "config": cfg})
+
+        except (TypeError, ValueError, OSError) as exc:
+            log.exception("[战绩条诊断] 保存配置失败")
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+    @bp.post("/api/bar-action")
+    def bar_action_api():
+        body = request.get_json(silent=True) or {}
+        action = str(body.get("action") or "")
+
+        if action == "refresh":
+            ok, message = refresh_matches()
+
+            return jsonify({
+                "ok": ok,
+                "message": message,
+            }), (200 if ok else 503)
+
+        if action == "new_batch":
+            active = get_active_account()
+            puuid = str(active.get("puuid") or "").strip()
+
+            if not puuid:
+                return jsonify({
+                    "ok": False,
+                    "error": "尚未识别当前游戏账号，请等待战绩刷新完成后再开启新批次",
+                }), 409
+
+            matches_path = account_cache_path(puuid)
+            saved = read_json(matches_path, {})
+
+            if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
+                saved = {
+                    "puuid": puuid,
+                    "account": str(active.get("account") or ""),
+                    "platform": str(active.get("platform") or ""),
+                    "matches": [],
+                    "manual_boundary_ms": 0,
+                    "manual_pins": [],
+                }
+
+            now_ms = int(time.time() * 1000)
+            saved["manual_boundary_ms"] = now_ms
+
+            pins = saved.get("manual_pins", [])
+
+            if not isinstance(pins, list):
+                pins = []
+
+            pins.append(now_ms)
+            saved["manual_pins"] = pins
+
+            write_json(matches_path, saved)
+
+            with lock:
+                status["message"] = "已开启新批次，等待下一局结算"
+
+            log.info(
+                "[战绩条诊断] 手动开启新批次：账号=%s，puuid=%s，"
+                "缓存文件=%s，boundary_ms=%s，boundary_time=%s；"
+                "此前的对局将不再显示，只展示边界时间及之后符合筛选条件的对局",
+                active.get("account", ""),
+                puuid,
+                matches_path,
+                now_ms,
+                format_timestamp(now_ms),
+            )
+
+            return jsonify({
+                "ok": True,
+                "message": status["message"],
+            })
+
+        return jsonify({"ok": False, "error": "未知操作"}), 400
+
+    app.register_blueprint(bp)
+
+    # 启动后台自动刷新线程。线程为 daemon，不阻止程序退出。
+    worker = threading.Thread(
+        target=auto_refresh_worker,
+        name="lol-match-bar-auto-refresh",
+        daemon=True,
+    )
+    worker.start()
+
+    log.info(
+        "[战绩条] 已注册路由：/bar、/api/snapshot、"
+        "/api/bar-config、/api/bar-action；账号缓存目录=%s",
+        accounts_dir,
+    )

@@ -120,7 +120,7 @@ class LolHexExtensionManager:
         script = self.extension_dir / "main.py"
         if not script.is_file():
             raise FileNotFoundError(
-                "未找到 LOL Hex 扩展源码，请执行 git submodule update --init --recursive。"
+                "未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。"
             )
         python = os.environ.get("LOL_HEX_PYTHON", "").strip()
         if python:

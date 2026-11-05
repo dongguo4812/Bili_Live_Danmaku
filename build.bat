@@ -15,10 +15,9 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-echo [1/4] 初始化并打包 LOL Hex 扩展...
-git submodule update --init --recursive
-if errorlevel 1 (
-    echo [错误] LOL Hex 子模块初始化失败，请确认已安装 Git。
+echo [1/4] 检查并打包 LOL Hex 扩展...
+if not exist "extensions\lol_hex_display\main.py" (
+    echo [错误] 未找到 LOL Hex 扩展源码。
     pause
     exit /b 1
 )
