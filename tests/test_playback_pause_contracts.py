@@ -107,7 +107,9 @@ class PlaybackPauseContractTests(unittest.TestCase):
                         shutdown_flow.index("_refresh_obs_combined_display_sources()"))
         self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop()"),
                         shutdown_flow.index("_refresh_obs_combined_display_sources()"))
-        self.assertIn("for attempt in range(1, 4)", shutdown_flow)
+        self.assertEqual(shutdown_flow.count("_refresh_obs_combined_display_sources()"), 1)
+        self.assertIn("不再重试", shutdown_flow)
+        self.assertNotIn("for attempt in range", shutdown_flow)
         self.assertIn("OBS_COMBINED_REFRESH_STOP.set()", shutdown_flow)
         self.assertIn("_shutdown_application_and_refresh_obs()", main[main.index("finally:", main.index("if __name__ == \"__main__\"")):])
 
