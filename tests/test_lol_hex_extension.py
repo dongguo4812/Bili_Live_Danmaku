@@ -69,6 +69,7 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             manager._elevated_managed = True
             manager._is_healthy = lambda: False
             manager._pid_is_running = lambda pid: False
+            manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
             manager.pid_file.write_text("987654321", encoding="ascii")
 
             state = manager.status()
