@@ -93,7 +93,7 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertNotIn("/api/modules/voice/", voice_page)
         self.assertIn("功能启停控制", voice_page)
         self.assertIn("/api/voice/tts/settings", voice_page)
-        self.assertIn("/api/voice/tts/synthesize", voice_page)
+        self.assertIn("/api/voice/tts/test", voice_page)
 
     def test_access_center_has_no_obsolete_lifecycle_handlers(self):
         for obsolete in ("videoModuleAction", "musicModuleAction", "window.moduleAction", "async function moduleAction"):
