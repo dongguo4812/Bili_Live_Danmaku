@@ -1227,6 +1227,8 @@ async def play_next():
             # create_task 避免在持有 play_lock 时直接递归调用 play_next。
             if video_queue and module_enabled and not module_paused:
                 asyncio.create_task(play_next())
+            else:
+                await _resume_music_if_video_finished()
 
 @selenium_locked
 def stop_current_page_sync():
@@ -1312,6 +1314,7 @@ async def skip_current_video():
             if session_generation != video_session_generation or not module_enabled:
                 return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
             await play_next()
+            await _resume_music_if_video_finished()
         except Exception:
             logger.exception("手动切换后启动下一条视频失败")
 
