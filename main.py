@@ -40,7 +40,7 @@ from modules.voice.service import VoiceModule
 
 BASE_DIR = get_base_dir()
 MODEL_ROOT = BASE_DIR / "models"
-DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku", "lol_hex_bar", "lol_hex_display"}
+DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku", "lol_hex_bar", "lol_hex_display", "clock"}
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
@@ -1294,6 +1294,12 @@ def system_settings_page():
 def credentials_page():
     return render_template("credentials.html")
 
+
+
+@app.get("/clock/display")
+def clock_display_page():
+    """提供独立的透明环形时钟展示页。"""
+    return render_template("clock_display.html")
 
 
 @app.get("/display/combined")

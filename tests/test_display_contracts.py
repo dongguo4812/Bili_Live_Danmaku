@@ -39,6 +39,23 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         self.assertIn('String(queue.length)+"个视频待播"', renderer)
         self.assertIn('node("span","md-pending-count",pendingLabel)', renderer)
 
+    def test_clock_is_available_as_standalone_page_and_combined_widget(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        clock = (root / "templates" / "clock_display.html").read_text(encoding="utf-8")
+        combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+
+        self.assertIn('@app.get("/clock/display")', main)
+        self.assertIn('return render_template("clock_display.html")', main)
+        self.assertIn('"clock"', main.split("DISPLAY_WIDGET_TYPES =", 1)[1].splitlines()[0])
+        self.assertIn('data-add="clock"', combined)
+        self.assertIn('frame.src="/clock/display?embedded=1"', combined)
+        self.assertIn('clock:"环形时钟"', combined)
+        self.assertIn('setInterval(refresh, 1000)', clock)
+        self.assertIn('background: transparent', clock)
+        self.assertIn('width: min(100vw, 100vh)', clock)
+        self.assertIn('item.type==="clock"', combined)
+
     def test_music_and_video_widgets_embed_their_independent_display_pages(self):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")

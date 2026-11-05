@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>环形进度时钟</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { display: flex; align-items: center; justify-content: center; }
+/* 保持正方形比例，适配独立 OBS 浏览器源及综合展示模块的任意尺寸。 */
+#clockSvg {
+    display: block;
+    width: min(100vw, 100vh);
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+}
+</style>
+</head>
+<body>
+<svg id="clockSvg" width="360" height="360" viewBox="0 0 360 360" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ffd040" />
+            <stop offset="100%" stop-color="#ff6b35" />
+        </linearGradient>
+        <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="2.5" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+    </defs>
+    <circle cx="180" cy="180" r="130" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="10" />
+    <circle id="secRing" cx="180" cy="180" r="130" fill="none" stroke="url(#ringGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="816.814" stroke-dashoffset="0" filter="url(#softGlow)" />
+    <text id="timeTxt" x="180" y="156" text-anchor="middle" font-family="Consolas, 'Courier New', monospace" font-size="86" font-weight="700" letter-spacing="1px" fill="#ffc94d"></text>
+    <text id="dateTxt" x="180" y="216" text-anchor="middle" font-family="Microsoft YaHei, 'Noto Sans CJK SC', sans-serif" font-size="26" font-weight="600" letter-spacing="1px" fill="#ffd966"></text>
+    <text id="weekTxt" x="180" y="244" text-anchor="middle" font-family="Microsoft YaHei, 'Noto Sans CJK SC', sans-serif" font-size="26" font-weight="600" letter-spacing="1px" fill="#ffd966"></text>
+</svg>
+<script>
+    const timeTxt = document.getElementById("timeTxt");
+    const dateTxt = document.getElementById("dateTxt");
+    const weekTxt = document.getElementById("weekTxt");
+    const secRing = document.getElementById("secRing");
+    const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+    const RING_RADIUS = 130;
+    const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+    secRing.style.strokeDasharray = RING_CIRCUMFERENCE;
+    function pad(num) { return String(num).padStart(2, "0"); }
+    function updateClock() {
+        const now = new Date();
+        const hours = pad(now.getHours());
+        const minutes = pad(now.getMinutes());
+        const seconds = pad(now.getSeconds());
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const day = now.getDate();
+        timeTxt.textContent = `${hours}:${minutes}:${seconds}`;
+        dateTxt.textContent = `${year}年${month}月${day}日`;
+        weekTxt.textContent = weekdays[now.getDay()];
+        const offset = RING_CIRCUMFERENCE - (now.getSeconds() / 60) * RING_CIRCUMFERENCE;
+        secRing.style.strokeDashoffset = offset;
+    }
+    function matchTimeWidthToDate() {
+        const timeBBox = timeTxt.getBBox();
+        const dateBBox = dateTxt.getBBox();
+        const timeWidth = timeBBox.width;
+        const dateWidth = dateBBox.width;
+        if (timeWidth > 0 && dateWidth > 0) {
+            const scale = dateWidth / timeWidth;
+            timeTxt.setAttribute("transform", `translate(180 156) scale(${scale}) translate(-180 -156)`);
+        }
+    }
+    function refresh() {
+        updateClock();
+        requestAnimationFrame(matchTimeWidthToDate);
+    }
+    refresh();
+    setInterval(refresh, 1000);
+</script>
+</body>
+</html>
