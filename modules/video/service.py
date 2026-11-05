@@ -1847,8 +1847,8 @@ class VideoModuleFacade:
         is_playing = False
         playback_state = "stopped"
         current_bv = None
-        await _resume_music_if_video_finished()
-        logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
+        # 应用退出时不再控制洛雪；保持播放器当前状态，由正常运行期间的视频结束逻辑负责恢复。
+        logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空；未触碰洛雪播放器。")
 
     def update_room_id(self, room_id: int) -> None:
         global roomid, _streamer_uid_cache, _streamer_uid_cache_at
