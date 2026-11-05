@@ -2568,6 +2568,21 @@ def api_lol_hex_status():
     return jsonify(LOL_HEX_EXTENSION.status())
 
 
+@app.get("/api/extensions/lol-hex/client-status")
+def api_lol_hex_client_status():
+    """Return the same League Client / LCU recognition status shown by the Hex manager page."""
+    try:
+        return jsonify(LOL_HEX_EXTENSION._request("/api/client-status", timeout=1.5))
+    except Exception as exc:
+        return jsonify({
+            "recognized": False,
+            "available": False,
+            "source": "",
+            "account": "",
+            "message": f"无法读取 LOL 海克斯客户端状态：{str(exc) or '服务暂不可用'}",
+        }), 503
+
+
 @app.post("/api/extensions/lol-hex/start")
 def api_lol_hex_start():
     try:
