@@ -82,6 +82,15 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('frame.style.transform="scale("+scale+")"', page)
         self.assertIn('frame.addEventListener("load",()=>applyContentScale(item))', page)
 
+    def test_live2d_overall_scale_is_enabled_and_applied_to_the_full_iframe(self):
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")
+        self.assertIn('overallSlider.disabled=!item;', page)
+        self.assertNotIn('overallSlider.disabled=!item || item.type==="live2d";', page)
+        self.assertIn('if(item.type==="live2d"){\\n      syncLive2DFrame(widget,item);', page)
+        self.assertIn('frame.style.transform="scale("+scale+")";', page)
+        self.assertIn('frame.addEventListener("load",()=>applyContentScale(item));', page)
+
     def test_build_packages_the_hex_application_as_a_separate_folder(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build.bat").read_text(encoding="utf-8")
