@@ -47,7 +47,7 @@
     <section class="panel">
       <h2>语音试听</h2>
       <label class="setting-field"><span>试听文本</span><input id="test-text" type="text" value="欢迎来到直播间，感谢大家的支持！"></label>
-      <div class="inline-controls"><button id="test" type="button" class="secondary-button">生成并试听</button><audio id="audio" controls></audio></div>
+      <div class="inline-controls"><button id="test" type="button" class="secondary-button">加入 OBS 语音试听队列</button></div><p class="muted">试听将通过 OBS 全局语音引擎播放，并与直播语音共用同一队列。</p>
       <p id="test-status" class="muted" role="status"></p>
     </section>
   </main>
@@ -58,7 +58,7 @@ async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...
 function updateLabels(){$("rate-value").textContent=$("rate").value+"%";$("volume-value").textContent=$("volume").value+"%";$("queue-value").textContent=$("queue").value+" 条"}
 async function load(){try{const d=await api("/api/voice/tts/settings");const p=d.preferences;$("danmaku-enabled").checked=p.danmaku_enabled;$("gift-enabled").checked=p.gift_enabled;$("sc-enabled").checked=p.super_chat_enabled;$("voice").replaceChildren(...d.voices.map(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;return o}));$("voice").value=p.voice;$("rate").value=p.rate;$("volume").value=p.volume;$("queue").value=p.max_queue_length;$("gift-min").value=p.gift_min_amount;updateLabels();$("status").textContent="语音设置已加载。"}catch(e){$("status").textContent="读取失败："+e.message}}
 async function save(){try{const payload={danmaku_enabled:$("danmaku-enabled").checked,gift_enabled:$("gift-enabled").checked,super_chat_enabled:$("sc-enabled").checked,voice:$("voice").value,rate:Number($("rate").value),volume:Number($("volume").value),max_queue_length:Number($("queue").value),gift_min_amount:Number($("gift-min").value)};const d=await api("/api/voice/tts/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});$("status").textContent="设置已保存。";}catch(e){$("status").textContent="保存失败："+e.message}}
-async function test(){try{$("test-status").textContent="正在生成语音…";const d=await api("/api/voice/tts/synthesize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("test-text").value})});$("audio").src=d.url;$("audio").play();$("test-status").textContent="语音已生成。";}catch(e){$("test-status").textContent="试听失败："+e.message}}
+async function test(){try{$("test-status").textContent="正在加入 OBS 语音队列…";await api("/api/voice/tts/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("test-text").value})});$("test-status").textContent="试听已加入 OBS 全局语音队列。"}catch(e){$("test-status").textContent="加入试听失败："+e.message}}
 $("rate").addEventListener("input",updateLabels);$("volume").addEventListener("input",updateLabels);$("queue").addEventListener("input",updateLabels);$("save").addEventListener("click",save);$("test").addEventListener("click",test);load();
 </script>
 </body>
