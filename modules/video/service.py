@@ -233,7 +233,7 @@ def build_queue_snapshot():
         "queue": queued,
         "queue_length": len(video_queue),
         "updated_at": time.strftime("%H:%M:%S"),
-        "playback_state": playback_state if current else "stopped",
+        "playback_state": "module_paused" if current and module_paused else playback_state if current else "stopped",
         "operations": list(operation_messages),
     }
 
