@@ -25,6 +25,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 .editor-control input[type=range]{width:110px}
 .editor-control output{min-width:42px;color:#ffd66b;font-variant-numeric:tabular-nums}
 #stage{position:absolute;inset:0;overflow:hidden;background:transparent}
+.display-mode #stage{position:fixed;inset:0;width:100vw;height:100vh}
 /* 编辑画布固定为 OBS 目标画面 1920×1080 的比例；按可用视口等比缩放并居中，不拉伸。 */
 .editor-mode #stage{
   top:96px;
@@ -239,9 +240,17 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
 
   function positionWidget(node,item){
     node.style.left=item.x+"%";
-    node.style.top=item.y+"%";
     node.style.width=item.w+"%";
     node.style.height=item.h+"%";
+    // OBS 展示模式下，海克斯模块使用保存坐标计算 bottom 锚点。
+    // 编辑器仍使用 top 坐标，确保编辑和输出对应同一块画布区域。
+    if(displayMode && item.type==="lol_hex_display"){
+      node.style.top="auto";
+      node.style.bottom=(100-item.y-item.h)+"%";
+    }else{
+      node.style.top=item.y+"%";
+      node.style.bottom="auto";
+    }
     node.style.setProperty("--content-scale","1");
     syncLive2DFrame(node,item);
   }
@@ -288,8 +297,8 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       // so the page does not reflow before the visual scale is applied.
       frame.style.transformOrigin="top left";
       frame.style.transform="scale("+scale+")";
-      frame.style.width=(100/scale*100)+"%";
-      frame.style.height=(100/scale*100)+"%";
+      frame.style.width=(100/scale)+"%";
+      frame.style.height=(100/scale)+"%";
     }
   }
 
