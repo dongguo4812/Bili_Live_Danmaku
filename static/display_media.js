@@ -84,8 +84,9 @@
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
 
-    const nextBox=section(root,"Ⅱ 接下来播放","next");
+    const nextBox=section(root,"接下来播放","next");
     const nextHeading=nextBox.querySelector(".md-heading");
+    nextHeading.appendChild(node("span","md-next-icon","Ⅱ"));
     if(queue.length){
       queueList(nextBox,queue,type);
     }else{
