@@ -63,6 +63,14 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("async def shutdown(self):", video)
         self.assertIn("await self.close()", video)
         self.assertIn('if not callable(shutdown) and record.state == "stopped":', manager)
+        self.assertIn("def begin_shutdown(self)", manager)
+        self.assertIn("if self._shutting_down:", manager)
+        app_shutdown = application[application.index("def shutdown("):]
+        self.assertLess(app_shutdown.index("self._started = False"), app_shutdown.index("self.async_runtime.submit"))
+        self.assertIn("await self.bot.resume_after_video(force=True)", music)
+        self.assertIn("def _browser_process_alive_sync(browser)", video)
+        self.assertIn("def _force_terminate_browser_sync(browser)", video)
+        self.assertIn("timeout=4.0", video)
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertLess(main.index("APPLICATION_RUNTIME.shutdown()", main.index("if __name__ == \"__main__\"")),
                         main.index("LIVE_CLIENT.stop()", main.index("if __name__ == \"__main__\"")))
