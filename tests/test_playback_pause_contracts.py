@@ -97,12 +97,19 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertNotIn("emergency_resume_video_paused_music_sync", main)
         console_handler = main[main.index("def _install_console_close_handler()"):]
         console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
-        self.assertIn("emergency_close_browser_sync", console_handler)
-        self.assertNotIn("MUSIC_MODULE", console_handler)
-        self.assertIn("洛雪播放器保持原状", console_handler)
-        self.assertIn("timeout=1.5", video)
-        self.assertLess(main.index("APPLICATION_RUNTIME.shutdown()", main.index("if __name__ == \"__main__\"")),
-                        main.index("LIVE_CLIENT.stop()", main.index("if __name__ == \"__main__\"")))
+        self.assertIn("_shutdown_application_and_refresh_obs", console_handler)
+        self.assertNotIn("emergency_close_browser_sync", console_handler)
+        self.assertIn("task.join(40.0)", console_handler)
+        self.assertIn("def _shutdown_application_and_refresh_obs()", main)
+        shutdown_flow = main[main.index("def _shutdown_application_and_refresh_obs()"):]
+        shutdown_flow = shutdown_flow[:shutdown_flow.index("\ndef _available_models", 1)]
+        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=30.0)"),
+                        shutdown_flow.index("_refresh_obs_combined_display_sources()"))
+        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop()"),
+                        shutdown_flow.index("_refresh_obs_combined_display_sources()"))
+        self.assertIn("for attempt in range(1, 4)", shutdown_flow)
+        self.assertIn("OBS_COMBINED_REFRESH_STOP.set()", shutdown_flow)
+        self.assertIn("_shutdown_application_and_refresh_obs()", main[main.index("finally:", main.index("if __name__ == \"__main__\"")):])
 
 
 if __name__ == "__main__":
