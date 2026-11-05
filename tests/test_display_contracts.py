@@ -86,6 +86,21 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         self.assertIn('body.embedded{padding:0}', video)
 
 
+class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
+    def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        start = script.index("async function pollTtsTestQueue()")
+        end = script.index("async function pollDanmaku()", start)
+        test_poll = script[start:end]
+        self.assertIn('fetch("/api/voice/tts/test-queue"', test_poll)
+        self.assertIn("testQueuePollInProgress", test_poll)
+        self.assertIn('enqueueSpeech({ type: "test", text: item.text })', test_poll)
+        self.assertIn("pollTtsTestQueue();", script[script.index("function refreshDanmakuPolling()"):])
+        danmaku_poll_start = script.index("async function pollDanmaku()")
+        danmaku_poll_end = script.index("async function initializeDanmakuCursor()", danmaku_poll_start)
+        self.assertNotIn("/api/voice/tts/test-queue", script[danmaku_poll_start:danmaku_poll_end])
+
+
 class CombinedDisplayContractTests(unittest.TestCase):
     def test_obs_websocket_refreshes_combined_display_once_without_visibility_changes(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
