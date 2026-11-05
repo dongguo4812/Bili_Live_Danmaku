@@ -360,7 +360,7 @@ def _types_default() -> list[dict[str, Any]]:
 def search_qq(keyword: str) -> list[dict[str, Any]]:
     """使用 QQ 音乐当前网页端搜索接口；匿名搜索，无需登录 Cookie。"""
     payload = {
-        "req_1": {
+        "music.search.SearchCgiService": {
             "module": "music.search.SearchCgiService",
             "method": "DoSearchForQQMusicDesktop",
             "param": {
@@ -370,7 +370,6 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
                 "num_per_page": SEARCH_LIMIT,
             },
         },
-        "comm": {"format": "json", "ct": 24, "cv": 0},
     }
     response = requests.post(
         "https://u.y.qq.com/cgi-bin/musicu.fcg",
