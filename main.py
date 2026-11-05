@@ -1799,6 +1799,42 @@ def set_live2d_enabled():
         return jsonify({"ok": False, "error": f"切换 Live2D 运行时失败：{type(exc).__name__}"}), 500
 
 
+def _friendly_module_exception_message(exc: Exception, module_name: str, action: str) -> str:
+    """将内部异常转换为面向网页用户的说明；详细异常只保留在服务端日志。"""
+    exception_name = type(exc).__name__
+    exception_text = str(exc).lower()
+
+    if (
+        module_name == "video"
+        and action in {"start", "resume"}
+        and (
+            exception_name == "SessionNotCreatedException"
+            or "session not created" in exception_text
+        )
+    ):
+        return (
+            "视频播放器启动失败：Chrome 无法创建新的浏览器会话。"
+            "可能是上次运行的本程序 Chrome 尚未退出，或专用浏览器配置目录仍被占用。"
+            "请关闭本程序残留的 Chrome 后重试；详细错误已记录到程序日志。"
+        )
+
+    action_labels = {
+        "start": "启动",
+        "pause": "暂停",
+        "resume": "恢复",
+        "close": "关闭",
+    }
+    module_labels = {
+        "video": "视频点播",
+        "music": "歌曲点播",
+    }
+    action_label = action_labels.get(action, "操作")
+    module_label = module_labels.get(module_name, "模块")
+    if isinstance(exc, TimeoutError) or exception_name in {"TimeoutError", "FutureTimeout"}:
+        return f"{module_label}{action_label}等待超时，请检查程序状态后重试；详细原因已记录到程序日志。"
+    return f"{module_label}{action_label}失败，请检查程序日志中的详细错误后重试。"
+
+
 @app.post("/api/modules/<module_name>/<action>")
 def api_module_action(module_name: str, action: str):
     if action not in {"start", "pause", "resume", "close"}:
@@ -1824,7 +1860,7 @@ def api_module_action(module_name: str, action: str):
         })
     except Exception as exc:
         logger.exception("模块控制失败：module=%s action=%s", module_name, action)
-        return jsonify({"ok": False, "error": f"模块操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "error": _friendly_module_exception_message(exc, module_name, action)}), 500
 
 
 @app.get("/api/music/queue")
@@ -1834,7 +1870,7 @@ def api_music_queue():
         return jsonify(snapshot)
     except Exception as exc:
         logger.exception("读取歌曲队列快照失败。")
-        return jsonify({"ok": False, "error": f"读取歌曲队列失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取歌曲点播队列，请检查程序日志中的详细错误。"}), 503
 
 @app.get("/api/music/widget")
 def api_music_widget():
@@ -1904,7 +1940,7 @@ def api_video_queue():
         return jsonify(snapshot)
     except Exception as exc:
         logger.exception("读取视频队列快照失败。")
-        return jsonify({"ok": False, "error": f"读取视频队列失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取视频点播队列，请检查程序日志中的详细错误。"}), 503
 
 
 @app.post("/api/video/action")
@@ -1918,7 +1954,7 @@ def api_video_action():
         return jsonify(result), (200 if result.get("ok") else 400)
     except Exception as exc:
         logger.exception("视频模块队列操作失败。")
-        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "message": _friendly_module_exception_message(exc, "video", "action")}), 500
 
 
 @app.post("/api/music/action")
@@ -1932,7 +1968,7 @@ def api_music_action():
         return jsonify(result), (200 if result.get("ok") else 400)
     except Exception as exc:
         logger.exception("歌曲模块队列操作失败。")
-        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "message": _friendly_module_exception_message(exc, "music", "action")}), 500
 
 
 
