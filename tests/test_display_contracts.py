@@ -15,6 +15,8 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         main = (root / "main.py").read_text(encoding="utf-8")
         music_page = (root / "templates" / "music_display.html").read_text(encoding="utf-8")
         video_page = (root / "templates" / "video_display.html").read_text(encoding="utf-8")
+        music_settings = (root / "templates" / "music_settings.html").read_text(encoding="utf-8")
+        video_settings = (root / "templates" / "video_settings.html").read_text(encoding="utf-8")
         music_defaults = json.loads((root / "config" / "default" / "music.json").read_text(encoding="utf-8"))
         video_defaults = json.loads((root / "config" / "default" / "video.json").read_text(encoding="utf-8"))
 
@@ -22,6 +24,14 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
         self.assertEqual(video_defaults["display"]["queue_display_limit"], 10)
         self.assertIn('queue_display_limit=_queue_display_limit("music")', main)
         self.assertIn('queue_display_limit=_queue_display_limit("video")', main)
+        self.assertIn('"queue_display_limit": display_config.get("queue_display_limit", 10)', main)
+        self.assertIn('"queue_display_limit": display.get("queue_display_limit", 10)', main)
+        self.assertIn('display["queue_display_limit"] = display_limit', main)
+        for settings_page, label in ((music_settings, "展示页待播歌曲显示数量"), (video_settings, "展示页待播视频显示数量")):
+            self.assertIn('id="display-queue-limit"', settings_page)
+            self.assertIn(label, settings_page)
+            self.assertIn('d.display.queue_display_limit??10', settings_page)
+            self.assertIn('queue_display_limit:Number($("display-queue-limit").value)', settings_page)
         self.assertIn('queueDisplayLimit:{{ queue_display_limit|int }}', music_page)
         self.assertIn('queueDisplayLimit:{{ queue_display_limit|int }}', video_page)
         self.assertIn('queue.slice(0,queueLimit)', renderer)
