@@ -76,16 +76,18 @@
     const current=data.current||null;
     const queue=Array.isArray(data.queue)?data.queue:[];
 
-    const currentBox=section(root,"正在播放 ▶","current");
+    const playbackPaused=!!current&&data.playback_state==="paused";
+    const currentBox=section(
+      root,
+      playbackPaused?"已暂停播放 ⏸":"正在播放 ▶",
+      "current"
+    );
     const currentHeading=currentBox.querySelector(".md-heading");
     if(current){
       appendMediaLine(currentHeading,current,type);
     }else{
+      currentHeading.textContent="正在播放 ▶ ";
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
-    }
-
-    if(current && data.playback_state==="paused"){
-      root.appendChild(node("div","md-playback-paused-status","⏸ 已暂停播放"));
     }
 
     if(options.moduleState==="paused"){
