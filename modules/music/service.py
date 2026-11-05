@@ -754,11 +754,14 @@ def find_matching_songs(
         if source not in ENABLED_PROVIDERS:
             log.info("音乐平台已在设置中关闭，跳过搜索：%s（%s）", provider_name, source)
             continue
+        candidates: list[dict[str, Any]] = []
+        selected: Optional[dict[str, Any]] = None
+        match_level = ""
+        first_search_error: Optional[Exception] = None
+
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
-            # 先按用户输入的完整歌名匹配；若未指定歌手且输入含空格，
-            # 再把最后一个空格后的词作为歌手，前面的内容作为歌名进行后备匹配。
             exact_matches, contains_matches = match_candidates(candidates, title, artist)
             selected = exact_matches[0] if exact_matches else (
                 contains_matches[0] if contains_matches else None
@@ -766,15 +769,21 @@ def find_matching_songs(
             match_level = "歌手完全匹配" if exact_matches else (
                 "歌手包含匹配" if contains_matches else ""
             )
+        except Exception as exc:
+            # 完整关键词可能被上游接口拒绝（例如带空格的组合词）。
+            # 仍继续尝试拆分后的纯歌名，不能因此跳过当前平台的后备匹配。
+            first_search_error = exc
+            errors.append(f"{source}:{type(exc).__name__}: {exc}")
+            log.warning(
+                "音乐平台完整关键词搜索失败，仍尝试歌名拆分搜索：平台=%s（%s），关键词=%s，原因=%s",
+                provider_name, source, keyword, exc,
+            )
 
-            fallback_title = ""
-            fallback_artist = ""
-            if not selected and not artist:
-                parts = str(title or "").rsplit(None, 1)
-                if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                    fallback_title, fallback_artist = parts[0].strip(), parts[1].strip()
-                    # 第一次使用完整输入搜索无匹配时，再单独用拆分出的歌名搜索，
-                    # 随后以歌手字段进行严格匹配，避免完整关键词结果集漏掉目标歌曲。
+        if not selected and not artist:
+            parts = str(title or "").rsplit(None, 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                fallback_title, fallback_artist = parts[0].strip(), parts[1].strip()
+                try:
                     fallback_candidates = search_func(fallback_title)
                     total_candidates += len(fallback_candidates)
                     fallback_exact, fallback_contains = match_candidates(
@@ -792,23 +801,26 @@ def find_matching_songs(
                             "点歌空格后备匹配成功：原始输入=%s；歌名搜索词=%s；歌手=%s",
                             title, fallback_title, fallback_artist,
                         )
+                except Exception as exc:
+                    errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
+                    log.exception(
+                        "音乐平台拆分歌名搜索失败：%s（%s），歌名=%s",
+                        provider_name, source, fallback_title,
+                    )
 
-            if selected:
-                selected = dict(selected)
-                log.info(
-                    "音乐匹配命中，停止后续搜索：平台=%s（%s），级别=%s，歌曲=%s - %s",
-                    provider_name, source, match_level,
-                    selected.get("title", ""), selected.get("artist", ""),
-                )
-                return [selected], f"已匹配音源：{provider_name}"
+        if selected:
+            selected = dict(selected)
             log.info(
-                "音乐平台无符合条件结果：%s（%s），有效候选=%s",
-                provider_name, source, len(candidates),
+                "音乐匹配命中，停止后续搜索：平台=%s（%s），级别=%s，歌曲=%s - %s",
+                provider_name, source, match_level,
+                selected.get("title", ""), selected.get("artist", ""),
             )
-        except Exception as exc:
-            errors.append(f"{source}:{type(exc).__name__}: {exc}")
-            log.exception("音乐平台搜索失败：%s（%s）", provider_name, source)
-            continue
+            return [selected], f"已匹配音源：{provider_name}"
+
+        log.info(
+            "音乐平台无符合条件结果：%s（%s），有效候选=%s",
+            provider_name, source, len(candidates),
+        )
 
     if after_source and not passed_source:
         return [], f"未找到音源 {after_source}，无法继续后续平台搜索"
