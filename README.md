@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | **English**
 
-A modular Bilibili live-danmaku assistant with an OBS-friendly transparent Live2D display.
+A modular Bilibili live-stream assistant with danmaku, Live2D, Edge TTS, music/video requests, LOL Hex displays and OBS integration.
 
 ## Run on Windows
 
