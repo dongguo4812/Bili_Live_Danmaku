@@ -98,7 +98,9 @@ class PlaybackPauseContractTests(unittest.TestCase):
         video_close_body = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
         self.assertLess(video_close_body.index("_quit_browser_sync"), video_close_body.index("_terminate_chrome_profile_processes_sync"))
-        self.assertIn("即使 driver 已丢失或 Selenium 会话状态异常", video_close_body)
+        # 即使 WebDriver 引用已不存在，也仍通过专用 Profile 清理流程处理残留进程。
+        self.assertIn("if cleanup_browser and driver is not None:", video_close_body)
+        self.assertIn("if cleanup_browser else ([], [])", video_close_body)
         self.assertIn("仍残留=%s", video)
         self.assertIn("timeout=4.0", video)
         self.assertIn("await asyncio.wait_for(", video)
