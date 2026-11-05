@@ -61,7 +61,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await self.bot.close(stop_playback=False)", music)
         self.assertIn("if had_current_song and stop_playback:", music)
         self.assertIn("async def shutdown(self):", video)
-        self.assertIn("await self.close(restore_music=False)", video)
+        self.assertIn("await self.close(restore_music=False, cleanup_browser=False)", video)
         self.assertIn('if not callable(shutdown) and record.state == "stopped":', manager)
         self.assertIn("def begin_shutdown(self)", manager)
         self.assertIn("if self._shutting_down:", manager)
@@ -90,6 +90,8 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("$_.CommandLine -match $pattern", video)
         self.assertIn("$leftIds", video)
         self.assertIn("await asyncio.to_thread(_terminate_chrome_profile_processes_sync)", video)
+        self.assertIn("await asyncio.to_thread(emergency_close_browser_sync)", video)
+        self.assertIn("if cleanup_browser else ([], [])", video)
         video_close_body = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
         self.assertLess(video_close_body.index("_quit_browser_sync"), video_close_body.index("_terminate_chrome_profile_processes_sync"))
