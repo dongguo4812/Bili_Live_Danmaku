@@ -101,7 +101,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         # 即使 WebDriver 引用已不存在，也仍通过专用 Profile 清理流程处理残留进程。
         self.assertIn("if cleanup_browser and driver is not None:", video_close_body)
         self.assertIn("if cleanup_browser else ([], [])", video_close_body)
-        self.assertIn("仍残留=%s", video)
+        self.assertIn("Chrome 专用 Profile 仍有残留进程，PID=%s", video)
         self.assertIn("timeout=4.0", video)
         self.assertIn("await asyncio.wait_for(", video)
         self.assertIn("timeout=1.5", video)
