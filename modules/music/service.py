@@ -965,7 +965,11 @@ class MusicModule:
             ]
             queue_count = len(waiting)
         lx_status = await asyncio.to_thread(get_lx_status)
-        playback_state = get_lx_playback_state(lx_status) if current and self._lx_playback_active else "stopped"
+        playback_state = (
+            "module_paused" if current and self.paused
+            else get_lx_playback_state(lx_status) if current and self._lx_playback_active
+            else "stopped"
+        )
         now = time.time()
         with self._display_lock:
             events = [
