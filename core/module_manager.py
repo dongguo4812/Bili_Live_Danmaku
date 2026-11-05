@@ -238,6 +238,35 @@ class ModuleManager:
         with self._lock:
             self._disconnect_snapshot = None
 
+    async def shutdown_all(self) -> None:
+        """程序退出专用清理：优先调用模块的 shutdown，避免复用手动关闭语义。"""
+        with self._lock:
+            self._connection_active = False
+            self._disconnect_snapshot = None
+            records = tuple(self._modules.values())
+
+        for record in records:
+            with self._lock:
+                if record.state == "stopped":
+                    continue
+            async with record.operation_lock:
+                with self._lock:
+                    record.state = "closing"
+                    instance = record.instance
+                try:
+                    shutdown = getattr(instance, "shutdown", None)
+                    result = shutdown() if callable(shutdown) else instance.close()
+                    if inspect.isawaitable(result):
+                        await result
+                    with self._lock:
+                        record.state = "stopped"
+                        record.error = ""
+                except Exception as exc:
+                    with self._lock:
+                        record.state = "error"
+                        record.error = str(exc)[:300]
+                    logger.exception("程序退出时清理模块失败：%s", record.name)
+
     async def close_all(self) -> None:
         with self._lock:
             self._connection_active = False
