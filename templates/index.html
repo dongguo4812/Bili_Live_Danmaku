@@ -543,7 +543,7 @@
         $("live2d-module-state").textContent = live2dEnabled ? "已启用" : "已停用";
         $("live2d-toggle").textContent = live2dEnabled ? "停用 Live2D" : "启用 Live2D";
         $("live2d-toggle").dataset.enabled = String(live2dEnabled);
-        $("status-message").textContent = data.bilibili.message + " " + data.live2d.message;
+        $("status-message").textContent = data.bilibili.message;
         const music = (data.modules || {}).music || { state: "stopped" };
         const video = (data.modules || {}).video || { state: "stopped" };
         const live2d = (data.modules || {}).live2d || { state: "stopped" };
