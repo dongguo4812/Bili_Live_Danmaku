@@ -553,7 +553,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
         if(node && !["live2d","music_widget","music","video"].includes(item.type)) renderWidgetContent(node,item.type,item);
       });
     }catch(error){
-      if(displayMode) console.debug("综合展示数据刷新失败",error);
+
     }finally{
       refreshInFlight=false;
     }
