@@ -106,6 +106,48 @@ class MusicFallbackSearchTests(unittest.TestCase):
         self.assertEqual([item["source"] for item in matches], ["tx"])
 
 
+    def test_fallback_search_starts_after_failed_provider(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def make_provider(source):
+            def search(keyword):
+                calls.append(source)
+                return [{"title": "晴天", "artist": "周杰伦", "source": source, "songmid": source + "-id"}]
+            return search
+
+        providers = (
+            ("QQ音乐", "tx", make_provider("tx")),
+            ("酷狗音乐", "kg", make_provider("kg")),
+            ("网易云音乐", "wy", make_provider("wy")),
+        )
+        with patch.object(service, "PROVIDERS", providers):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦", after_source="tx")
+
+        self.assertEqual(calls, ["kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
+
+    def test_search_moves_to_next_platform_when_current_has_no_match(self):
+        from unittest.mock import patch
+        import modules.music.service as service
+
+        calls = []
+        def no_match(keyword):
+            calls.append("tx")
+            return []
+        def match(keyword):
+            calls.append("kg")
+            return [{"title": "晴天", "artist": "周杰伦", "source": "kg", "songmid": "kg-id"}]
+
+        providers = (("QQ音乐", "tx", no_match), ("酷狗音乐", "kg", match))
+        with patch.object(service, "PROVIDERS", providers):
+            matches, _ = service.find_matching_songs("晴天", "周杰伦")
+
+        self.assertEqual(calls, ["tx", "kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
+
+
 class FanMedalParsingTests(unittest.TestCase):
     def test_finds_nested_medal_list(self):
         from modules.music.service import _find_medal_list
