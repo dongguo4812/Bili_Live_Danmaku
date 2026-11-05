@@ -34,7 +34,7 @@ class MusicMatchingTests(unittest.TestCase):
 
 
 class MusicFallbackSearchTests(unittest.TestCase):
-    def test_collects_ordered_source_candidates(self):
+    def test_stops_after_first_platform_match(self):
         from unittest.mock import patch
         import modules.music.service as service
 
@@ -60,9 +60,9 @@ class MusicFallbackSearchTests(unittest.TestCase):
         with patch.object(service, "PROVIDERS", ordered):
             matches, message = service.find_matching_songs("晴天", "周杰伦")
 
-        self.assertEqual(calls, ["tx", "kg", "wy", "kw"])
-        self.assertEqual([item["source"] for item in matches], ["tx", "kg", "wy", "kw"])
-        self.assertEqual([item["songmid"] for item in matches], ["tx-id", "kg-id", "wy-id", "kw-id"])
+        self.assertEqual(calls, ["tx"])
+        self.assertEqual([item["source"] for item in matches], ["tx"])
+        self.assertEqual([item["songmid"] for item in matches], ["tx-id"])
 
     def test_disabled_providers_are_skipped(self):
         from unittest.mock import patch
@@ -87,10 +87,10 @@ class MusicFallbackSearchTests(unittest.TestCase):
         with patch.object(service, "PROVIDERS", providers), patch.object(service, "ENABLED_PROVIDERS", ("kg", "kw")):
             matches, _ = service.find_matching_songs("晴天", "周杰伦")
 
-        self.assertEqual(calls, ["kg", "kw"])
-        self.assertEqual([item["source"] for item in matches], ["kg", "kw"])
+        self.assertEqual(calls, ["kg"])
+        self.assertEqual([item["source"] for item in matches], ["kg"])
 
-    def test_exact_artist_from_later_source_precedes_earlier_contains_match(self):
+    def test_first_platform_match_wins(self):
         from unittest.mock import patch
         import modules.music.service as service
 
@@ -103,7 +103,7 @@ class MusicFallbackSearchTests(unittest.TestCase):
         with patch.object(service, "PROVIDERS", providers):
             matches, _ = service.find_matching_songs("晴天", "周杰伦")
 
-        self.assertEqual([item["source"] for item in matches], ["kg", "tx"])
+        self.assertEqual([item["source"] for item in matches], ["tx"])
 
 
 class FanMedalParsingTests(unittest.TestCase):
