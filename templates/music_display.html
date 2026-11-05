@@ -26,7 +26,7 @@ body.embedded{padding:0}
 <script>
 (function(){
   const root=document.getElementById("media-root");
-  let inFlight=false,statusInFlight=false;
+  let inFlight=false,statusInFlight=false,moduleState="unknown";
   let displayScale=1;
   function applyDisplayScale(scale){
     displayScale=Math.max(0.5,Math.min(2,Number(scale)||1));
@@ -48,6 +48,7 @@ body.embedded{padding:0}
       if(!response.ok)throw new Error("HTTP "+response.status);
       const data=await response.json();
       const state=data&&data.modules&&data.modules.music?data.modules.music.state:"stopped";
+      moduleState=state;
       setOnline(state==="running"||state==="paused");
     }catch(error){console.debug("获取歌曲点播模块状态失败，保留当前显示状态：",error);}
     finally{statusInFlight=false;}
@@ -65,7 +66,7 @@ body.embedded{padding:0}
         return;
       }
       root.style.display="";
-      MediaDisplay.render(root,"music",data);
+      MediaDisplay.render(root,"music",data,{moduleState});
     }catch(error){
       root.style.display="none";
     }finally{inFlight=false;}
