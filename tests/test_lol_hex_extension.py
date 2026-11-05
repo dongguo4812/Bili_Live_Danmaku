@@ -79,6 +79,19 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertFalse(manager._elevated_managed)
             self.assertFalse(manager.pid_file.exists())
 
+    def test_healthy_hex_without_managed_pid_is_reported_as_external(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
+            manager._elevated_managed = True
+            manager._is_healthy = lambda: True
+
+            state = manager.status()
+
+            self.assertTrue(state["running"])
+            self.assertTrue(state["external"])
+            self.assertFalse(state["owned"])
+            self.assertFalse(manager._elevated_managed)
+
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
