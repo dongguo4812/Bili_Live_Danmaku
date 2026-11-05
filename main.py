@@ -31,7 +31,7 @@ from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
 from core.logger_manager import setup_logging
-from modules.music.service import (MusicModuleFacade, get_lx_status, is_lx_playing, emergency_resume_video_paused_music_sync)
+from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
 from modules.video.service import VideoModuleFacade, emergency_close_browser_sync
 from modules.live2d.service import Live2DModule
 from modules.voice.service import VoiceModule
@@ -2498,30 +2498,18 @@ def _install_console_close_handler() -> None:
             return False
         logger.warning("检测到 Windows 控制台关闭事件，开始执行紧急资源清理。")
 
-        tasks = [
-            threading.Thread(
-                target=emergency_close_browser_sync,
-                name="emergency-close-chrome",
-                daemon=True,
-            ),
-            threading.Thread(
-                target=emergency_resume_video_paused_music_sync,
-                args=(MUSIC_MODULE.bot,),
-                name="emergency-resume-lx-music",
-                daemon=True,
-            ),
-        ]
-        deadline = time.monotonic() + 4.0
-        for task in tasks:
-            task.start()
-        for task in tasks:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            task.join(remaining)
+        # 退出时只清理本程序启动的 Chrome；不向洛雪发送任何控制请求，
+        # 不恢复、不暂停、不停止，也不关闭洛雪播放器。
+        task = threading.Thread(
+            target=emergency_close_browser_sync,
+            name="emergency-close-chrome",
+            daemon=True,
+        )
+        task.start()
+        task.join(4.0)
         logger.warning(
-            "控制台关闭事件紧急清理结束：Chrome线程存活=%s，洛雪恢复线程存活=%s。",
-            tasks[0].is_alive(), tasks[1].is_alive(),
+            "控制台关闭事件紧急清理结束：Chrome线程存活=%s；洛雪播放器保持原状。",
+            task.is_alive(),
         )
         return True
 
