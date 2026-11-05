@@ -73,6 +73,15 @@ BILIBILI_STATE: dict[str, Any] = {
 DANMAKU_ITEMS: deque[dict[str, Any]] = deque(maxlen=300)
 DANMAKU_SEQUENCE = 0
 
+VOICE_PLAYBACK_STATE_LOCK = threading.Lock()
+VOICE_PLAYBACK_STATE: dict[str, Any] = {
+    "current": "",
+    "queue": [],
+    "speaking": False,
+    "level": 0.0,
+    "updated_at": 0.0,
+}
+
 
 def load_config() -> dict[str, Any]:
     """从模块独立配置文件组装运行时兼容配置。"""
@@ -643,6 +652,45 @@ def get_tts_audio(filename: str):
     return send_from_directory(TTS_CACHE_DIR, filename, mimetype="audio/mpeg", max_age=0)
 
 
+@app.get("/api/voice/tts/state")
+def get_tts_playback_state():
+    with VOICE_PLAYBACK_STATE_LOCK:
+        state = dict(VOICE_PLAYBACK_STATE)
+        state["queue"] = list(VOICE_PLAYBACK_STATE.get("queue", []))
+    if time.monotonic() - float(state.get("updated_at", 0.0) or 0.0) > 2.0:
+        state["speaking"] = False
+        state["level"] = 0.0
+    state.pop("updated_at", None)
+    return jsonify({"ok": True, **state})
+
+
+@app.post("/api/voice/tts/state")
+def update_tts_playback_state():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
+    current = str(payload.get("current") or "")[:1000]
+    raw_queue = payload.get("queue", [])
+    if not isinstance(raw_queue, list):
+        return jsonify({"ok": False, "error": "语音等待队列格式无效。"}), 400
+    queue = [str(value)[:1000] for value in raw_queue[:200]]
+    try:
+        level = float(payload.get("level", 0.0))
+        if not math.isfinite(level):
+            level = 0.0
+    except (TypeError, ValueError):
+        level = 0.0
+    with VOICE_PLAYBACK_STATE_LOCK:
+        VOICE_PLAYBACK_STATE.update({
+            "current": current,
+            "queue": queue,
+            "speaking": bool(payload.get("speaking", False)),
+            "level": max(0.0, min(1.0, level)),
+            "updated_at": time.monotonic(),
+        })
+    return jsonify({"ok": True})
+
+
 def _obs_ws_request(ws: Any, request_type: str, request_data: dict[str, Any] | None = None) -> dict[str, Any]:
     request_id = uuid.uuid4().hex
     ws.send(json.dumps({
@@ -826,7 +874,126 @@ def _is_combined_display_browser_url(value: Any) -> bool:
         return False
 
 
-def _refresh_obs_combined_display_sources() -> dict[str, Any]:
+def _voice_engine_browser_url() -> str:
+    """返回 OBS 全局语音引擎使用的本机服务地址。"""
+    app_config = CONFIG.get("app", {})
+    if not isinstance(app_config, dict):
+        app_config = {}
+    host = str(app_config.get("host", "127.0.0.1") or "127.0.0.1").strip()
+    if host in {"", "0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    _, port = _display_service_address()
+    return f"http://{host}:{port}/voice/display"
+
+
+def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:
+    """创建一个共享的隐藏语音浏览器源，并将同一输入加入当前场景集合的全部场景。"""
+    scene_data = _obs_ws_request(ws, "GetSceneList")
+    scenes = [
+        str(item.get("sceneName") or "").strip()
+        for item in scene_data.get("scenes", [])
+        if isinstance(item, dict) and str(item.get("sceneName") or "").strip()
+    ]
+    if not scenes:
+        raise RuntimeError("OBS 当前场景集合中没有可用场景。")
+
+    expected_url = _voice_engine_browser_url()
+    expected_path = "/voice/display"
+    inputs = _obs_ws_request(ws, "GetInputList").get("inputs", [])
+    source_name = ""
+    source_exists = False
+
+    # 优先复用已经创建的全局语音源，避免每次启动都新增浏览器源。
+    for item in inputs:
+        if not isinstance(item, dict) or item.get("inputKind") != "browser_source":
+            continue
+        name = str(item.get("inputName") or "").strip()
+        if not name:
+            continue
+        settings_data = _obs_ws_request(ws, "GetInputSettings", {"inputName": name})
+        url = str((settings_data.get("inputSettings") or {}).get("url") or "")
+        try:
+            parsed = urlparse(url)
+            expected = urlparse(expected_url)
+            if parsed.path.rstrip("/") == expected_path and parsed.hostname == expected.hostname and parsed.port == expected.port:
+                source_name = name
+                source_exists = True
+                break
+        except ValueError:
+            continue
+
+    if not source_name:
+        base_name = "B站直播弹幕助手-全局语音引擎"
+        used_names = {
+            str(item.get("inputName") or "")
+            for item in inputs if isinstance(item, dict)
+        }
+        source_name = base_name
+        suffix = 2
+        while source_name in used_names:
+            source_name = f"{base_name} {suffix}"
+            suffix += 1
+
+    css = (
+        "html,body{margin:0!important;width:2px!important;height:2px!important;"
+        "min-width:2px!important;min-height:2px!important;overflow:hidden!important;"
+        "background:rgba(0,0,0,0)!important;opacity:0!important;}"
+    )
+    input_settings = {
+        "url": expected_url,
+        "width": 2,
+        "height": 2,
+        "css": css,
+        "shutdown": False,
+        "restart_when_active": False,
+    }
+
+    if source_exists:
+        _obs_ws_request(ws, "SetInputSettings", {
+            "inputName": source_name,
+            "inputSettings": input_settings,
+            "overlay": True,
+        })
+    else:
+        _obs_ws_request(ws, "CreateInput", {
+            "sceneName": scenes[0],
+            "inputName": source_name,
+            "inputKind": "browser_source",
+            "inputSettings": input_settings,
+            "sceneItemEnabled": True,
+        })
+
+    added = 0
+    for scene_name in scenes:
+        scene_items = _obs_ws_request(ws, "GetSceneItemList", {"sceneName": scene_name}).get("sceneItems", [])
+        existing = next((
+            item for item in scene_items
+            if isinstance(item, dict) and item.get("sourceName") == source_name
+        ), None)
+        if existing is None:
+            _obs_ws_request(ws, "CreateSceneItem", {
+                "sceneName": scene_name,
+                "sourceName": source_name,
+                "sceneItemEnabled": True,
+            })
+            added += 1
+        elif not bool(existing.get("sceneItemEnabled", True)):
+            _obs_ws_request(ws, "SetSceneItemEnabled", {
+                "sceneName": scene_name,
+                "sceneItemId": int(existing["sceneItemId"]),
+                "sceneItemEnabled": True,
+            })
+
+    logger.info(
+        "OBS 全局语音引擎已就绪：共享浏览器源“%s”，已加入 %s 个场景（本次新增 %s 个场景项）。",
+        source_name, len(scenes), added,
+    )
+    return {"ready": True, "source_name": source_name, "scene_count": len(scenes), "added": added}
+
+
+def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> dict[str, Any]:
     """刷新 OBS 中指向综合展示页面的浏览器源；不操作场景项显隐。"""
     with OBS_DISPLAY_LOCK:
         ws = None
@@ -852,13 +1019,29 @@ def _refresh_obs_combined_display_sources() -> dict[str, Any]:
                 })
                 refreshed += 1
 
-            if refreshed:
-                message = f"OBS WebSocket 已连接，已刷新 {refreshed} 个综合展示浏览器源。"
+            voice_engine = None
+            if ensure_voice_engine:
+                voice_engine = _ensure_obs_voice_engine_source(ws)
+
+            if refreshed or (voice_engine and voice_engine.get("ready")):
+                details = []
+                if refreshed:
+                    details.append(f"刷新 {refreshed} 个综合展示浏览器源")
+                if voice_engine:
+                    details.append(
+                        f"全局语音引擎已加入 {voice_engine['scene_count']} 个场景"
+                    )
+                message = "OBS WebSocket 已连接，" + "；".join(details) + "。"
                 logger.info("%s", message)
-                return {"ok": True, "refreshed": refreshed, "message": message}
-            message = "OBS WebSocket 已连接，但未找到综合展示浏览器源；稍后继续检查。"
+                return {
+                    "ok": True,
+                    "refreshed": refreshed,
+                    "voice_engine": voice_engine,
+                    "message": message,
+                }
+            message = "OBS WebSocket 已连接，但未找到综合展示浏览器源，且全局语音引擎尚未就绪；稍后继续检查。"
             logger.info("%s", message)
-            return {"ok": False, "refreshed": 0, "message": message}
+            return {"ok": False, "refreshed": 0, "voice_engine": voice_engine, "message": message}
         except Exception as exc:
             message = f"OBS WebSocket 不可用，已跳过本次综合展示源刷新：{exc}"
             logger.info("%s", message)
@@ -877,7 +1060,7 @@ def _obs_combined_display_refresh_watchdog() -> None:
     while not OBS_COMBINED_REFRESH_STOP.wait(3.0):
         if OBS_COMBINED_DISPLAY_REFRESHED:
             break
-        result = _refresh_obs_combined_display_sources()
+        result = _refresh_obs_combined_display_sources(ensure_voice_engine=False)
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
             break
