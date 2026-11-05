@@ -358,30 +358,76 @@ def _types_default() -> list[dict[str, Any]]:
 
 # QQ音乐（tx）
 def search_qq(keyword: str) -> list[dict[str, Any]]:
-    url = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?" + urllib.parse.urlencode({
-        "ct": 24, "qqmusic_ver": 1298,
-        # 不添加 new_json=1，否则该接口可能返回空列表。
-        "remoteplace": "txt.yqq.song", "t": 0, "aggr": 1, "cr": 1,
-        "catZhida": 1, "lossless": 0, "flag_qc": 0, "p": 1,
-        "n": SEARCH_LIMIT, "w": keyword, "format": "json",
-    })
-    data = _music_get_json(url, referer="https://y.qq.com/")
-    rows = (((data.get("data") or {}).get("song") or {}).get("list") or []) if isinstance(data, dict) else []
+    """使用 QQ 音乐当前网页端搜索接口；匿名搜索，无需登录 Cookie。"""
+    payload = {
+        "req_1": {
+            "module": "music.search.SearchCgiService",
+            "method": "DoSearchForQQMusicDesktop",
+            "param": {
+                "search_type": 0,
+                "query": keyword,
+                "page_num": 1,
+                "num_per_page": SEARCH_LIMIT,
+            },
+        },
+        "comm": {"format": "json", "ct": 24, "cv": 0},
+    }
+    response = requests.post(
+        "https://u.y.qq.com/cgi-bin/musicu.fcg",
+        json=payload,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://y.qq.com/",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("QQ 音乐搜索接口返回格式异常")
+
+    req = data.get("req_1")
+    if not isinstance(req, dict):
+        # 兼容接口偶尔按 module 名称作为响应键的格式。
+        req = data.get("music.search.SearchCgiService")
+    if not isinstance(req, dict):
+        raise ValueError("QQ 音乐搜索响应缺少 req_1 数据")
+
+    top_code = data.get("code")
+    module_code = req.get("code")
+    if top_code not in (None, 0) or module_code not in (None, 0):
+        raise RuntimeError(
+            f"QQ 音乐搜索业务失败：code={top_code!r}, req_code={module_code!r}"
+        )
+
+    body = ((req.get("data") or {}).get("body") or {})
+    song_data = body.get("song") or {}
+    rows = song_data.get("list") or []
     out: list[dict[str, Any]] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        title = str(row.get("songname") or row.get("name") or "").strip()
+        title = str(row.get("name") or row.get("songname") or "").strip()
         singers = row.get("singer", [])
         artist = "、".join(
             str(x.get("name", "")).strip()
             for x in singers if isinstance(x, dict) and x.get("name")
         ) if isinstance(singers, list) else ""
-        song_id = str(row.get("songmid") or row.get("mid") or "").strip()
+        song_id = str(row.get("mid") or row.get("songmid") or "").strip()
         file_info = row.get("file", {})
         if not isinstance(file_info, dict):
             file_info = {}
-        media_mid = str(file_info.get("media_mid") or row.get("strMediaMid") or row.get("media_mid") or "").strip()
+        media_mid = str(
+            file_info.get("media_mid")
+            or row.get("strMediaMid")
+            or row.get("media_mid")
+            or ""
+        ).strip()
         album = row.get("album", {})
         if not isinstance(album, dict):
             album = {}
@@ -393,7 +439,8 @@ def search_qq(keyword: str) -> list[dict[str, Any]]:
         out.append({
             "title": title, "artist": artist, "source": "tx", "songmid": song_id,
             "strMediaMid": media_mid, "albumMid": album_mid, "albumId": album_id,
-            "albumName": album_name, "interval": str(row.get("interval", "")),
+            "albumName": album_name,
+            "interval": str(row.get("interval") or row.get("duration") or ""),
             "types": _types_default(), "_search_source": "tx",
         })
     return out
