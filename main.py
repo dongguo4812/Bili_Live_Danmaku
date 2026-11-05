@@ -700,20 +700,23 @@ def update_tts_playback_state():
     if not isinstance(raw_queue, list):
         return jsonify({"ok": False, "error": "语音等待队列格式无效。"}), 400
     queue = [str(value)[:1000] for value in raw_queue[:200]]
-    try:
-        level = float(payload.get("level", 0.0))
-        if not math.isfinite(level):
+    level = None
+    if "level" in payload:
+        try:
+            level = float(payload.get("level", 0.0))
+            if not math.isfinite(level):
+                level = 0.0
+        except (TypeError, ValueError):
             level = 0.0
-    except (TypeError, ValueError):
-        level = 0.0
     with VOICE_PLAYBACK_STATE_LOCK:
         VOICE_PLAYBACK_STATE.update({
             "current": current,
             "queue": queue,
             "speaking": bool(payload.get("speaking", False)),
-            "level": max(0.0, min(1.0, level)),
             "updated_at": time.monotonic(),
         })
+        if level is not None:
+            VOICE_PLAYBACK_STATE["level"] = max(0.0, min(1.0, level))
     return jsonify({"ok": True})
 
 
@@ -1086,8 +1089,8 @@ def _obs_combined_display_refresh_watchdog() -> None:
     while not OBS_COMBINED_REFRESH_STOP.wait(3.0):
         if OBS_COMBINED_DISPLAY_REFRESHED:
             break
-        result = _refresh_obs_combined_display_sources(ensure_voice_engine=False)
-        if result.get("ok") and result.get("refreshed", 0) > 0:
+        result = _refresh_obs_combined_display_sources()
+        if result.get("ok") and (result.get("refreshed", 0) > 0 or (result.get("voice_engine") or {}).get("ready")):
             OBS_COMBINED_DISPLAY_REFRESHED = True
             break
 
@@ -1116,11 +1119,11 @@ def _shutdown_application_and_refresh_obs() -> None:
             logger.exception("停止 B 站连接时发生异常，仍将继续执行 OBS 刷新。")
 
         # 所有模块 shutdown 已完成后，只执行一次最终刷新；失败交由后续 OBS WebSocket 重连时的刷新机制处理。
-        result = _refresh_obs_combined_display_sources()
+        result = _refresh_obs_combined_display_sources(ensure_voice_engine=False)
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
             logger.info(
-                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
+                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。
                 result["refreshed"],
             )
         else:
