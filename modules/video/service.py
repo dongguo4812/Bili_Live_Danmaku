@@ -627,7 +627,7 @@ def _force_terminate_browser_sync(browser) -> bool:
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=True,
                 text=True,
-                timeout=3,
+                timeout=1.5,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0:
@@ -636,6 +636,16 @@ def _force_terminate_browser_sync(browser) -> bool:
         except Exception as exc:
             logger.warning("强制清理 Chrome 进程树失败：PID=%s，错误=%s", pid, type(exc).__name__)
     return closed
+
+
+def emergency_close_browser_sync() -> bool:
+    """CMD 窗口关闭事件的同步兜底：不依赖 asyncio 或 Selenium 锁，关闭本模块的 Chrome 进程树。"""
+    global driver
+    browser = driver
+    driver = None
+    if browser is None:
+        return True
+    return _force_terminate_browser_sync(browser)
 
 
 @selenium_locked
