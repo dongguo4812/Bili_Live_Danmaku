@@ -1591,7 +1591,6 @@ class MusicModule:
                 if item is None:
                     if not self.enabled or self._closing:
                         return
-                    log.info("机器人点歌队列为空，洛雪继续自己的播放列表；机器人等待新的点歌请求。")
                     await self._queue_event.wait()
                     continue
 
@@ -1638,7 +1637,6 @@ class MusicModule:
                         if next_candidates:
                             candidates.extend(next_candidates)
                         else:
-                            log.info("后续平台未找到可回退歌曲：%s", next_reason)
                         continue
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
@@ -1697,7 +1695,6 @@ class MusicModule:
                     if next_candidates:
                         candidates.extend(next_candidates)
                     else:
-                        log.info("后续平台未找到可回退歌曲：%s", next_reason)
 
                 if self._skip_requested.is_set():
                     # 关闭模块也会设置 skip_event；此时必须保留播放归属，
@@ -1734,12 +1731,8 @@ class MusicModule:
                         )
                         if lx_key is None or lx_key == bot_key:
                             ok, detail = await asyncio.to_thread(skip_lx_next)
-                            if ok:
-                                log.info("机器人队列为空，已交还洛雪播放列表：%s", detail)
-                            else:
+                            if not ok:
                                 log.warning("机器人队列为空，切换洛雪播放列表下一首失败：%s", detail)
-                        else:
-                            log.info("洛雪已自动切换到自己的列表歌曲，保持当前播放：%s - %s", *lx_key)
 
                 if not self._closing:
                     self._lx_playback_active = False
