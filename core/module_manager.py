@@ -248,15 +248,17 @@ class ModuleManager:
             records = tuple(reversed(tuple(self._modules.values())))
 
         for record in records:
-            with self._lock:
-                if record.state == "stopped":
-                    continue
             async with record.operation_lock:
                 with self._lock:
-                    record.state = "closing"
                     instance = record.instance
-                try:
                     shutdown = getattr(instance, "shutdown", None)
+                    # shutdown 是资源兜底清理入口，即使管理器状态已经是 stopped
+                    # 也必须执行（例如状态不同步但 Selenium driver 仍然存在）。
+                    # 没有专用 shutdown 的普通模块则沿用 stopped 跳过行为。
+                    if not callable(shutdown) and record.state == "stopped":
+                        continue
+                    record.state = "closing"
+                try:
                     result = shutdown() if callable(shutdown) else instance.close()
                     if inspect.isawaitable(result):
                         await result
