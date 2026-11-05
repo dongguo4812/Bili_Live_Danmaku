@@ -30,6 +30,19 @@ h2 { margin: 0 0 18px; font-size: 18px; }
   white-space: nowrap; font-size: 13px;
 }
 .status-pill.ok { border-color: #327b5c; color: #8ce0b4; }
+#lol-hex-module-state[data-state="running"] {
+  border-color: #36b978; color: #36b978; background: rgba(54, 185, 120, .12);
+}
+#lol-hex-module-state[data-state="stopped"] {
+  border-color: #9aa3af; color: #9aa3af; background: rgba(154, 163, 175, .12);
+}
+#lol-hex-module-state[data-state="error"] {
+  border-color: #ef6262; color: #ef6262; background: rgba(239, 98, 98, .12);
+}
+#lol-hex-module-state[data-state="starting"],
+#lol-hex-module-state[data-state="unknown"] {
+  border-color: #65a9ed; color: #65a9ed; background: rgba(101, 169, 237, .12);
+}
 code {
   padding: 3px 6px; border-radius: 5px; background: #0d1118;
   color: #c7d8ff; overflow-wrap: anywhere;
