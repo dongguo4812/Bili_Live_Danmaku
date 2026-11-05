@@ -897,27 +897,18 @@ def _shutdown_application_and_refresh_obs() -> None:
         except Exception:
             logger.exception("停止 B 站连接时发生异常，仍将继续执行 OBS 刷新。")
 
-        # 所有模块 shutdown 已完成后才刷新，确保 OBS 重新加载的是最终页面状态。
-        last_result = None
-        for attempt in range(1, 4):
-            last_result = _refresh_obs_combined_display_sources()
-            if last_result.get("ok") and last_result.get("refreshed", 0) > 0:
-                OBS_COMBINED_DISPLAY_REFRESHED = True
-                logger.info(
-                    "程序退出阶段 OBS 综合展示源刷新成功：第 %s 次，刷新 %s 个浏览器源。",
-                    attempt, last_result["refreshed"],
-                )
-                break
-            logger.warning(
-                "程序退出阶段 OBS 综合展示源刷新未成功：第 %s/3 次，%s",
-                attempt, (last_result or {}).get("message", "未知错误"),
+        # 所有模块 shutdown 已完成后，只执行一次最终刷新；失败交由后续 OBS WebSocket 重连时的刷新机制处理。
+        result = _refresh_obs_combined_display_sources()
+        if result.get("ok") and result.get("refreshed", 0) > 0:
+            OBS_COMBINED_DISPLAY_REFRESHED = True
+            logger.info(
+                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
+                result["refreshed"],
             )
-            if attempt < 3:
-                time.sleep(0.8)
         else:
-            logger.error(
-                "程序退出阶段 OBS 综合展示源最终刷新失败：%s",
-                (last_result or {}).get("message", "没有获得刷新结果"),
+            logger.warning(
+                "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
+                result.get("message", "未知错误"),
             )
         APPLICATION_SHUTDOWN_FINISHED.set()
 
