@@ -203,7 +203,7 @@ class LolHexExtensionManager:
             process = self._process
             if process is None or process.poll() is not None:
                 if self._is_healthy():
-                    self.logger.info("检测到独立运行的 LOL Hex，按用户的停止操作请求其退出。")
+                    self.logger.info("正在请求 LOL Hex 退出。")
                     try:
                         self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
                     except Exception as exc:
@@ -211,6 +211,9 @@ class LolHexExtensionManager:
                     deadline = time.monotonic() + 8.0
                     while time.monotonic() < deadline:
                         if not self._is_healthy():
+                            self._elevated_managed = False
+                            self._process = None
+                            self._owned = False
                             return self.status()
                         time.sleep(0.2)
                     raise TimeoutError("独立运行的 LOL Hex 未能在规定时间内退出。")
@@ -247,7 +250,7 @@ class LolHexExtensionManager:
 
     def stop_if_owned(self) -> None:
         try:
-            if self._process is not None and self._owned:
+            if (self._process is not None and self._owned) or self._elevated_managed:
                 self.stop()
         except Exception:
             self.logger.exception("退出主程序时停止 LOL Hex 扩展失败。")
