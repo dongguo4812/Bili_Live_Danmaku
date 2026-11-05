@@ -892,13 +892,14 @@ class MusicModule:
         if not self._video_pause_active:
             return False
         expected_track = self._video_pause_track
-        self._video_pause_active = False
-        self._video_pause_track = None
         if self.paused and not force:
-            log.info("点播视频结束，但歌曲模块已手动暂停，不自动恢复洛雪音乐。")
+            # 保留自动暂停标记，供程序退出时的 shutdown(force=True) 再尝试恢复。
+            log.info("歌曲模块当前处于暂停状态，暂不恢复洛雪；保留视频自动暂停标记。")
             return False
         status = await asyncio.to_thread(get_lx_status)
         if get_lx_playback_state(status) != "paused":
+            self._video_pause_active = False
+            self._video_pause_track = None
             log.info("点播视频结束时洛雪音乐已不是暂停状态，不执行恢复。")
             return False
         actual_track = (
@@ -906,13 +907,17 @@ class MusicModule:
             normalize_name(str(status.get("singer", "") or "")),
         )
         if not expected_track or not expected_track[0] or actual_track != expected_track:
+            self._video_pause_active = False
+            self._video_pause_track = None
             log.info("点播视频结束，但洛雪当前曲目与自动暂停时不同，不自动恢复。")
             return False
         ok, detail = await asyncio.to_thread(_lx_control, "resume")
         if ok:
+            self._video_pause_active = False
+            self._video_pause_track = None
             log.info("点播视频已全部结束，已恢复洛雪音乐：%s", detail)
         else:
-            log.warning("点播视频已全部结束，恢复洛雪音乐失败：%s", detail)
+            log.warning("点播视频已全部结束，恢复洛雪音乐失败：%s；保留标记供退出清理重试。", detail)
         return ok
 
     async def start(self) -> None:
