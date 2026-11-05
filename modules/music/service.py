@@ -757,7 +757,6 @@ def find_matching_songs(
         candidates: list[dict[str, Any]] = []
         selected: Optional[dict[str, Any]] = None
         match_level = ""
-        first_search_error: Optional[Exception] = None
 
         try:
             candidates = search_func(keyword)
@@ -772,7 +771,6 @@ def find_matching_songs(
         except Exception as exc:
             # 完整关键词可能被上游接口拒绝（例如带空格的组合词）。
             # 仍继续尝试拆分后的纯歌名，不能因此跳过当前平台的后备匹配。
-            first_search_error = exc
             errors.append(f"{source}:{type(exc).__name__}: {exc}")
             log.warning(
                 "音乐平台完整关键词搜索失败，仍尝试歌名拆分搜索：平台=%s（%s），关键词=%s，原因=%s",
