@@ -57,9 +57,6 @@
         <button id="connection-toggle" type="button">连接直播间</button>
       </div>
       <p id="bili-action-message" class="muted" role="status">连接直播间前必须完成 B 站登录。</p>
-      <div class="module-links">
-        <a href="/danmaku/display" target="_blank" rel="noopener">弹幕 OBS 展示页</a>
-      </div>
       <div id="qr-area" class="qr-area" hidden>
         <img id="qr-image" alt="B站登录二维码">
         <div>
@@ -102,12 +99,10 @@
           <strong id="music-state">已关闭</strong>
           <p class="muted">独立控制洛雪播放、点歌队列和弹幕点歌请求</p>
         </div>
-        <span id="music-request-state" class="status-pill">点歌开关：开启</span>
       </div>
       <div class="inline-controls action-controls module-operation-controls">
         <button id="music-skip" type="button" class="secondary-button" disabled>切歌</button>
         <button id="music-clear" type="button" class="secondary-button" disabled>清空待播队列</button>
-        <button id="music-toggle-request" type="button" class="secondary-button" disabled>关闭观众点歌</button>
       </div>
       <p id="music-current" class="muted">当前歌曲：无</p>
       <p id="music-queue" class="muted">待播队列：0 首</p>
@@ -116,7 +111,7 @@
         <a href="/music/display" target="_blank" rel="noopener">歌曲队列 OBS 展示页</a>
         <a href="/music/widget" target="_blank" rel="noopener">歌曲信息组件页</a>
       </div>
-      <p id="music-message" class="muted module-operation-message" role="status">歌曲模块未启动，启动后可进行切歌、清空队列和观众点歌开关操作。</p>
+      <p id="music-message" class="muted module-operation-message" role="status">歌曲模块未启动，启动后可进行切歌和清空队列操作。</p>
     </section>
 
     <section class="panel">
@@ -126,7 +121,6 @@
           <strong id="video-state">已关闭</strong>
           <p class="muted">独立控制 Chrome 播放、BV 点播队列和 OBS 视频来源</p>
         </div>
-        <span id="video-queue-count" class="status-pill">待播：0 条</span>
       </div>
       <div class="inline-controls action-controls module-operation-controls">
         <button id="video-next" type="button" class="secondary-button" disabled>下一个</button>
@@ -200,7 +194,6 @@
           ? "当前视频：" + current.title + (current.bvid ? "（" + current.bvid + "）" : "")
           : "当前视频：无";
         const queue = Array.isArray(data.queue) ? data.queue : [];
-        $("video-queue-count").textContent = "待播：" + queue.length + " 条";
         $("video-queue").textContent = "待播队列：" + queue.length + " 条" +
           (queue.length ? "（" + queue.slice(0, 4).map(x => x.title).join("、") + (queue.length > 4 ? "…" : "") + "）" : "");
         renderModuleOperations();
@@ -245,7 +238,7 @@
     function renderModuleOperations() {
       const musicReady = moduleOperationsAvailable("music");
       const videoReady = moduleOperationsAvailable("video");
-      ["music-skip", "music-clear", "music-toggle-request"].forEach(id => {
+      ["music-skip", "music-clear"].forEach(id => {
         $(id).disabled = !musicReady;
       });
       ["video-next", "video-clear"].forEach(id => {
@@ -365,10 +358,6 @@
         const queue = Array.isArray(data.queue) ? data.queue : [];
         $("music-queue").textContent = "待播队列：" + queue.length + " 首" +
           (queue.length ? "（" + queue.slice(0, 5).map(x => x.title).join("、") + (queue.length > 5 ? "…" : "") + "）" : "");
-        const enabled = data.song_request_enabled !== false;
-        $("music-request-state").textContent = "点歌开关：" + (enabled ? "开启" : "关闭");
-        $("music-toggle-request").textContent = enabled ? "关闭观众点歌" : "开启观众点歌";
-        $("music-toggle-request").dataset.enabled = String(enabled);
         renderModuleOperations();
       } catch (error) {
         $("music-message").textContent = "读取歌曲队列失败：" + error.message;
@@ -394,10 +383,6 @@
 
     $("music-skip").addEventListener("click", () => musicQueueAction({ action: "skip" }));
     $("music-clear").addEventListener("click", () => musicQueueAction({ action: "clear" }));
-    $("music-toggle-request").addEventListener("click", () => {
-      const enabled = $("music-toggle-request").dataset.enabled !== "true";
-      musicQueueAction({ action: "set_song_request", enabled });
-    });
 
     async function refreshStatus() {
       const pill = $("server-state");
