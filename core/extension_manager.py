@@ -1,15 +1,9 @@
-"""Lifecycle management for the optional LOL Hex Display process.
-
-The extension stays a separate application. The Bili application owns its
-process only when it starts it. An independently started instance is detected
-and is stopped only after an explicit stop request from the user.
-"""
+"""Lifecycle management for the optional LOL Hex Display process."""
 from __future__ import annotations
 
 import ctypes
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -32,6 +26,7 @@ class LolHexExtensionManager:
         self._last_error = ""
         self.host = self._read_host()
         self.port = self._read_port()
+        self.pid_file = self.extension_dir / "lol_hex_display.pid"
         formatted_host = f"[{self.host}]" if ":" in self.host else self.host
         self.base_url = f"http://{formatted_host}:{self.port}"
 
@@ -57,6 +52,38 @@ class LolHexExtensionManager:
         except (TypeError, ValueError):
             return 8767
 
+    def _read_pid(self) -> int | None:
+        try:
+            pid = int(self.pid_file.read_text(encoding="ascii").strip())
+            return pid if pid > 0 else None
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _pid_is_running(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if os.name != "nt":
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+        try:
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
+                # ACCESS_DENIED 代表进程仍存在，只是当前权限无法查询。
+                return ctypes.get_last_error() == 5
+            try:
+                return kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return True
+
     def _request(self, path: str, payload: dict[str, Any] | None = None, timeout: float = 1.0) -> dict[str, Any]:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"} if data is not None else {}
@@ -68,12 +95,20 @@ class LolHexExtensionManager:
 
     def _is_healthy(self) -> bool:
         try:
-            payload = self._request("/api/client-status", timeout=0.7)
-            return "recognized" in payload
-        except (OSError, ValueError, urllib.error.URLError, TimeoutError):
-            return False
+            return "recognized" in self._request("/api/client-status", timeout=0.7)
         except Exception:
             return False
+
+    def _wait_for_process_exit(self, pid: int | None, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if pid is not None:
+                if not self._pid_is_running(pid):
+                    return True
+            elif not self._is_healthy():
+                return True
+            time.sleep(0.2)
+        return pid is not None and not self._pid_is_running(pid)
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -87,49 +122,35 @@ class LolHexExtensionManager:
                     self._last_error = f"LOL Hex 进程异常退出（退出码 {code}）。"
             healthy = self._is_healthy()
             if healthy:
+                managed = bool((self._process is not None and self._owned) or self._elevated_managed)
                 return {
-                    "ok": True,
-                    "state": "running",
-                    "running": True,
-                    "owned": bool((self._process is not None and self._owned) or self._elevated_managed),
-                    "external": not bool((self._process is not None and self._owned) or self._elevated_managed),
-                    "port": self.port,
-                    "base_url": self.base_url,
-                    "error": self._last_error,
+                    "ok": True, "state": "running", "running": True,
+                    "owned": managed, "external": not managed,
+                    "port": self.port, "base_url": self.base_url, "error": self._last_error,
                 }
             if (self._process is not None and self._process.poll() is None) or self._elevated_managed:
                 return {
                     "ok": True, "state": "starting", "running": False,
                     "owned": bool(self._owned or self._elevated_managed), "external": False,
-                    "port": self.port, "base_url": self.base_url,
-                    "error": self._last_error,
+                    "port": self.port, "base_url": self.base_url, "error": self._last_error,
                 }
             return {
                 "ok": True, "state": "stopped", "running": False,
                 "owned": False, "external": False,
-                "port": self.port, "base_url": self.base_url,
-                "error": self._last_error,
+                "port": self.port, "base_url": self.base_url, "error": self._last_error,
             }
 
     def _command(self) -> list[str]:
         if getattr(sys, "frozen", False):
             executable = self.extension_dir / "lol_hex_display.exe"
             if not executable.is_file():
-                raise FileNotFoundError(
-                    "未找到打包后的 LOL Hex 程序，请重新运行主项目 build.bat。"
-                )
+                raise FileNotFoundError("未找到打包后的 LOL Hex 程序，请重新运行主项目 build.bat。")
             return [str(executable)]
         script = self.extension_dir / "main.py"
         if not script.is_file():
-            raise FileNotFoundError(
-                "未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。"
-            )
+            raise FileNotFoundError("未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。")
         python = os.environ.get("LOL_HEX_PYTHON", "").strip()
-        if python:
-            return [python, str(script)]
-        # 使用当前主程序正在运行的 Python 解释器，避免提权后 py 启动器
-        # 选择到另一套 Python 环境，导致 Hex 缺少依赖。
-        return [sys.executable, str(script)]
+        return [python, str(script)] if python else [sys.executable, str(script)]
 
     def start(self) -> dict[str, Any]:
         with self._lock:
@@ -137,22 +158,15 @@ class LolHexExtensionManager:
                 return self.status()
             if self._process is not None and self._process.poll() is None:
                 return self.status()
-
             command = self._command()
             self._last_error = ""
-
             if os.name == "nt":
-                # Windows 下通过 runas 启动 Hex：无论源码 Python 还是打包 EXE，
-                # UAC 都只作用于 Hex，不会提升 B站主程序。
                 executable = command[0]
                 parameters = subprocess.list2cmdline(command[1:])
                 self.logger.info("请求以 Windows 管理员权限启动 LOL Hex：%s", executable)
                 shell_execute = ctypes.windll.shell32.ShellExecuteW
                 shell_execute.restype = ctypes.c_void_p
-                # SW_HIDE: Hex is a background extension; its logs remain in its own logs directory.
-                result = shell_execute(
-                    None, "runas", executable, parameters, str(self.extension_dir), 0
-                )
+                result = shell_execute(None, "runas", executable, parameters, str(self.extension_dir), 0)
                 if not result or result <= 32:
                     error_code = int(result or 0)
                     self._last_error = (
@@ -160,9 +174,11 @@ class LolHexExtensionManager:
                         f"错误码：{error_code}）。"
                     )
                     self.logger.error(self._last_error)
-                    return {"ok": False, "state": "stopped", "running": False,
-                            "owned": False, "external": False, "port": self.port,
-                            "base_url": self.base_url, "error": self._last_error}
+                    return {
+                        "ok": False, "state": "stopped", "running": False,
+                        "owned": False, "external": False, "port": self.port,
+                        "base_url": self.base_url, "error": self._last_error,
+                    }
                 self._elevated_managed = True
             else:
                 env = os.environ.copy()
@@ -178,7 +194,7 @@ class LolHexExtensionManager:
             deadline = time.monotonic() + 30.0
             while time.monotonic() < deadline:
                 if self._is_healthy():
-                    self.logger.info("LOL Hex 扩展已启动，地址：%s", self.base_url)
+                    self.logger.info("LOL Hex 扩展已启动，地址：%s，PID：%s", self.base_url, self._read_pid())
                     return self.status()
                 if self._process is not None and self._process.poll() is not None:
                     code = self._process.returncode
@@ -192,7 +208,6 @@ class LolHexExtensionManager:
             process = self._process
             self._process = None
             self._owned = False
-            self._elevated_managed = False
             if process is not None and process.poll() is None:
                 process.terminate()
                 try:
@@ -204,52 +219,43 @@ class LolHexExtensionManager:
     def stop(self) -> dict[str, Any]:
         with self._lock:
             process = self._process
-            if process is None or process.poll() is not None:
-                if self._is_healthy():
-                    self.logger.info("正在请求 LOL Hex 退出。")
+            pid = self._read_pid()
+            if process is not None and process.poll() is not None:
+                self._process = None
+                self._owned = False
+                process = None
+            if process is not None and not self._owned:
+                raise RuntimeError("当前 LOL Hex 进程不由主项目启动，无法从这里关闭。")
+            if pid is None and not self._is_healthy() and process is None:
+                self._elevated_managed = False
+                self._owned = False
+                return self.status()
+
+            self.logger.info("正在请求 LOL Hex 管理员进程执行有序退出，PID：%s", pid or "未知")
+            try:
+                self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
+            except Exception as exc:
+                self.logger.warning("发送 Hex 有序退出请求时连接中断：%s", exc)
+
+            if self._wait_for_process_exit(pid, 12.0):
+                if process is not None:
                     try:
-                        self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
-                    except Exception as exc:
-                        self.logger.info("LOL Hex 已收到停止请求或连接已关闭：%s", exc)
-                    deadline = time.monotonic() + 8.0
-                    while time.monotonic() < deadline:
-                        if not self._is_healthy():
-                            self._elevated_managed = False
-                            self._process = None
-                            self._owned = False
-                            return self.status()
-                        time.sleep(0.2)
-                    raise TimeoutError("独立运行的 LOL Hex 未能在规定时间内退出。")
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        pass
                 self._process = None
                 self._owned = False
                 self._elevated_managed = False
+                self.logger.info("已确认 LOL Hex 进程退出，PID：%s", pid or "未知")
                 return self.status()
 
-            if not self._owned:
-                raise RuntimeError("当前 LOL Hex 进程不由主项目启动，无法从这里关闭。")
-
-            self.logger.info("正在停止由主项目启动的 LOL Hex 扩展。")
-            try:
-                # Reuse the extension's existing manager shutdown action.
-                self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
-            except Exception as exc:
-                self.logger.warning("请求 LOL Hex 正常退出失败，将结束托管子进程：%s", exc)
-
-            try:
-                process.wait(timeout=8.0)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-                try:
-                    process.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2.0)
-
-            self._process = None
-            self._owned = False
-            self._elevated_managed = False
-            self.logger.info("LOL Hex 托管进程已停止。")
-            return self.status()
+            self.logger.error(
+                "LOL Hex 收到有序退出请求后仍未退出；PID=%s，服务健康=%s。",
+                pid, self._is_healthy(),
+            )
+            raise TimeoutError(
+                f"LOL Hex 管理员进程仍在运行（PID：{pid or '未知'}），未确认退出；请检查 Hex 日志。"
+            )
 
     def stop_if_owned(self) -> None:
         try:
