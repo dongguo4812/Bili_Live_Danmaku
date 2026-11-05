@@ -18,6 +18,7 @@ class ApplicationRuntime:
         self.events = EventBus()
         self.modules = ModuleManager()
         self._started = False
+        self._shutting_down = False
 
     def start(self) -> None:
         if self._started:
@@ -65,13 +66,17 @@ class ApplicationRuntime:
         return self.async_runtime.submit(actions[action](name))
 
     def shutdown(self, timeout: float = 45.0) -> None:
-        if not self._started:
+        if not self._started or self._shutting_down:
             return
+        # 先同步封锁断线/重连回调，再安排模块清理，避免退出时的断线回调
+        # 把歌曲模块重新置为 paused，导致视频自动暂停的歌曲无法恢复。
+        self._shutting_down = True
+        self._started = False
+        self.modules.begin_shutdown()
         try:
-            self.async_runtime.submit(self.modules.close_all()).result(timeout=timeout)
+            self.async_runtime.submit(self.modules.shutdown_all()).result(timeout=timeout)
         except Exception:
             logger.exception("统一关闭业务模块时发生错误。")
         finally:
             self.async_runtime.stop(timeout=timeout)
-            self._started = False
             logger.info("统一应用运行时已关闭。")

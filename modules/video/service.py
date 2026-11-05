@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
 import time
 import threading
+import os
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -44,6 +47,10 @@ COOKIE_VALUES: dict[str, str] = {}
 ADMIN_UIDS: set[int] = set()
 module_enabled = False
 module_paused = False
+# 当前 HTML5 视频元素的真实播放状态，与模块暂停状态分开记录。
+playback_state = "stopped"
+# 由主程序注入歌曲模块；视频实际播放时暂停音乐，最后一条视频结束后恢复。
+music_controller = None
 # 生命周期代数：会话代数防止关闭后旧 Selenium 任务污染新会话；
 # 请求代数防止暂停/恢复期间尚未完成的旧弹幕请求重新入队。
 video_session_generation = 0
@@ -136,11 +143,12 @@ def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id
     OBS_CONFIG = load_obs_config()
 
 
-def add_operation_message(message):
+def add_operation_message(message, kind=""):
     operation_messages.append({
         "time": time.strftime("%H:%M:%S"),
         "timestamp": time.time(),
         "message": str(message),
+        "kind": "failure" if kind == "failure" else ("success" if kind == "success" else ""),
     })
     del operation_messages[:-OPERATION_MESSAGE_LIMIT]
 
@@ -230,6 +238,7 @@ def build_queue_snapshot():
         "queue": queued,
         "queue_length": len(video_queue),
         "updated_at": time.strftime("%H:%M:%S"),
+        "playback_state": "module_paused" if current and module_paused else playback_state if current else "stopped",
         "operations": list(operation_messages),
     }
 
@@ -562,14 +571,175 @@ def _quit_browser_sync(browser):
         browser.quit()
 
 
+def _browser_process_ids(browser) -> list[int]:
+    if browser is None:
+        return []
+    pids: list[int] = []
+    try:
+        chrome_pid = int((getattr(browser, "capabilities", {}) or {}).get("goog:processID") or 0)
+        if chrome_pid > 0:
+            pids.append(chrome_pid)
+    except (TypeError, ValueError):
+        pass
+    try:
+        service_process = getattr(getattr(browser, "service", None), "process", None)
+        service_pid = int(getattr(service_process, "pid", 0) or 0)
+        if service_pid > 0 and service_pid not in pids:
+            pids.append(service_pid)
+    except (TypeError, ValueError):
+        pass
+    return pids
+
+
+def _browser_process_alive_sync(browser) -> bool:
+    """检查本 WebDriver 对应的 Chrome 主进程是否仍存在。"""
+    if browser is None or os.name != "nt":
+        return False
+    pids = _browser_process_ids(browser)
+    if not pids:
+        return False
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if f'"{pid}"' in result.stdout:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _force_terminate_browser_sync(browser) -> bool:
+    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
+    if browser is None or os.name != "nt":
+        return False
+
+    pids = _browser_process_ids(browser)
+
+    closed = False
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                closed = True
+                logger.warning("已通过 Windows 进程树清理兜底关闭 Chrome/WebDriver：PID=%s", pid)
+        except Exception as exc:
+            logger.warning("强制清理 Chrome 进程树失败：PID=%s，错误=%s", pid, type(exc).__name__)
+    return closed
+
+
+def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
+    """只按本项目独立 user-data-dir 结束 Chrome 主进程树，并回查是否仍有残留。"""
+    if os.name != "nt":
+        return [], []
+    profile = str(CHROME_PROFILE.resolve())
+    profile_literal = profile.replace("'", "''")
+    script = (
+        "$profile = '" + profile_literal + "'; "
+        # Chrome 在 Windows 命令行中通常会给 user-data-dir 路径加引号；
+        # 用正则同时兼容带引号/不带引号及路径大小写差异。
+        "$pattern = '(?i)--user-data-dir=\\\\?\"?' + [regex]::Escape($profile) + '\"?(\\s|$)'; "
+        "$all = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\"); "
+        "$matched = @($all | Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern }); "
+        "$roots = @($matched | Where-Object { $_.CommandLine -notmatch '--type=' }); "
+        "$ids = @($roots | ForEach-Object { $_.ProcessId }); "
+        "foreach ($id in $ids) { & taskkill.exe /PID $id /T /F | Out-Null }; "
+        "Start-Sleep -Milliseconds 400; "
+        "$left = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern }); "
+        "$leftIds = @($left | ForEach-Object { $_.ProcessId }); "
+        "foreach ($id in $leftIds) { & taskkill.exe /PID $id /T /F | Out-Null }; "
+        "Start-Sleep -Milliseconds 250; "
+        "$remaining = @(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern } | "
+        "ForEach-Object { $_.ProcessId }); "
+        "'ROOTS=' + ($ids -join ','); 'REMAINING=' + ($remaining -join ',')"
+    )
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            capture_output=True,
+            text=True,
+            timeout=3.5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        output = (result.stdout or "").splitlines()
+        roots_line = next((line for line in output if line.startswith("ROOTS=")), "ROOTS=")
+        remaining_line = next((line for line in output if line.startswith("REMAINING=")), "REMAINING=")
+        roots = [int(value) for value in roots_line.partition("=")[2].split(",") if value.strip().isdigit()]
+        remaining = [int(value) for value in remaining_line.partition("=")[2].split(",") if value.strip().isdigit()]
+        if result.returncode != 0:
+            logger.warning(
+                "按专用 chrome_profile 清理失败：returncode=%s，stdout=%s，stderr=%s",
+                result.returncode, (result.stdout or "").strip()[:500],
+                (result.stderr or "").strip()[:500],
+            )
+        logger.warning(
+            "专用 Chrome 进程树清理核验：匹配的浏览器主进程=%s，仍残留的专用 Chrome PID=%s",
+            roots, remaining,
+        )
+        return roots, remaining
+    except Exception as exc:
+        logger.warning("按专用 chrome_profile 清理 Chrome 进程树异常：%s", type(exc).__name__)
+        return [], []
+
+
+def emergency_close_browser_sync() -> bool:
+    """程序退出时优先按 WebDriver PID、再按独立 chrome_profile 清理 Chrome。"""
+    global driver
+    browser = driver
+    driver = None
+    # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
+    if browser is not None:
+        _force_terminate_browser_sync(browser)
+    roots, remaining = _terminate_chrome_profile_processes_sync()
+    if remaining:
+        # Profile 查询仍发现残留时，再执行一次定向清理并回查。
+        roots, remaining = _terminate_chrome_profile_processes_sync()
+    if remaining:
+        logger.error("紧急 Chrome 清理后仍有专用 Profile 进程：%s", remaining)
+    return not remaining
+
+
+
+
 @selenium_locked
 def create_browser():
-    """创建 Chrome 浏览器实例。"""
+    """创建 Chrome 浏览器实例；创建失败时只清理本程序专用 Profile。"""
 
-    browser = webdriver.Chrome(options=chrome_options)
-    browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
-
-    return browser
+    try:
+        browser = webdriver.Chrome(options=chrome_options)
+        browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+        return browser
+    except Exception:
+        # SessionNotCreated 等异常可能发生在 Chrome 已启动、WebDriver 会话
+        # 尚未建立时；此时全局 driver 仍为 None，常规 quit 无法回收孤儿进程。
+        # 仅按本程序独立的 user-data-dir 定向清理，绝不结束其他 Chrome。
+        logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
+        roots, remaining = _terminate_chrome_profile_processes_sync()
+        if remaining:
+            logger.error(
+                "Chrome 创建失败后的专用 Profile 清理仍有残留：匹配主进程=%s，残留 PID=%s",
+                roots,
+                remaining,
+            )
+        elif roots:
+            logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
+        else:
+            logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
+        raise
 
 
 @selenium_locked
@@ -880,9 +1050,33 @@ skip_lock = asyncio.Lock()
 
 # ====================== 播放结束监控 ======================
 
+async def _pause_music_for_video():
+    """视频实际开始播放后，通知歌曲模块暂停洛雪音乐。"""
+    controller = music_controller
+    if controller is None:
+        return
+    try:
+        await controller.pause_for_video()
+    except Exception as exc:
+        logger.warning("视频播放期间自动暂停洛雪音乐失败：%s", type(exc).__name__)
+
+
+async def _resume_music_if_video_finished():
+    """只有当前点播视频及其后续队列都不再播放时，才恢复自动暂停的音乐。"""
+    if is_playing and current_bv:
+        return
+    controller = music_controller
+    if controller is None:
+        return
+    try:
+        await controller.resume_after_video()
+    except Exception as exc:
+        logger.warning("点播视频结束后恢复洛雪音乐失败：%s", type(exc).__name__)
+
+
 async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
-    global is_playing, current_bv, playback_monitor_task
+    global is_playing, current_bv, playback_monitor_task, playback_state
     if session_generation is None:
         session_generation = video_session_generation
     if not module_enabled or session_generation != video_session_generation:
@@ -980,6 +1174,7 @@ async def monitor_video_end(bv, session_generation=None):
                     except Exception as recovery_exc:
                         logger.exception("恢复浏览器失败：%s", recovery_exc)
                     await play_next()
+                    await _resume_music_if_video_finished()
                 return
             except Exception as exc:
                 # 某些 Selenium 版本会把标签页关闭报告为通用 WebDriver 异常。
@@ -998,6 +1193,7 @@ async def monitor_video_end(bv, session_generation=None):
                         except Exception as recovery_exc:
                             logger.exception("恢复浏览器失败：%s", recovery_exc)
                         await play_next()
+                        await _resume_music_if_video_finished()
                     return
                 logger.debug("读取视频播放状态失败（%s）：%s", bv, exc)
                 continue
@@ -1031,6 +1227,7 @@ async def monitor_video_end(bv, session_generation=None):
                         except Exception as exc:
                             logger.warning("停止合集自动播放失败：%s", exc)
                     await play_next()
+                    await _resume_music_if_video_finished()
                     return
                 # 尚未确认原视频实际播放前，不把页面 URL 变化误判为播放结束。
                 continue
@@ -1051,6 +1248,11 @@ async def monitor_video_end(bv, session_generation=None):
                 continue
 
             if ready_state >= 2 and duration > 0:
+                playback_state = (
+                    "stopped" if bool(status.get("ended"))
+                    else "paused" if bool(status.get("paused"))
+                    else "playing"
+                )
                 saw_video = True
                 if current_time > last_time + 0.2:
                     saw_progress = True
@@ -1066,6 +1268,8 @@ async def monitor_video_end(bv, session_generation=None):
 
                 # 只有视频真正处于播放状态时才显示 OBS 来源；暂停/结束时隐藏。
                 actually_playing = not bool(status.get("paused")) and not bool(status.get("ended"))
+                if actually_playing:
+                    await _pause_music_for_video()
                 if actually_playing != last_obs_visible:
                     changed = await set_obs_visibility_async(actually_playing)
                     if changed:
@@ -1084,6 +1288,7 @@ async def monitor_video_end(bv, session_generation=None):
                         is_playing = False
                         current_bv = None
                         await play_next()
+                        await _resume_music_if_video_finished()
                     return
 
     except asyncio.CancelledError:
@@ -1103,7 +1308,7 @@ async def monitor_video_end(bv, session_generation=None):
 async def play_next():
     """取出队列第一条视频并打开页面。"""
 
-    global is_playing, current_bv, driver, playback_monitor_task
+    global is_playing, current_bv, driver, playback_monitor_task, playback_state
 
     async with play_lock:
 
@@ -1125,6 +1330,7 @@ async def play_next():
 
         is_playing = True
         current_bv = bv
+        playback_state = "unknown"
 
         url = f"https://www.bilibili.com/video/{bv}"
 
@@ -1185,6 +1391,8 @@ async def play_next():
             # create_task 避免在持有 play_lock 时直接递归调用 play_next。
             if video_queue and module_enabled and not module_paused:
                 asyncio.create_task(play_next())
+            else:
+                await _resume_music_if_video_finished()
 
 @selenium_locked
 def stop_current_page_sync():
@@ -1270,6 +1478,7 @@ async def skip_current_video():
             if session_generation != video_session_generation or not module_enabled:
                 return {"ok": False, "message": "视频模块状态已变化，已取消切换"}
             await play_next()
+            await _resume_music_if_video_finished()
         except Exception:
             logger.exception("手动切换后启动下一条视频失败")
 
@@ -1350,7 +1559,7 @@ async def on_dan_mu(msg_json):
 
     global is_playing, current_bv, driver
 
-    if not module_enabled or module_paused or not isinstance(msg_json, dict):
+    if not module_enabled or not isinstance(msg_json, dict):
         return
     request_generation = video_request_generation
     if str(msg_json.get("type", "")) != "danmaku":
@@ -1396,6 +1605,11 @@ async def on_dan_mu(msg_json):
     if m_order:
         logger.info("【%s】%s (UID: %s)", uname, com, uid)
         bv = "BV" + m_order.group(1)[2:]
+        if module_paused:
+            message = f"点播失败：{uname}，视频点播当前已暂停（{bv}）"
+            logger.info(message)
+            add_operation_message(message, "failure")
+            return
 
         # 重复视频优先判断：当前正在播放或已在待播队列中，都不重复添加。
         # 此检查放在冷却判断之前，重复点播会明确提示“已经在点播队列中”。
@@ -1589,8 +1803,10 @@ async def on_dan_mu(msg_json):
 class VideoModuleFacade:
     """视频模块生命周期与统一事件总线适配器。"""
 
-    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0):
+    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None):
+        global music_controller
         self.event_bus = event_bus
+        music_controller = music_module
         self.config = dict(config)
         self.cookie_provider = cookie_provider
         self.room_id = max(0, int(room_id or 0))
@@ -1598,7 +1814,7 @@ class VideoModuleFacade:
         self.event_bus.subscribe("danmaku", on_dan_mu)
 
     async def start(self):
-        global driver, module_enabled, module_paused
+        global driver, module_enabled, module_paused, playback_state
         global video_session_generation, video_request_generation
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
@@ -1611,6 +1827,7 @@ class VideoModuleFacade:
         driver = await asyncio.to_thread(create_browser)
         module_enabled = True
         module_paused = False
+        playback_state = "stopped"
         logger.info("视频模块已启动，Chrome 播放会话已初始化。")
 
     async def pause(self):
@@ -1651,8 +1868,19 @@ class VideoModuleFacade:
                 await play_next()
         logger.info("视频模块已恢复。")
 
-    async def close(self):
-        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task
+    async def shutdown(self):
+        """程序退出时先封锁视频任务并快速回收专用 Chrome；不触碰洛雪。"""
+        global module_enabled, module_paused, video_session_generation, video_request_generation
+        # 先阻止播放监控/旧请求在 Chrome 被回收期间重新创建浏览器。
+        module_enabled = False
+        module_paused = False
+        video_session_generation += 1
+        video_request_generation += 1
+        await asyncio.to_thread(emergency_close_browser_sync)
+        await self.close(restore_music=False, cleanup_browser=False)
+
+    async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
+        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
@@ -1668,11 +1896,60 @@ class VideoModuleFacade:
                 pass
             except Exception:
                 logger.debug("关闭视频监控任务时发生异常。", exc_info=True)
-        if driver is not None:
+        if cleanup_browser and driver is not None:
             try:
-                await asyncio.to_thread(_pause_video_for_close_sync)
+                # Selenium 锁可能被卡住；暂停动作必须有超时，不能挡住后续浏览器强制清理。
+                await asyncio.wait_for(
+                    asyncio.to_thread(_pause_video_for_close_sync),
+                    timeout=1.5,
+                )
             except Exception as exc:
-                logger.warning("暂停当前视频失败：%s", type(exc).__name__)
+                logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
+        old_driver = driver if cleanup_browser else None
+        if not cleanup_browser:
+            driver = None
+        if old_driver is not None:
+            # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
+            driver = None
+            try:
+                # quit 可能因 Selenium 锁/Chrome 无响应而卡住，必须设置硬超时。
+                await asyncio.wait_for(
+                    asyncio.to_thread(_quit_browser_sync, old_driver),
+                    timeout=4.0,
+                )
+                await asyncio.sleep(0.5)
+                still_alive = await asyncio.to_thread(_browser_process_alive_sync, old_driver)
+                if still_alive:
+                    logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
+                    closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                    if not closed:
+                        logger.error("按 WebDriver PID 清理 Chrome 未能确认成功。")
+                else:
+                    logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
+            except Exception as exc:
+                logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
+                if not await asyncio.to_thread(_force_terminate_browser_sync, old_driver):
+                    logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+
+        # 普通手动关闭时再次核验 Profile；程序退出的快速路径已在 shutdown() 开头完成。
+        try:
+            roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync) if cleanup_browser else ([], [])
+            if (not roots or remaining) and old_driver is not None:
+                logger.warning(
+                    "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
+                    roots, remaining,
+                )
+                await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync)
+            if remaining:
+                logger.error("Chrome 专用 Profile 仍有残留进程，PID=%s。", remaining)
+            elif roots:
+                logger.info("Chrome 专用 Profile 进程树已清理并确认无残留。")
+            else:
+                logger.info("未发现本程序专用 Profile 的 Chrome 残留进程。")
+        except Exception as exc:
+            logger.exception("按专用 Chrome Profile 清理进程树失败：%s", type(exc).__name__)
+
         try:
             await set_obs_visibility_async(False)
         except Exception as exc:
@@ -1680,15 +1957,14 @@ class VideoModuleFacade:
         video_queue.clear()
         video_requesters.clear()
         is_playing = False
+        playback_state = "stopped"
         current_bv = None
-        if driver is not None:
-            old_driver = driver
-            driver = None
-            try:
-                await asyncio.to_thread(_quit_browser_sync, old_driver)
-            except Exception as exc:
-                logger.warning("关闭 Chrome 会话失败：%s", type(exc).__name__)
-        logger.info("视频模块已关闭，Chrome 会话已释放，待播队列已清空。")
+        if restore_music:
+            await _resume_music_if_video_finished()
+            logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
+        else:
+            # 应用退出时保持洛雪原状：不恢复、不暂停、不停止，也不关闭播放器。
+            logger.info("程序退出：视频模块已关闭，Chrome 清理流程已执行；未触碰洛雪播放器。")
 
     def update_room_id(self, room_id: int) -> None:
         global roomid, _streamer_uid_cache, _streamer_uid_cache_at

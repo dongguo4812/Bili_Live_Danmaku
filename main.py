@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import asyncio
+import ctypes
 import base64
 import hashlib
 import json
@@ -769,6 +770,8 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
 OBS_DISPLAY_LOCK = threading.RLock()
 OBS_COMBINED_REFRESH_STOP = threading.Event()
 OBS_COMBINED_DISPLAY_REFRESHED = False
+APPLICATION_SHUTDOWN_LOCK = threading.RLock()
+APPLICATION_SHUTDOWN_FINISHED = threading.Event()
 
 
 def _display_service_address() -> tuple[str, int]:
@@ -875,6 +878,39 @@ def _obs_combined_display_refresh_watchdog() -> None:
         if result.get("ok") and result.get("refreshed", 0) > 0:
             OBS_COMBINED_DISPLAY_REFRESHED = True
             break
+
+
+def _shutdown_application_and_refresh_obs() -> None:
+    """先完整关闭所有业务模块，再刷新 OBS 综合展示浏览器源。"""
+    global OBS_COMBINED_DISPLAY_REFRESHED
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_FINISHED.is_set():
+            return
+        logger.warning("开始程序退出清理：先关闭全部业务模块，再刷新 OBS 综合展示源。")
+        OBS_COMBINED_REFRESH_STOP.set()
+        try:
+            APPLICATION_RUNTIME.shutdown(timeout=30.0)
+        except Exception:
+            logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
+        try:
+            LIVE_CLIENT.stop()
+        except Exception:
+            logger.exception("停止 B 站连接时发生异常，仍将继续执行 OBS 刷新。")
+
+        # 所有模块 shutdown 已完成后，只执行一次最终刷新；失败交由后续 OBS WebSocket 重连时的刷新机制处理。
+        result = _refresh_obs_combined_display_sources()
+        if result.get("ok") and result.get("refreshed", 0) > 0:
+            OBS_COMBINED_DISPLAY_REFRESHED = True
+            logger.info(
+                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
+                result["refreshed"],
+            )
+        else:
+            logger.warning(
+                "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
+                result.get("message", "未知错误"),
+            )
+        APPLICATION_SHUTDOWN_FINISHED.set()
 
 
 def _available_models(version: str = "moc2") -> list[dict[str, str]]:
@@ -1121,6 +1157,7 @@ VIDEO_MODULE = VideoModuleFacade(
     config=_module_config_with_system_admins("video"),
     cookie_provider=_music_cookie_provider,
     room_id=int(_load_user_settings()["bilibili"]["room_id"]),
+    music_module=MUSIC_MODULE.bot,
 )
 APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
 
@@ -1762,6 +1799,51 @@ def set_live2d_enabled():
         return jsonify({"ok": False, "error": f"切换 Live2D 运行时失败：{type(exc).__name__}"}), 500
 
 
+def _friendly_module_exception_message(exc: Exception, module_name: str, action: str) -> str:
+    """将内部异常转换为面向网页用户的说明；详细异常只保留在服务端日志。"""
+    exception_name = type(exc).__name__
+    exception_text = str(exc).lower()
+
+    if (
+        module_name == "video"
+        and action in {"start", "resume"}
+        and (
+            exception_name == "SessionNotCreatedException"
+            or "session not created" in exception_text
+        )
+    ):
+        if "user data directory is already in use" in exception_text or "profile appears to be in use" in exception_text:
+            reason = "Chrome 提示专用浏览器配置目录正在被占用，通常是上次运行的本程序 Chrome 尚未完全退出。"
+        elif "only supports chrome version" in exception_text:
+            reason = "ChromeDriver 与当前安装的 Chrome 版本不匹配。"
+        else:
+            reason = (
+                "可能是上次运行的本程序 Chrome 尚未完全退出、专用浏览器配置目录被占用，"
+                "或 Chrome 与 ChromeDriver 版本不兼容。"
+            )
+        return (
+            "视频播放器启动失败：Chrome 无法创建新的浏览器会话。"
+            + reason
+            + "请关闭本程序残留的 Chrome 后重试；详细错误已记录到程序日志。"
+        )
+
+    action_labels = {
+        "start": "启动",
+        "pause": "暂停",
+        "resume": "恢复",
+        "close": "关闭",
+    }
+    module_labels = {
+        "video": "视频点播",
+        "music": "歌曲点播",
+    }
+    action_label = action_labels.get(action, "操作")
+    module_label = module_labels.get(module_name, "模块")
+    if isinstance(exc, TimeoutError) or exception_name in {"TimeoutError", "FutureTimeout"}:
+        return f"{module_label}{action_label}等待超时，请检查程序状态后重试；详细原因已记录到程序日志。"
+    return f"{module_label}{action_label}失败，请检查程序日志中的详细错误后重试。"
+
+
 @app.post("/api/modules/<module_name>/<action>")
 def api_module_action(module_name: str, action: str):
     if action not in {"start", "pause", "resume", "close"}:
@@ -1787,7 +1869,7 @@ def api_module_action(module_name: str, action: str):
         })
     except Exception as exc:
         logger.exception("模块控制失败：module=%s action=%s", module_name, action)
-        return jsonify({"ok": False, "error": f"模块操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "error": _friendly_module_exception_message(exc, module_name, action)}), 500
 
 
 @app.get("/api/music/queue")
@@ -1797,7 +1879,7 @@ def api_music_queue():
         return jsonify(snapshot)
     except Exception as exc:
         logger.exception("读取歌曲队列快照失败。")
-        return jsonify({"ok": False, "error": f"读取歌曲队列失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取歌曲点播队列，请检查程序日志中的详细错误。"}), 503
 
 @app.get("/api/music/widget")
 def api_music_widget():
@@ -1857,7 +1939,7 @@ def api_music_widget():
         return jsonify(result)
     except Exception as exc:
         logger.exception("读取歌曲信息组件数据失败。")
-        return jsonify({"ok": False, "error": f"读取歌曲信息失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取当前歌曲信息，请检查程序日志中的详细错误。"}), 503
 
 
 @app.get("/api/video/queue")
@@ -1867,7 +1949,7 @@ def api_video_queue():
         return jsonify(snapshot)
     except Exception as exc:
         logger.exception("读取视频队列快照失败。")
-        return jsonify({"ok": False, "error": f"读取视频队列失败：{type(exc).__name__}"}), 503
+        return jsonify({"ok": False, "error": "暂时无法读取视频点播队列，请检查程序日志中的详细错误。"}), 503
 
 
 @app.post("/api/video/action")
@@ -1881,7 +1963,7 @@ def api_video_action():
         return jsonify(result), (200 if result.get("ok") else 400)
     except Exception as exc:
         logger.exception("视频模块队列操作失败。")
-        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "message": _friendly_module_exception_message(exc, "video", "action")}), 500
 
 
 @app.post("/api/music/action")
@@ -1895,7 +1977,7 @@ def api_music_action():
         return jsonify(result), (200 if result.get("ok") else 400)
     except Exception as exc:
         logger.exception("歌曲模块队列操作失败。")
-        return jsonify({"ok": False, "message": f"操作失败：{type(exc).__name__}"}), 500
+        return jsonify({"ok": False, "message": _friendly_module_exception_message(exc, "music", "action")}), 500
 
 
 
@@ -2479,11 +2561,52 @@ def _credential_watchdog() -> None:
 _initialize_login_state()
 
 
+_CONSOLE_CTRL_HANDLER = None
+
+
+def _install_console_close_handler() -> None:
+    """捕获 Windows CMD 右上角关闭事件；该事件不保证执行 Python finally/atexit。"""
+    global _CONSOLE_CTRL_HANDLER
+    if os.name != "nt":
+        return
+
+    handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
+
+    def handle_console_event(event_type: int) -> bool:
+        # CTRL_CLOSE_EVENT=2，CTRL_LOGOFF_EVENT=5，CTRL_SHUTDOWN_EVENT=6。
+        if event_type not in {2, 5, 6}:
+            return False
+        logger.warning("检测到 Windows 控制台关闭事件，开始执行紧急资源清理。")
+
+        # 退出时只清理本程序启动的 Chrome；不向洛雪发送任何控制请求，
+        # 不恢复、不暂停、不停止，也不关闭洛雪播放器。
+        task = threading.Thread(
+            target=_shutdown_application_and_refresh_obs,
+            name="emergency-application-shutdown",
+            daemon=True,
+        )
+        task.start()
+        # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
+        task.join(40.0)
+        logger.warning(
+            "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
+            task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
+        )
+        return True
+
+    _CONSOLE_CTRL_HANDLER = handler_type(handle_console_event)
+    if not ctypes.windll.kernel32.SetConsoleCtrlHandler(_CONSOLE_CTRL_HANDLER, True):
+        logger.warning("注册 Windows 控制台关闭事件处理器失败。")
+    else:
+        logger.info("已注册 Windows CMD 关闭事件清理处理器。")
+
+
 if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
     APPLICATION_RUNTIME.start()
+    _install_console_close_handler()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
     atexit.register(APPLICATION_RUNTIME.shutdown)
     _restore_saved_live_connection()
@@ -2496,7 +2619,5 @@ if __name__ == "__main__":
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
     finally:
-        # 先停止唯一的 B 站 WebSocket 连接，再统一关闭业务模块和异步运行时。
-        LIVE_CLIENT.stop()
-        OBS_COMBINED_REFRESH_STOP.set()
-        APPLICATION_RUNTIME.shutdown()
+        # 与 CMD 关闭事件共用同一退出流程，保证所有模块关闭后再刷新 OBS 综合展示源。
+        _shutdown_application_and_refresh_obs()

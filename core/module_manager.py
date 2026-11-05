@@ -39,6 +39,7 @@ class ModuleManager:
         self._lock = threading.RLock()
         self._disconnect_snapshot: dict[str, int] | None = None
         self._connection_active = False
+        self._shutting_down = False
 
     def register(
         self,
@@ -179,8 +180,17 @@ class ModuleManager:
                 logger.exception("模块操作失败：module=%s action=%s", name, method)
                 raise
 
+    def begin_shutdown(self) -> None:
+        """同步封锁新的连接状态回调，避免退出过程中再次暂停业务模块。"""
+        with self._lock:
+            self._shutting_down = True
+            self._connection_active = False
+            self._disconnect_snapshot = None
+
     async def on_connection_lost(self) -> None:
         with self._lock:
+            if self._shutting_down:
+                return
             self._connection_active = False
             snapshot = {
                 name: record.generation
@@ -205,6 +215,8 @@ class ModuleManager:
 
     async def on_connection_restored(self) -> None:
         with self._lock:
+            if self._shutting_down:
+                return
             self._connection_active = True
             first_connection = self._disconnect_snapshot is None
             snapshot = dict(self._disconnect_snapshot or {})
@@ -237,6 +249,38 @@ class ModuleManager:
 
         with self._lock:
             self._disconnect_snapshot = None
+
+    async def shutdown_all(self) -> None:
+        """程序退出专用清理：优先调用模块的 shutdown，避免复用手动关闭语义。"""
+        self.begin_shutdown()
+        with self._lock:
+            # 按注册顺序逆序清理：后注册的依赖模块（如视频依赖歌曲模块）
+            # 先释放资源并完成必要恢复，再关闭其依赖模块。
+            records = tuple(reversed(tuple(self._modules.values())))
+
+        for record in records:
+            async with record.operation_lock:
+                with self._lock:
+                    instance = record.instance
+                    shutdown = getattr(instance, "shutdown", None)
+                    # shutdown 是资源兜底清理入口，即使管理器状态已经是 stopped
+                    # 也必须执行（例如状态不同步但 Selenium driver 仍然存在）。
+                    # 没有专用 shutdown 的普通模块则沿用 stopped 跳过行为。
+                    if not callable(shutdown) and record.state == "stopped":
+                        continue
+                    record.state = "closing"
+                try:
+                    result = shutdown() if callable(shutdown) else instance.close()
+                    if inspect.isawaitable(result):
+                        await result
+                    with self._lock:
+                        record.state = "stopped"
+                        record.error = ""
+                except Exception as exc:
+                    with self._lock:
+                        record.state = "error"
+                        record.error = str(exc)[:300]
+                    logger.exception("程序退出时清理模块失败：%s", record.name)
 
     async def close_all(self) -> None:
         with self._lock:
