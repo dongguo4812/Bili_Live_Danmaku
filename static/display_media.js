@@ -30,6 +30,10 @@
     details(parent,item,type);
   }
   function queueList(parent,queue,type){
+    if(!queue.length){
+      parent.appendChild(node("div","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
+      return;
+    }
     const list=node("div","md-queue");
     queue.forEach((item,index)=>{
       const row=node("div","md-queue-item"+(index===0?" is-next":""));
