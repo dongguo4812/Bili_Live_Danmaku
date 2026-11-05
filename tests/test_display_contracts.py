@@ -31,7 +31,9 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
             self.assertIn('#media-root.offline{visibility:hidden!important}', page)
             self.assertNotIn('body.offline', page)
             self.assertIn('root.classList.toggle("offline",!online)', page)
-            self.assertIn('保留当前显示状态', page)
+            # 状态请求失败时保留上一次 moduleState；不再输出临时诊断日志。
+            self.assertIn('}catch(error){}', page)
+            self.assertNotIn('console.debug', page)
             self.assertIn('data.modules.' + module, page)
         self.assertIn('body.embedded{padding:0}', music)
         self.assertIn('body.embedded{padding:0}', video)
