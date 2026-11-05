@@ -61,7 +61,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await self.bot.close(stop_playback=False)", music)
         self.assertIn("if had_current_song and stop_playback:", music)
         self.assertIn("async def shutdown(self):", video)
-        self.assertIn("await self.close()", video)
+        self.assertIn("await self.close(restore_music=False)", video)
         self.assertIn('if not callable(shutdown) and record.state == "stopped":', manager)
         self.assertIn("def begin_shutdown(self)", manager)
         self.assertIn("if self._shutting_down:", manager)
@@ -86,6 +86,14 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("Win32_Process", video)
         self.assertIn("--user-data-dir=", video)
         self.assertIn("def _terminate_chrome_profile_processes_sync()", video)
+        self.assertIn("$pattern = '(?i)--user-data-dir=", video)
+        self.assertIn("$_.CommandLine -match $pattern", video)
+        self.assertIn("$leftIds", video)
+        self.assertIn("await asyncio.to_thread(_terminate_chrome_profile_processes_sync)", video)
+        video_close_body = video[video.index("async def close(self, restore_music: bool = True):", video.index("class VideoModuleFacade")):]
+        video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
+        self.assertLess(video_close_body.index("_quit_browser_sync"), video_close_body.index("_terminate_chrome_profile_processes_sync"))
+        self.assertIn("即使 driver 已丢失或 Selenium 会话状态异常", video_close_body)
         self.assertIn("仍残留=%s", video)
         self.assertIn("timeout=4.0", video)
         self.assertIn("await asyncio.wait_for(", video)
