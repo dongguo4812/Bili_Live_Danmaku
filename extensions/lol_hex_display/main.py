@@ -818,7 +818,7 @@ def match_asset(text, is_mutated=False):
 
     # 兼容 OCR 偶尔识别出质变前缀的情况
     text = re.sub(
-        r'^已质变\\s*[:：]\\s*',
+        r'^已质变\s*[:：]\s*',
         '',
         text
     ).strip()
@@ -829,10 +829,28 @@ def match_asset(text, is_mutated=False):
     with assets_lock:
         items = list(assets.values())
 
-    # 优先使用原始名称精确匹配，保留标点差异。
-    exact = [
+    # 优先按原始名称精确匹配，保留标点差异。
+    exact_raw = [
         a for a in items
         if str(a['name']).strip() == text
+    ]
+
+    if len(exact_raw) == 1:
+        asset = dict(exact_raw[0])
+        asset['display_name'] = (
+            f"已质变：{asset['name']}"
+            if is_mutated
+            else asset['name']
+        )
+        return asset, ''
+
+    # 原有规范化精确匹配及兼容匹配规则保持不变。
+    norm = norm_name(text)
+
+    # 完全匹配
+    exact = [
+        a for a in items
+        if norm_name(a['name']) == norm
     ]
 
     if len(exact) == 1:
@@ -844,9 +862,7 @@ def match_asset(text, is_mutated=False):
         )
         return asset, ''
 
-    # 以下兼容匹配规则保持原样：忽略标点后进行包含匹配。
-    norm = norm_name(text)
-
+    # 安全的包含匹配
     candidates = [
         a for a in items
         if len(norm_name(a['name'])) >= 3
