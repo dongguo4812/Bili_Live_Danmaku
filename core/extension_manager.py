@@ -13,12 +13,26 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from core.config_manager import ConfigManager
+
 
 class LolHexExtensionManager:
     def __init__(self, base_dir: Path, logger: Any) -> None:
         self.base_dir = Path(base_dir).resolve()
         self.extension_dir = self.base_dir / "extensions" / "lol_hex_display"
         self.logger = logger
+        self.config_path = self.base_dir / "config" / "local" / "lol_hex_display.json"
+        self._migrate_legacy_config()
+        self.config = ConfigManager().load("lol_hex_display", {
+            "screenshot_dir": "screenshots/inbox",
+            "host": "127.0.0.1",
+            "port": 8767,
+            "scan_interval": 1,
+            "asset_check_interval": 3600,
+            "version_check_interval": 3600,
+            "gameflow_check_interval": 10,
+            "lol_client_path": r"D:\\WeGameApps\\英雄联盟（含经典模式）",
+        })
         self._lock = threading.RLock()
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
@@ -30,24 +44,46 @@ class LolHexExtensionManager:
         formatted_host = f"[{self.host}]" if ":" in self.host else self.host
         self.base_url = f"http://{formatted_host}:{self.port}"
 
-    def _read_config_value(self, name: str, default: str) -> str:
-        config = self.extension_dir / "config.txt"
+    def _migrate_legacy_config(self) -> None:
+        """首次升级时将旧扩展目录中的 config.txt 迁移到主项目本机 JSON 配置。"""
+        if self.config_path.exists():
+            return
+        legacy = self.extension_dir / "config.txt"
+        if not legacy.is_file():
+            return
+        migrated: dict[str, Any] = {}
+        integer_keys = {
+            "port", "scan_interval", "asset_check_interval",
+            "version_check_interval", "gameflow_check_interval",
+        }
         try:
-            for line in config.read_text(encoding="utf-8-sig").splitlines():
+            for line in legacy.read_text(encoding="utf-8-sig", errors="replace").splitlines():
                 key, separator, value = line.partition("=")
-                if separator and key.strip() == name:
-                    return value.strip()
-        except OSError:
-            pass
-        return default
+                if not separator:
+                    continue
+                key, value = key.strip(), value.strip()
+                if not key or key.startswith("#"):
+                    continue
+                if key in integer_keys:
+                    try:
+                        migrated[key] = int(value)
+                    except ValueError:
+                        continue
+                elif key in {"screenshot_dir", "host", "lol_client_path"}:
+                    migrated[key] = value
+            if migrated:
+                ConfigManager().save("lol_hex_display", migrated)
+                self.logger.info("已将旧 LOL Hex config.txt 迁移到 config/local/lol_hex_display.json")
+        except Exception:
+            self.logger.exception("迁移旧 LOL Hex 配置失败；将使用默认 JSON 配置")
 
     def _read_host(self) -> str:
-        host = self._read_config_value("host", "127.0.0.1").strip().strip("[]")
+        host = str(self.config.get("host", "127.0.0.1")).strip().strip("[]")
         return "127.0.0.1" if host in {"", "0.0.0.0", "::"} else host
 
     def _read_port(self) -> int:
         try:
-            candidate = int(self._read_config_value("port", "8767"))
+            candidate = int(self.config.get("port", 8767))
             return candidate if 1 <= candidate <= 65535 else 8767
         except (TypeError, ValueError):
             return 8767
@@ -145,12 +181,13 @@ class LolHexExtensionManager:
             executable = self.extension_dir / "lol_hex_display.exe"
             if not executable.is_file():
                 raise FileNotFoundError("未找到打包后的 LOL Hex 程序，请重新运行主项目 build.bat。")
-            return [str(executable)]
+            return [str(executable), "--config", str(self.config_path)]
         script = self.extension_dir / "main.py"
         if not script.is_file():
             raise FileNotFoundError("未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。")
         python = os.environ.get("LOL_HEX_PYTHON", "").strip()
-        return [python, str(script)] if python else [sys.executable, str(script)]
+        command = [python, str(script)] if python else [sys.executable, str(script)]
+        return [*command, "--config", str(self.config_path)]
 
     def start(self) -> dict[str, Any]:
         with self._lock:
