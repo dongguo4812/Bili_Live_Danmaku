@@ -32,12 +32,16 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertTrue(state["external"])
             self.assertFalse(state["owned"])
 
-    def test_does_not_stop_an_independently_running_extension(self):
+    def test_can_stop_an_independently_running_extension_on_explicit_request(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
-            manager._is_healthy = lambda: True
-            with self.assertRaisesRegex(RuntimeError, "独立运行"):
-                manager.stop()
+            health = iter([True, False])
+            calls = []
+            manager._is_healthy = lambda: next(health, False)
+            manager._request = lambda path, payload=None, timeout=1.0: calls.append((path, payload)) or {}
+            state = manager.stop()
+            self.assertEqual(calls[0], ("/api/action", {"action": "shutdown"}))
+            self.assertFalse(state["running"])
 
 
 class LolHexIntegrationContractTests(unittest.TestCase):
