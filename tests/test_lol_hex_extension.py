@@ -2,6 +2,7 @@
 """Regression contracts for the optional LOL Hex extension integration."""
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 import unittest
@@ -42,8 +43,8 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             )
             manager = LolHexExtensionManager(root, logging.getLogger("test"))
             self.assertEqual(manager.port, 8879)
-            saved = __import__("json").loads((local / "lol_hex_display.json").read_text(encoding="utf-8"))
-            self.assertEqual(saved["lol_client_path"], "E:\\\\Games\\\\League")
+            saved = json.loads((local / "lol_hex_display.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["lol_client_path"], "E:\\Games\\League")
             self.assertEqual(saved["host"], "127.0.0.1")
             self.assertEqual(saved["gameflow_check_interval"], 10)
             self.assertIn("screenshot_dir", saved)
