@@ -1807,19 +1807,13 @@ class VideoModuleFacade:
                 logger.debug("关闭视频监控任务时发生异常。", exc_info=True)
         if driver is not None:
             try:
-                await asyncio.to_thread(_pause_video_for_close_sync)
+                # Selenium 锁可能被卡住；暂停动作必须有超时，不能挡住后续浏览器强制清理。
+                await asyncio.wait_for(
+                    asyncio.to_thread(_pause_video_for_close_sync),
+                    timeout=1.5,
+                )
             except Exception as exc:
-                logger.warning("暂停当前视频失败：%s", type(exc).__name__)
-        try:
-            await set_obs_visibility_async(False)
-        except Exception as exc:
-            logger.warning("隐藏 OBS 视频来源失败：%s", type(exc).__name__)
-        video_queue.clear()
-        video_requesters.clear()
-        is_playing = False
-        playback_state = "stopped"
-        current_bv = None
-        await _resume_music_if_video_finished()
+                logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
         if driver is not None:
             old_driver = driver
             # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
@@ -1844,6 +1838,16 @@ class VideoModuleFacade:
                 closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
                 if not closed:
                     logger.error("Chrome 进程树兜底清理未能确认成功，请检查 WebDriver/Chrome 进程。")
+        try:
+            await set_obs_visibility_async(False)
+        except Exception as exc:
+            logger.warning("隐藏 OBS 视频来源失败：%s", type(exc).__name__)
+        video_queue.clear()
+        video_requesters.clear()
+        is_playing = False
+        playback_state = "stopped"
+        current_bv = None
+        await _resume_music_if_video_finished()
         logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
 
     def update_room_id(self, room_id: int) -> None:
