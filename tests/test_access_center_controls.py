@@ -122,5 +122,22 @@ class AccessCenterModuleControlTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
 
 
+    def test_access_center_hides_obsolete_danmaku_display_link(self):
+        connection = self.page[self.page.index("<h2>B站登录与直播间连接</h2>"):self.page.index('<section class="panel module-control-panel"')]
+        self.assertNotIn("/danmaku/display", connection)
+        self.assertNotIn("弹幕 OBS 展示页", connection)
+
+    def test_access_center_removes_redundant_music_and_video_controls(self):
+        music = self.page[self.page.index("<h2>歌曲点播模块</h2>"):self.page.index("<h2>视频点播模块</h2>")]
+        video = self.page[self.page.index("<h2>视频点播模块</h2>"):self.page.index('<section class="panel" id="live2d-settings">')]
+        self.assertNotIn("music-toggle-request", music)
+        self.assertNotIn("music-request-state", music)
+        self.assertNotIn("关闭观众点歌", music)
+        self.assertNotIn("点歌开关：", music)
+        self.assertNotIn("video-queue-count", video)
+        self.assertIn('id="video-queue"', video)
+        self.assertNotIn('$("video-queue-count")', self.page)
+
+
 if __name__ == "__main__":
     unittest.main()
