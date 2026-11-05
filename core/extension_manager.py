@@ -66,8 +66,8 @@ class LolHexExtensionManager:
 
     def _is_healthy(self) -> bool:
         try:
-            self._request("/api/client-status", timeout=0.7)
-            return True
+            payload = self._request("/api/client-status", timeout=0.7)
+            return "recognized" in payload
         except (OSError, ValueError, urllib.error.URLError, TimeoutError):
             return False
         except Exception:
@@ -185,7 +185,17 @@ class LolHexExtensionManager:
             process = self._process
             if process is None or process.poll() is not None:
                 if self._is_healthy():
-                    raise RuntimeError("检测到 LOL Hex 正在独立运行；主项目不会关闭外部启动的进程。")
+                    self.logger.info("检测到独立运行的 LOL Hex，按用户的停止操作请求其退出。")
+                    try:
+                        self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
+                    except Exception as exc:
+                        self.logger.info("LOL Hex 已收到停止请求或连接已关闭：%s", exc)
+                    deadline = time.monotonic() + 8.0
+                    while time.monotonic() < deadline:
+                        if not self._is_healthy():
+                            return self.status()
+                        time.sleep(0.2)
+                    raise TimeoutError("独立运行的 LOL Hex 未能在规定时间内退出。")
                 self._process = None
                 self._owned = False
                 return self.status()
