@@ -940,6 +940,44 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, 'templates'),
     static_folder=os.path.join(BASE_DIR, 'static')
 )
+
+# 由 Hex 自身记录 PID，并持有 Werkzeug 服务对象以便执行有序关闭。
+PID_FILE = Path(BASE_DIR) / 'lol_hex_display.pid'
+HTTP_SERVER = None
+_shutdown_lock = threading.Lock()
+_shutdown_started = False
+
+
+def write_pid_file():
+    """记录当前管理员 Hex 进程 PID，供主程序退出时精确核验。"""
+    temp_path = PID_FILE.with_suffix('.pid.tmp')
+    temp_path.write_text(str(os.getpid()), encoding='ascii')
+    os.replace(temp_path, PID_FILE)
+    log.info('Hex 进程 PID 已记录：%s', os.getpid())
+
+
+def remove_pid_file():
+    """只删除属于当前进程的 PID 文件，避免误删新实例记录。"""
+    try:
+        if PID_FILE.is_file() and PID_FILE.read_text(encoding='ascii').strip() == str(os.getpid()):
+            PID_FILE.unlink()
+            log.info('Hex PID 文件已清理')
+    except OSError:
+        log.exception('清理 Hex PID 文件失败')
+
+
+def request_server_shutdown():
+    """在独立线程调用 server.shutdown，避免 HTTP 请求线程自身死锁。"""
+    global _shutdown_started
+    with _shutdown_lock:
+        if _shutdown_started:
+            return
+        _shutdown_started = True
+    server = HTTP_SERVER
+    if server is not None:
+        threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
+
+atexit.register(remove_pid_file)
 register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
@@ -1006,8 +1044,9 @@ def api_action():
     with state_lock:
         cards=state['cards']
         if action == 'shutdown':
-            log.info('收到控制页面结束请求，程序正在退出')
-            os._exit(0)
+            log.info('收到主程序关闭请求，Hex 管理员进程开始执行有序退出')
+            request_server_shutdown()
+            return jsonify({'ok': True, 'message': 'Hex 正在退出'})
         if action=='clear':
             state['cards']=[]
         elif action=='delete':
@@ -1565,10 +1604,38 @@ def main():
         raise RuntimeError('F1 截图热键注册失败：' + F1_HOTKEY_ERROR)
     cfg=read_config(); host=cfg.get('host','127.0.0.1'); port=int(cfg.get('port','8767'))
     log.info('管理页：http://%s:%d/ | OBS 展示页：http://%s:%d/display',host,port,host,port)
-    try: app.run(host=host,port=port,debug=False,use_reloader=False,threaded=True)
+    global HTTP_SERVER
+    write_pid_file()
+    try:
+        from werkzeug.serving import make_server
+        HTTP_SERVER = make_server(host, port, app, threaded=True)
+        HTTP_SERVER.serve_forever()
     finally:
         stop_event.set()
+        try:
+            selector.cancel()
+        except Exception:
+            pass
+        if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
+            try:
+                import keyboard
+                keyboard.remove_hotkey(F1_HOTKEY_HANDLE)
+                log.info('F1 全局热键已注销')
+            except Exception:
+                log.exception('注销 F1 全局热键失败')
+        try:
+            if HTTP_SERVER is not None:
+                HTTP_SERVER.server_close()
+        except Exception:
+            log.exception('关闭 Hex HTTP 服务失败')
+        HTTP_SERVER = None
         stop_thread_diagnostics()
+        remove_pid_file()
+        log.info('Hex 管理员进程退出清理完成')
+        try:
+            log_listener.stop()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     if check_admin_privileges():
