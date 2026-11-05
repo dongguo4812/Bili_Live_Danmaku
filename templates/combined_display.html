@@ -323,8 +323,9 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
       item.x=Math.max(0,Math.min(100-item.w,original.x+dx));
       item.y=Math.max(0,Math.min(100-item.h,original.y+dy));
     }else{
-      const minWidth=10;
-      const minHeight=5;
+      // Live2D 模块允许缩到更小；其他模块保持原有最小尺寸。
+      const minWidth=item.type==="live2d"?2:10;
+      const minHeight=item.type==="live2d"?2:5;
       if(mode.includes("e")) item.w=Math.max(minWidth,Math.min(100-original.x,original.w+dx));
       if(mode.includes("s")) item.h=Math.max(minHeight,Math.min(100-original.y,original.h+dy));
       if(mode.includes("w")){
