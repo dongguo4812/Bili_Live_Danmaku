@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -638,14 +639,85 @@ def _force_terminate_browser_sync(browser) -> bool:
     return closed
 
 
+def _find_chrome_profile_processes_sync() -> list[int]:
+    """通过本项目独立 user-data-dir 查找 Chrome 主进程及其子进程。"""
+    if os.name != "nt":
+        return []
+    profile = str(CHROME_PROFILE.resolve())
+    profile_literal = profile.replace("'", "''")
+    script = (
+        "$profile = '" + profile_literal + "'; "
+        "$needle = '--user-data-dir=' + $profile; "
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) } | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "按 Chrome 专用配置目录查找进程失败：returncode=%s，stderr=%s",
+                result.returncode, (result.stderr or "").strip()[:500],
+            )
+            return []
+        pids = sorted({int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()})
+        return pids
+    except Exception as exc:
+        logger.warning("按 Chrome 专用配置目录查找进程异常：%s", type(exc).__name__)
+        return []
+
+
+def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
+    """仅结束命令行使用本项目独立 chrome_profile 的 Chrome 进程，并返回残留 PID。"""
+    pids = _find_chrome_profile_processes_sync()
+    if not pids:
+        logger.warning("未通过专用 chrome_profile 找到 Chrome 进程；不会按进程名误杀用户自己的 Chrome。")
+        return [], []
+    terminated: list[int] = []
+    for pid in pids:
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                terminated.append(pid)
+            else:
+                logger.warning(
+                    "关闭专用 Chrome 进程失败：PID=%s，returncode=%s，stdout=%s，stderr=%s",
+                    pid, result.returncode,
+                    (result.stdout or "").strip()[:300],
+                    (result.stderr or "").strip()[:300],
+                )
+        except Exception as exc:
+            logger.warning("关闭专用 Chrome 进程异常：PID=%s，错误=%s", pid, type(exc).__name__)
+    remaining = _find_chrome_profile_processes_sync()
+    logger.warning(
+        "专用 Chrome 进程清理结果：发现=%s，已请求终止=%s，仍残留=%s",
+        pids, terminated, remaining,
+    )
+    return terminated, remaining
+
+
 def emergency_close_browser_sync() -> bool:
-    """CMD 窗口关闭事件的同步兜底：不依赖 asyncio 或 Selenium 锁，关闭本模块的 Chrome 进程树。"""
+    """CMD 窗口关闭事件的同步兜底：先按 WebDriver PID，再按独立 chrome_profile 清理。"""
     global driver
     browser = driver
     driver = None
-    if browser is None:
-        return True
-    return _force_terminate_browser_sync(browser)
+    if browser is not None:
+        _force_terminate_browser_sync(browser)
+    terminated, remaining = _terminate_chrome_profile_processes_sync()
+    return not remaining
 
 
 @selenium_locked
