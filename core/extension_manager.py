@@ -21,9 +21,13 @@ class LolHexExtensionManager:
         self.base_dir = Path(base_dir).resolve()
         self.extension_dir = self.base_dir / "extensions" / "lol_hex_display"
         self.logger = logger
+        self.config_manager = ConfigManager(
+            directory=self.base_dir / "config" / "local",
+            default_directory=self.base_dir / "config" / "default",
+        )
         self.config_path = self.base_dir / "config" / "local" / "lol_hex_display.json"
         self._migrate_legacy_config()
-        self.config = ConfigManager().load("lol_hex_display", {
+        self.config = self.config_manager.load("lol_hex_display", {
             "screenshot_dir": "screenshots/inbox",
             "host": "127.0.0.1",
             "port": 8767,
@@ -31,8 +35,10 @@ class LolHexExtensionManager:
             "asset_check_interval": 3600,
             "version_check_interval": 3600,
             "gameflow_check_interval": 10,
-            "lol_client_path": r"D:\\WeGameApps\\英雄联盟（含经典模式）",
+            "lol_client_path": r"D:\WeGameApps\英雄联盟（含经典模式）",
         })
+        if not self.config_path.is_file():
+            self.config = self.config_manager.save("lol_hex_display", self.config) and self.config
         self._lock = threading.RLock()
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
@@ -72,7 +78,7 @@ class LolHexExtensionManager:
                 elif key in {"screenshot_dir", "host", "lol_client_path"}:
                     migrated[key] = value
             if migrated:
-                ConfigManager().save("lol_hex_display", migrated)
+                self.config_manager.save("lol_hex_display", migrated)
                 self.logger.info("已将旧 LOL Hex config.txt 迁移到 config/local/lol_hex_display.json")
         except Exception:
             self.logger.exception("迁移旧 LOL Hex 配置失败；将使用默认 JSON 配置")
