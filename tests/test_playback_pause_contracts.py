@@ -93,7 +93,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _install_console_close_handler()", main)
         self.assertIn("SetConsoleCtrlHandler", main)
-        self.assertIn("emergency_close_browser_sync", main)
+        self.assertNotIn("emergency_close_browser_sync", main)
         self.assertNotIn("emergency_resume_video_paused_music_sync", main)
         console_handler = main[main.index("def _install_console_close_handler()"):]
         console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
