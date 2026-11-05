@@ -1694,7 +1694,6 @@ class MusicModule:
                     )
                     if next_candidates:
                         candidates.extend(next_candidates)
-                    else:
 
                 if self._skip_requested.is_set():
                     # 关闭模块也会设置 skip_event；此时必须保留播放归属，
