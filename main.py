@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import re
+import socket
 import threading
 import time
 import tempfile
@@ -2702,10 +2703,42 @@ def _install_console_close_handler() -> None:
         logger.info("已注册 Windows CMD 关闭事件清理处理器。")
 
 
+def _startup_port_is_available(host: str, port: int) -> bool:
+    """在启动任何后台模块前检查本地管理服务端口是否可绑定。"""
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        logger.error("无法解析管理服务监听地址 %s：%s", host, exc)
+        return False
+
+    if not addresses:
+        logger.error("无法解析管理服务监听地址：%s", host)
+        return False
+
+    # 与 Werkzeug 的常规监听方式一致，先检查系统解析出的首个监听地址。
+    family, socktype, proto, _, sockaddr = addresses[0]
+    try:
+        with socket.socket(family, socktype, proto) as probe:
+            probe.bind(sockaddr)
+    except OSError as exc:
+        logger.error(
+            "启动失败：管理服务端口 %s（监听地址 %s）已被占用或无法使用：%s。"
+            "请先关闭已经运行的 B站直播弹幕助手，再重新启动。",
+            port, host, exc,
+        )
+        return False
+    return True
+
+
 if __name__ == "__main__":
     host = CONFIG["app"].get("host", "127.0.0.1")
     port = int(CONFIG["app"].get("port", 8768))
     debug = bool(CONFIG["app"].get("debug", False))
+
+    # 必须先确认端口可用，再启动后台运行时、B站连接和 OBS 刷新线程。
+    if not _startup_port_is_available(host, port):
+        raise SystemExit(1)
+
     APPLICATION_RUNTIME.start()
     _install_console_close_handler()
     threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()

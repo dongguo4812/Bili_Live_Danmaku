@@ -4,6 +4,15 @@ setlocal
 cd /d "%~dp0"
 title B站直播弹幕助手
 
+echo [检查] 正在检查管理服务端口 8768...
+powershell.exe -NoProfile -Command "$listener = Get-NetTCPConnection -LocalPort 8768 -State Listen -ErrorAction SilentlyContinue; if ($listener) { exit 1 } else { exit 0 }" >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 端口 8768 已被占用，程序可能已经在运行。
+    echo 请勿重复启动；如确认程序已关闭，请检查占用 8768 端口的进程。
+    pause
+    exit /b 1
+)
+
 echo ========================================
 echo       B站直播弹幕助手 - 启动程序
 echo ========================================
