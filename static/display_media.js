@@ -84,6 +84,10 @@
       currentHeading.appendChild(node("span","md-empty",type==="music"?"暂无点播歌曲":"暂无点播视频"));
     }
 
+    if(current && data.playback_state==="paused"){
+      root.appendChild(node("div","md-playback-paused-status","⏸ 已暂停播放"));
+    }
+
     if(options.moduleState==="paused"){
       root.appendChild(node("div","md-paused-status",type==="music"?"🚫 歌曲点播已暂停":"🚫 视频点播已暂停"));
     }
