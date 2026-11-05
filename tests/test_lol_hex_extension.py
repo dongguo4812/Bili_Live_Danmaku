@@ -59,8 +59,13 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('id="lol-hex-module"', page)
         self.assertIn('href="/extensions/lol-hex/"', page)
         self.assertIn('href="/extensions/lol-hex/logs"', page)
+        hex_main = (root / "extensions" / "lol_hex_display" / "main.py").read_text(encoding="utf-8")
+        self.assertIn("F1_HOTKEY_REGISTERED = False", hex_main)
+        self.assertIn("if os.name == 'nt' and not start_hotkey():", hex_main)
+        self.assertIn("str(ROOT), 0", hex_main)
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
+        self.assertIn('str(self.extension_dir), 0', manager)
 
     def test_bar_and_hex_display_are_two_independent_layout_widgets(self):
         root = Path(__file__).resolve().parents[1]
@@ -73,6 +78,9 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('"/extensions/lol-hex/bar"', page)
         self.assertIn('"/extensions/lol-hex/display"', page)
         self.assertIn('api("/api/extensions/lol-hex")', page)
+        self.assertIn('item.type==="lol_hex_bar"||item.type==="lol_hex_display"', page)
+        self.assertIn('frame.style.transform="scale("+scale+")"', page)
+        self.assertIn('frame.addEventListener("load",()=>applyContentScale(item))', page)
 
     def test_build_packages_the_hex_application_as_a_separate_folder(self):
         root = Path(__file__).resolve().parents[1]
@@ -88,6 +96,9 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn("extensions\\lol_hex_display\\build.bat", build)
         self.assertIn("dist\\lol_hex_display", build)
         self.assertIn('"extensions\\lol_hex_display\\data"', build)
+        hex_build = (extension / "build.bat").read_text(encoding="utf-8")
+        self.assertIn("--noconsole", hex_build)
+        self.assertNotIn("--console", hex_build)
 
 
 if __name__ == "__main__":
