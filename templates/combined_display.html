@@ -365,7 +365,7 @@ body.editor-mode{background:#10131a;color:#f4f6fb}
     const running=!!(latestData.hex&&latestData.hex.running);
     body.dataset.hexState=running?"running":"stopped";
     if(!running){
-      body.appendChild(make("div","empty","LOL 海克斯展示未启动"));
+      // 未启动时保持组件内容为空，不在 OBS 综合展示画面中显示状态占位文字。
       return;
     }
     const frame=document.createElement("iframe");
