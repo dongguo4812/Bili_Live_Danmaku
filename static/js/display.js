@@ -1672,7 +1672,7 @@
           console.warn("Unable to enqueue danmaku speech:", speechError);
         }
       }
-      if (showTts && voiceModuleActive) {
+      if (showTts && voiceModuleActive && ttsSettings) {
         const testResponse = await fetch("/api/voice/tts/test-queue", { cache: "no-store" });
         if (testResponse.ok) {
           const testData = await testResponse.json();
