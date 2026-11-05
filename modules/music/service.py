@@ -1636,7 +1636,6 @@ class MusicModule:
                         )
                         if next_candidates:
                             candidates.extend(next_candidates)
-                        else:
                         continue
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
