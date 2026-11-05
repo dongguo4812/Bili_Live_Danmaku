@@ -1,0 +1,3 @@
+[submodule "extensions/lol_hex_display"]
+	path = extensions/lol_hex_display
+	url = https://github.com/dongguo4812/LOL_Hex_Display.git
