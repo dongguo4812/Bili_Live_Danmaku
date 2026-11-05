@@ -1043,7 +1043,7 @@ def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:
 
 
 def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> dict[str, Any]:
-    """刷新 OBS 中指向综合展示页面的浏览器源；不操作场景项显隐。"""
+    """刷新综合展示浏览器源，并确保全局语音引擎在当前场景集合中持续启用。"""
     with OBS_DISPLAY_LOCK:
         ws = None
         try:
@@ -1104,7 +1104,7 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
 
 
 def _obs_combined_display_refresh_watchdog() -> None:
-    """OBS WebSocket 可用且找到综合展示源后刷新一次；不依赖 B 站连接状态。"""
+    """等待 OBS WebSocket 可用，刷新综合展示源并建立全局语音引擎；不依赖 B 站连接状态。"""
     global OBS_COMBINED_DISPLAY_REFRESHED
     while not OBS_COMBINED_REFRESH_STOP.wait(3.0):
         if OBS_COMBINED_DISPLAY_REFRESHED:
