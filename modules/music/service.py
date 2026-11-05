@@ -724,7 +724,6 @@ def find_matching_songs(
                 passed_source = True
             continue
         if source not in ENABLED_PROVIDERS:
-            log.info("音乐平台已在设置中关闭，跳过搜索：%s（%s）", provider_name, source)
             continue
         candidates: list[dict[str, Any]] = []
         selected: Optional[dict[str, Any]] = None
@@ -767,31 +766,22 @@ def find_matching_songs(
                             "空格拆分后歌手完全匹配"
                             if fallback_exact else "空格拆分后歌手包含匹配"
                         )
-                        log.info(
-                            "点歌空格后备匹配成功：原始输入=%s；歌名搜索词=%s；歌手=%s",
-                            title, fallback_title, fallback_artist,
-                        )
                 except Exception as exc:
                     errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
-                    log.exception(
-                        "音乐平台拆分歌名搜索失败：%s（%s），歌名=%s",
-                        provider_name, source, fallback_title,
+                    log.warning(
+                        "音乐平台拆分歌名搜索失败：%s（%s），歌名=%s，原因=%s",
+                        provider_name, source, fallback_title, exc,
                     )
 
         if selected:
             selected = dict(selected)
             log.info(
-                "音乐匹配命中，停止后续搜索：平台=%s（%s），级别=%s，歌曲=%s - %s",
-                provider_name, source, match_level,
-                selected.get("title", ""), selected.get("artist", ""),
+                "歌曲匹配成功：%s - %s（音源：%s）",
+                selected.get("title", ""), selected.get("artist", ""), provider_name,
             )
             return [selected], f"已匹配音源：{provider_name}"
 
-        log.info(
-            "音乐平台无符合条件结果：%s（%s），有效候选=%s",
-            provider_name, source, len(candidates),
-        )
-
+ 
     if after_source and not passed_source:
         return [], f"未找到音源 {after_source}，无法继续后续平台搜索"
     if errors and total_candidates == 0:
@@ -828,11 +818,7 @@ def play_song_in_lx(song: dict[str, Any]) -> bool:
             os.startfile(uri)  # type: ignore[attr-defined]
         else:
             webbrowser.open(uri)
-        log.info(
-            "洛雪播放调用已发起：目标=%s - %s；source=%s；songmid=%s。此日志仅表示系统已调用 Scheme，不代表洛雪已成功播放。",
-            song.get("title", ""), song.get("artist", ""), song.get("source", ""), song.get("songmid", ""),
-        )
-        return True
+         return True
     except Exception:
         log.exception("调用已匹配歌曲播放失败：%s", song.get("title", "未知歌曲"))
         return False
