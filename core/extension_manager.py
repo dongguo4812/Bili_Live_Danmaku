@@ -37,8 +37,9 @@ class LolHexExtensionManager:
             "gameflow_check_interval": 10,
             "lol_client_path": r"D:\WeGameApps\英雄联盟（含经典模式）",
         })
-        if not self.config_path.is_file():
-            self.config_manager.save("lol_hex_display", self.config)
+        # ConfigManager 的自定义目录模式只负责读取；这里将合并后的完整配置写回，
+        # 确保新增默认字段也会自动补齐到本机 JSON，且本机已有值优先。
+        self.config_manager.save("lol_hex_display", self.config)
         self._lock = threading.RLock()
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
