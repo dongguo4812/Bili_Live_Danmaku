@@ -58,6 +58,8 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('id="lol-hex-stop"', page)
         self.assertIn('id="lol-hex-module"', page)
         self.assertIn('href="/extensions/lol-hex/"', page)
+        self.assertIn('href="/extensions/lol-hex/logs"', page)
+        self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
 
     def test_bar_and_hex_display_are_two_independent_layout_widgets(self):
