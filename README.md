@@ -118,7 +118,7 @@ LOL Hex runs as a separate process. The access center only starts and stops it; 
 - Local runtime data lives under `extensions/lol_hex_display/data/`, `screenshots/` and `logs/`; `lol_hex_display.pid` records the process ID. These files, as well as Python `__pycache__/`, are ignored by Git.
 - The extension's own build excludes local runtime data. The root `build.bat` intentionally copies existing local Hex data, screenshots and logs into the folder-based distribution. This packaging behavior is separate from Git tracking.
 - The combined-display editor treats **LOL match-history bar** and **LOL augment display** as independent widgets.
-- Music and video display queue limits are configured independently on `/music/settings` and `/video/settings` (1–1000, default 10). The displayed pending total still reflects the full queue.
+- See the [LOL Hex extension guide](extensions/lol_hex_display/README.md) for standalone and host-managed operation.\n- Music and video display queue limits are configured independently on `/music/settings` and `/video/settings` (1–1000, default 10). The displayed pending total still reflects the full queue.
 
 
 GitHub Actions runs Python compilation, configuration and offline regression tests on Ubuntu, plus real DPAPI and retired-configuration checks on Windows. Passing CI does not mean every device has completed manual integration testing; music and video still need local validation with LX Music, Chrome, OBS WebSocket and a real live room.
