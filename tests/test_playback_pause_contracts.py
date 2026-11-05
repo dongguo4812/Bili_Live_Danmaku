@@ -27,8 +27,8 @@ class PlaybackPauseContractTests(unittest.TestCase):
 
     def test_shared_display_shows_player_pause_without_replacing_module_pause_notice(self):
         script = (ROOT / "static" / "display_media.js").read_text(encoding="utf-8")
-        self.assertIn('data.playback_state==="paused"', script)
-        self.assertIn("⏸ 已暂停播放", script)
+        self.assertIn('playbackPaused?"已暂停播放 ⏸":"正在播放 ▶"', script)
+        self.assertNotIn("md-playback-paused-status", script)
         self.assertIn('options.moduleState==="paused"', script)
         self.assertIn("🚫 歌曲点播已暂停", script)
         self.assertIn("🚫 视频点播已暂停", script)
