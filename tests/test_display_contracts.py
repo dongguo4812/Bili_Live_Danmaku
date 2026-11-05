@@ -9,6 +9,14 @@ from pathlib import Path
 
 
 class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
+    def test_standalone_music_and_video_displays_limit_pending_queue_to_ten(self):
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "static" / "display_media.js").read_text(encoding="utf-8")
+        self.assertIn('queueList(nextBox,queue.slice(0,10),type);', renderer)
+        self.assertIn('String(queue.length)+"首歌曲待播"', renderer)
+        self.assertIn('String(queue.length)+"个视频待播"', renderer)
+        self.assertIn('node("span","md-pending-count",pendingLabel)', renderer)
+
     def test_music_and_video_widgets_embed_their_independent_display_pages(self):
         root = Path(__file__).resolve().parents[1]
         combined = (root / "templates" / "combined_display.html").read_text(encoding="utf-8")

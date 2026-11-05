@@ -112,7 +112,11 @@
     const nextHeading=nextBox.querySelector(".md-heading");
     nextHeading.appendChild(node("span","md-next-icon","Ⅱ"));
     if(queue.length){
-      queueList(nextBox,queue,type);
+      const pendingLabel=type==="music"
+        ? String(queue.length)+"首歌曲待播"
+        : String(queue.length)+"个视频待播";
+      nextHeading.appendChild(node("span","md-pending-count",pendingLabel));
+      queueList(nextBox,queue.slice(0,10),type);
     }else{
       nextHeading.appendChild(node("span","md-empty",type==="music"?"暂无待播歌曲":"暂无待播视频"));
     }
