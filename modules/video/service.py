@@ -1704,6 +1704,10 @@ class VideoModuleFacade:
                 await play_next()
         logger.info("视频模块已恢复。")
 
+    async def shutdown(self):
+        """程序退出时关闭本模块启动的 Chrome/Selenium 视频播放器。"""
+        await self.close()
+
     async def close(self):
         global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
         global video_session_generation, video_request_generation
