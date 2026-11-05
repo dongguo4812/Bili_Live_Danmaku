@@ -101,7 +101,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn("target=_obs_combined_display_refresh_watchdog", main)
         self.assertNotIn("_obs_live2d_watchdog", main)
         self.assertNotIn("_shutdown_obs_live2d_sources", main)
-        self.assertNotIn("SetSceneItemEnabled", main)
+        self.assertIn("def _ensure_obs_voice_engine_source(ws: Any) -> dict[str, Any]:", main)
+        self.assertIn('"CreateSceneItem"', main)
+        self.assertIn('"SetSceneItemEnabled"', main)
+        self.assertIn('"shutdown": False', main)
+        refresh_flow = main[main.index("def _refresh_obs_combined_display_sources"):main.index("def _obs_combined_display_refresh_watchdog")]
+        self.assertNotIn("SetSceneItemEnabled", refresh_flow)
+        self.assertIn("result.get(\"voice_engine\")", main)
+        self.assertIn("_refresh_obs_combined_display_sources(ensure_voice_engine=False)", main)
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
@@ -179,7 +186,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertIn('/api/voice/tts/settings', display_script)
         self.assertIn('/api/voice/tts/synthesize', display_script)
         self.assertIn('/api/voice/tts/settings', voice_page)
-        self.assertIn('/api/voice/tts/synthesize', voice_page)
+        self.assertIn('/api/voice/tts/test', voice_page)
         self.assertIn('/api/music/settings', music_page)
         self.assertIn('/api/video/settings', video_page)
 
@@ -315,7 +322,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn('live2d-preview-toggle', template)
         self.assertNotIn('live2dPreviewEnabled', template)
         self.assertNotIn('silentPreview', display_script)
-        self.assertIn('const showTts = displayMode === "all" || displayMode === "tts";', display_script)
+        self.assertIn('const showTts = displayMode === "tts";', display_script)
         self.assertNotIn("live2d-preview-export", display_script)
         self.assertNotIn('/api/live2d/preview', main)
         self.assertNotIn('static/live2d_preview', template + display_script + main)
