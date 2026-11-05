@@ -105,6 +105,7 @@
   let lastConnectionState = null;
   let live2dModuleActive = false;
   let voiceModuleActive = false;
+  let voiceModuleStateInitialized = false;
   let live2dModuleState = "stopped";
   let audioResumeInProgress = false;
   let currentAudioSource = null;
@@ -620,6 +621,7 @@
       stopMouthSync();
     }
     voiceModuleActive = nextVoice;
+    voiceModuleStateInitialized = true;
     if (voiceModuleActive && audioUnlocked) processSpeechQueue();
   }
 
@@ -1651,7 +1653,7 @@
   let cursorInitializationInProgress = false;
 
   async function pollDanmaku() {
-    if (!danmakuCursorInitialized || pollInProgress || (showTts && !ttsSettings)) return;
+    if (!danmakuCursorInitialized || pollInProgress || (showTts && (!ttsSettings || !voiceModuleStateInitialized))) return;
     pollInProgress = true;
     try {
       const response = await fetch("/api/danmaku?after=" + lastDanmakuId, { cache: "no-store" });
@@ -2090,7 +2092,7 @@
     });
   }
 
-  if (ttsVoice) {
+  if (showTts || ttsVoice) {
     loadTtsSettings().then(() => {
       if (showTts) refreshDanmakuPolling();
     }).catch(ttsError => {
