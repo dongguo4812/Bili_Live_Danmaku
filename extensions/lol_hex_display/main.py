@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """lol_hex_display：F1 自由区域截图 + 本地 OCR + 海克斯强化卡片展示。Python 3.10+"""
 from __future__ import annotations
-import ctypes, faulthandler, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
+import ctypes, subprocess, faulthandler, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
 from logging.handlers import QueueHandler, QueueListener
 from datetime import datetime
 from pathlib import Path
@@ -211,14 +211,67 @@ DEFAULT_CONFIG = {
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
 def check_admin_privileges():
-    """检查当前 Python 进程是否以管理员身份运行。"""
-    is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+    """确保 LOL Hex 整个进程以 Windows 管理员身份运行。"""
+    if os.name != "nt":
+        return True
+
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception as exc:
+        logging.exception("[权限检查] 无法检查 Windows 管理员权限：%s", exc)
+        is_admin = False
+
     if is_admin:
         logging.info("[权限检查] 当前以管理员身份运行")
-    else:
-        logging.error("[权限检查] 当前不是管理员身份运行")
+        return True
 
-    return is_admin
+    logging.warning("[权限检查] 当前不是管理员身份，正在请求 UAC 提权")
+    try:
+        if getattr(sys, "frozen", False):
+            executable = sys.executable
+            parameters = subprocess.list2cmdline(sys.argv[1:])
+        else:
+            executable = sys.executable
+            parameters = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:]])
+
+        result = ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            executable,
+            parameters,
+            str(ROOT),
+            1,
+        )
+        if result > 32:
+            logging.info("[权限检查] 已成功请求以管理员身份重新启动，当前普通权限进程即将退出")
+            return False
+
+        error_code = int(result)
+        logging.error("[权限检查] UAC 提权启动失败，ShellExecuteW 返回：%s", error_code)
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "LOL Hex 必须以管理员身份运行才能保证游戏内 F1 截图正常工作。\n"
+                "管理员权限请求失败，程序将退出。",
+                "LOL Hex 管理员权限",
+                0x10,
+            )
+        except Exception:
+            pass
+        return False
+    except Exception as exc:
+        logging.exception("[权限检查] 请求 UAC 提权时发生异常：%s", exc)
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                "LOL Hex 必须以管理员身份运行。\n"
+                f"请求管理员权限失败：{exc}\n程序将退出。",
+                "LOL Hex 管理员权限",
+                0x10,
+            )
+        except Exception:
+            pass
+        return False
 
 def read_config():
     cfg = DEFAULT_CONFIG.copy()
@@ -1491,5 +1544,8 @@ def main():
         stop_thread_diagnostics()
 
 if __name__ == "__main__":
-    check_admin_privileges()
-    main()
+    if check_admin_privileges():
+        main()
+    else:
+        # 提权成功时由新的管理员进程接管；失败或用户拒绝时不继续运行。
+        sys.exit(0)
