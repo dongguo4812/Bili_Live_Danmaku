@@ -178,6 +178,12 @@
 
     <section class="panel" id="lol-hex-module">
       <h2>LOL 海克斯展示</h2>
+      <div class="model-row">
+        <div>
+          <strong id="lol-hex-module-state" class="status-pill" data-state="unknown">状态读取中</strong>
+          <p id="lol-hex-module-message" class="muted" role="status">正在检测 LOL 海克斯服务是否正常运行…</p>
+        </div>
+      </div>
       <div class="module-links">
         <a href="/extensions/lol-hex/" target="_blank" rel="noopener">管理页面</a>
         <a href="/extensions/lol-hex/bar" target="_blank" rel="noopener">LOL 战绩条</a>
@@ -300,11 +306,44 @@
     async function refreshLolHexControl() {
       const start = $("lol-hex-start");
       const stop = $("lol-hex-stop");
+      const state = $("lol-hex-module-state");
+      const message = $("lol-hex-module-message");
       try {
         const data = await api("/api/extensions/lol-hex");
-        start.disabled = data.running || data.state === "starting";
+        const currentState = data.state || "unknown";
+        const labels = {
+          running: "运行中",
+          starting: "启动中",
+          stopped: "已停止",
+          error: "运行异常",
+          unknown: "状态未知"
+        };
+        state.textContent = labels[currentState] || "状态未知";
+        state.dataset.state = ["running", "starting", "stopped", "error"].includes(currentState)
+          ? currentState : "unknown";
+
+        if (currentState === "running") {
+          message.textContent = data.external
+            ? "海克斯服务已正常响应。当前实例由独立方式启动，主项目可以检测状态；点击上方“停止”会请求其退出。"
+            : "海克斯服务已正常响应，当前由主项目托管运行。管理页面、战绩条和海克斯展示页均可使用。";
+        } else if (currentState === "starting") {
+          message.textContent = "启动进程已创建，正在等待海克斯 Web 服务就绪；服务就绪后展示页即可正常访问。";
+        } else if (currentState === "error" || (currentState === "stopped" && data.error)) {
+          state.textContent = "运行异常";
+          state.dataset.state = "error";
+          message.textContent = (data.error || "海克斯服务未能正常启动或运行。") + " 可点击“查看日志”排查原因，修复后重新启动。";
+        } else if (currentState === "stopped") {
+          message.textContent = "当前未检测到海克斯服务，展示页暂不可用。点击上方“启动”运行 LOL 海克斯展示。";
+        } else {
+          message.textContent = "暂时无法确认海克斯服务状态，请稍后重试。";
+        }
+
+        start.disabled = data.running || currentState === "starting" || currentState === "unknown";
         stop.disabled = !data.running;
       } catch (error) {
+        state.textContent = "状态未知";
+        state.dataset.state = "unknown";
+        message.textContent = "读取 LOL 海克斯状态失败：" + error.message + "。请确认主程序服务正常后重试。";
         start.disabled = true;
         stop.disabled = true;
       }
@@ -313,12 +352,19 @@
     async function toggleLolHex(action) {
       const start = $("lol-hex-start");
       const stop = $("lol-hex-stop");
+      const state = $("lol-hex-module-state");
+      const message = $("lol-hex-module-message");
       start.disabled = true;
       stop.disabled = true;
+      state.textContent = action === "start" ? "启动中" : "停止中";
+      state.dataset.state = "starting";
+      message.textContent = action === "start"
+        ? "正在启动 LOL 海克斯服务，请等待 Web 服务就绪…"
+        : "正在请求 LOL 海克斯服务关闭…";
       try {
         await api("/api/extensions/lol-hex/" + action, { method: "POST" });
       } catch (error) {
-        window.alert((action === "start" ? "启动" : "停止") + " LOL 海克斯展示失败：" + error.message);
+        message.textContent = (action === "start" ? "启动" : "停止") + " LOL 海克斯展示失败：" + error.message;
       }
       await refreshLolHexControl();
     }
