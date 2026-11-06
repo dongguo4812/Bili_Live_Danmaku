@@ -96,7 +96,7 @@ def _cleanup_old_logs(retention_days: int) -> None:
 def setup_logging() -> None:
     try:
         config: dict[str, Any] = ConfigManager().load(
-            "logging", {"level": "INFO", "retention_days": 7}
+            "logging", {"retention_days": 7}
         )
         # 日常固定为 INFO；仅通过 debug 开关额外启用 DEBUG。
         level = logging.DEBUG if config.get("debug") is True else logging.INFO
