@@ -293,6 +293,7 @@ def _update_assets_impl(force=False):
             changed=digest(new)!=digest(assets)
             if changed:
                 assets=new; atomic_json(ASSET_CACHE,assets); log.info('海克斯索引更新：%d 条',len(assets))
+            else: log.debug('海克斯索引无变化：%d 条',len(assets))
         icon_sources=read_json(ICON_SOURCE_PATH,{})
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
@@ -338,8 +339,13 @@ def find_game_version():
         if response.ok:
             return str(response.json())
 
+        log.debug(
+            '[LCU调试] 读取游戏版本失败，HTTP=%s',
+            response.status_code
+        )
 
     except Exception as e:
+        log.debug('[LCU调试] 读取游戏版本异常：%s', e)
 
     return ''
 
@@ -369,6 +375,7 @@ def _validate_lcu_credentials(port, token):
         payload = response.json()
         return True, payload if isinstance(payload, dict) else {}
     except Exception as exc:
+        log.debug("[LCU调试] 凭据验证失败：%s", exc)
         return False, None
 
 
@@ -417,6 +424,7 @@ def _read_lcu_lockfile(client_dirs):
             signature = None
             is_file = False
         except OSError as exc:
+            log.debug("[LCU调试] 检查 Lockfile 状态失败：路径=%s，原因=%s", lockfile, exc)
             continue
         else:
             signature = (
@@ -437,33 +445,41 @@ def _read_lcu_lockfile(client_dirs):
             continue
 
         if not is_file:
+            log.debug("[LCU调试] Lockfile 不存在或不是普通文件：%s", lockfile)
             with _lcu_lockfile_cache_lock:
                 _lcu_lockfile_cache[cache_key] = (signature, None)
             continue
 
         if stat_result.st_size == 0:
+            log.debug("[LCU调试] Lockfile 文件为空，已缓存文件状态：%s", lockfile)
             with _lcu_lockfile_cache_lock:
                 _lcu_lockfile_cache[cache_key] = (signature, None)
             continue
 
+        log.debug("[LCU调试] Lockfile 文件存在，读取内容：%s", lockfile)
         try:
             file_content = lockfile.read_text(
                 encoding="utf-8", errors="replace"
             ).strip("\x00\r\n ")
         except (OSError, UnicodeError) as exc:
+            log.debug("[LCU调试] Lockfile 读取失败：路径=%s，原因=%s", lockfile, exc)
             continue
 
         credentials = None
         parts = file_content.split(":")
         if len(parts) < 5 or parts[0].lower() != "leagueclient":
+            log.debug("[LCU调试] Lockfile 解析失败：格式不符合预期，路径=%s", lockfile)
         else:
             pid, port, token, protocol = parts[1:5]
             if not pid.isdigit() or not port.isdigit() or not token:
+                log.debug("[LCU调试] Lockfile 解析失败：PID、端口或 Token 字段无效，路径=%s", lockfile)
             else:
                 port_number = int(port)
                 if not 1 <= port_number <= 65535 or protocol.lower() not in ("http", "https"):
+                    log.debug("[LCU调试] Lockfile 解析失败：端口或协议无效，路径=%s", lockfile)
                 else:
                     credentials = (port_number, token)
+                    log.debug("[LCU调试] Lockfile 解析成功，端口=%s，路径=%s", port_number, lockfile)
 
         with _lcu_lockfile_cache_lock:
             _lcu_lockfile_cache[cache_key] = (signature, credentials)
@@ -526,8 +542,10 @@ def _scan_lcu_process_wmi(client_path):
             credentials = _extract_credentials(command)
             if credentials:
                 credentials_found = credentials
+                log.debug("[LCU调试] 通过原生 WMI 从 LeagueClientUx.exe 读取到候选凭据")
                 break
     except Exception as exc:
+        log.debug("[LCU调试] 原生 WMI 查询客户端进程失败：%s", exc)
     finally:
         item = None
         processes = None
@@ -537,7 +555,9 @@ def _scan_lcu_process_wmi(client_path):
             pythoncom.CoUninitialize()
 
     if query_succeeded and not process_found:
+        log.debug("[LCU调试] WMI 查询成功：配置安装目录下未发现 LeagueClientUx.exe")
     elif query_succeeded and process_found and not credentials_found:
+        log.debug("[LCU调试] WMI 已发现 LeagueClientUx.exe，但未能从启动参数提取凭据")
 
     return credentials_found, process_found, query_succeeded
 
@@ -550,6 +570,7 @@ def _scan_lcu_credentials():
     config = read_config()
     configured_path = str(config.get("lol_client_path", "")).strip().strip('"')
     if not configured_path:
+        log.debug("[LCU调试] 未配置 lol_client_path")
         return None, "", None
 
     client_path = os.path.normcase(
@@ -562,7 +583,12 @@ def _scan_lcu_credentials():
             return None
         valid, account_data = _validate_lcu_credentials(*credentials)
         if valid:
+            log.debug("[LCU调试] %s 候选凭据 HTTP 验证成功，端口=%s", source, credentials[0])
             return credentials, source, account_data
+        log.debug(
+            "[LCU调试] %s 候选凭据 HTTP 验证失败，端口=%s；继续尝试下一来源",
+            source, credentials[0],
+        )
         return None
 
     result = validate_candidate(_read_lcu_lockfile(client_dirs), "Lockfile")
@@ -575,6 +601,7 @@ def _scan_lcu_credentials():
         return result
 
     if wmi_query_succeeded and not process_found:
+        log.debug("[LCU调试] 当前未运行英雄联盟客户端，跳过历史客户端日志扫描")
         return None, "", None
 
     log_files = []
@@ -582,13 +609,19 @@ def _scan_lcu_credentials():
         try:
             log_files.extend(directory.glob("*_LeagueClientUx.log"))
         except OSError as exc:
+            log.debug("[LCU调试] 枚举客户端日志失败 %s：%s", directory, exc)
 
     try:
         log_files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
     except OSError as exc:
+        log.debug("[LCU调试] 排序客户端日志失败：%s", exc)
 
     max_log_candidates = 3
     if len(log_files) > max_log_candidates:
+        log.debug(
+            "[LCU调试] 客户端日志共找到 %s 个，仅检查最新 %s 个",
+            len(log_files), max_log_candidates,
+        )
 
     for log_file in log_files[:max_log_candidates]:
         try:
@@ -596,12 +629,19 @@ def _scan_lcu_credentials():
                 content = stream.read(64 * 1024)
             credentials = _extract_credentials(content)
             if credentials:
+                log.debug(
+                    "[LCU调试] 从客户端日志读取到候选凭据：%s，端口=%s",
+                    log_file.name, credentials[0],
+                )
                 result = validate_candidate(credentials, "客户端日志")
                 if result:
                     return result
             else:
+                log.debug("[LCU调试] 客户端日志未解析出凭据：%s", log_file.name)
         except OSError as exc:
+            log.debug("[LCU调试] 读取客户端日志失败 %s：%s", log_file, exc)
 
+    log.debug("[LCU调试] 当前可用凭据均未通过验证，或日志回退未找到有效凭据")
     return None, "", None
 
 
@@ -709,6 +749,11 @@ def get_gameflow_phase():
 
         # 正常轮询每10/30秒都会经过这里；完整响应仅保留在 DEBUG，
         # 避免持续写入重复的成功诊断日志。
+        log.debug(
+            '[LCU调试] gameflow-phase HTTP=%s，响应正文=%r',
+            response.status_code,
+            response.text[:200]
+        )
 
         response.raise_for_status()
         phase = response.json()
@@ -720,9 +765,19 @@ def get_gameflow_phase():
                 # 只有请求失败或响应格式异常才返回 Python None。
                 return 'None' if phase.lower() == 'none' else phase
 
+        log.debug(
+            '[LCU调试] 返回值不是有效阶段字符串：类型=%s，值=%r',
+            type(phase).__name__,
+            phase
+        )
         return None
 
     except Exception as exc:
+        log.debug(
+            '[LCU调试] 读取 gameflow-phase 失败：%s: %s',
+            type(exc).__name__,
+            exc
+        )
         return None
 
 
@@ -1070,6 +1125,7 @@ def process_screenshot(path):
 
     with state_lock:
         if generation_at_start != cleanup_generation or not path.exists():
+            log.debug('截图处理结果已因对局清理而丢弃：%s', path.name)
             return
 
         # 防止程序重启后，将已有截图再次加入卡片列表。
@@ -1077,6 +1133,7 @@ def process_screenshot(path):
             str(existing.get('filename', '')) == path.name
             for existing in state['cards']
         ):
+            log.debug('截图已存在于卡片列表，跳过重复添加：%s', path.name)
             return
 
         state['cards'].append(card)
@@ -1373,6 +1430,9 @@ class ScreenshotSelector:
             # 如果 active 状态残留，但线程已经退出，自动修复。
             if self.active:
                 if self.thread is None or not self.thread.is_alive():
+                    log.debug(
+                        '[截图调试] 检测到截图状态残留，自动重置'
+                    )
                     self.active = False
                     self.root = None
                     self.tkimg = None
@@ -1407,11 +1467,15 @@ class ScreenshotSelector:
 
             try:
                 thread.start()
+                log.debug(
+                    '[热键] F1 已触发：启动截图任务，任务编号=%s',
+                    generation
+                )
             except Exception:
                 self.active = False
                 self.thread = None
                 self.cancel_requested.clear()
-                log.exception('[截图] 截图线程启动失败')
+                log.exception('[截图调试] 截图线程启动失败')
 
     def capture(self):
         """捕获整个虚拟桌面。"""
@@ -1437,6 +1501,10 @@ class ScreenshotSelector:
                 log.warning('全局截图热键只支持 Windows')
                 return
 
+            log.debug(
+                '[截图调试] 截图线程开始运行，任务编号=%s',
+                generation
+            )
 
             # 捕获当前屏幕画面
             try:
@@ -1446,16 +1514,24 @@ class ScreenshotSelector:
 
             time.sleep(0.03)
 
+            log.debug('[截图调试] 开始捕获屏幕')
 
             img, mon = self.capture()
 
+            log.debug(
+                '[截图调试] 屏幕捕获完成：%dx%d',
+                img.width,
+                img.height
+            )
 
             # 捕获过程中如果收到取消请求，则不再创建窗口。
             if self.cancel_requested.is_set():
+                log.debug('[截图调试] 屏幕捕获后收到取消请求')
                 return
 
             with self._lock:
                 if generation != self._generation or not self.active:
+                    log.debug('[截图调试] 截图任务已失效，不再创建窗口')
                     return
 
                 self.image = img
@@ -1519,6 +1595,9 @@ class ScreenshotSelector:
                 lambda e: self.on_up(e, generation)
             )
 
+            log.debug(
+                '[截图调试] 截图框已创建，等待用户选择区域'
+            )
 
             # 不绑定 ESC。
             # 再次按 F1 请求取消。
@@ -1531,7 +1610,7 @@ class ScreenshotSelector:
 
         except Exception as e:
             log.exception(
-                '[截图] 截图任务异常退出：%s',
+                '[截图调试] 截图任务异常退出：%s',
                 e
             )
 
@@ -1539,6 +1618,10 @@ class ScreenshotSelector:
             # 无论正常结束还是异常退出，都必须复位状态。
             self.finish(generation)
 
+            log.debug(
+                '[截图调试] 截图任务结束，任务编号=%s',
+                generation
+            )
 
     def poll_cancel(self, generation):
         """由 Tk 主循环定期检查取消请求。"""
@@ -1556,6 +1639,7 @@ class ScreenshotSelector:
             return
 
         if self.cancel_requested.is_set():
+            log.debug('[截图调试] 检测到取消请求，关闭截图框')
             self.finish(generation)
             return
 
@@ -1565,6 +1649,7 @@ class ScreenshotSelector:
                 lambda: self.poll_cancel(generation)
             )
         except Exception:
+            log.debug('[截图调试] 截图窗口已关闭')
 
     def on_down(self, e):
         if self.canvas is None:
