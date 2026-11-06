@@ -447,41 +447,53 @@ def _client_directories(client_path):
         except OSError:
             resolved = candidate.absolute()
         key = os.path.normcase(str(resolved))
-        if key not in seen and resolved.is_dir():
+        if key not in seen:
             seen.add(key)
             result.append(resolved)
     return result
 
 
 def _read_lcu_lockfile(client_dirs):
-    """读取 LeagueClient lockfile，返回尚未验证的端口和 Token。"""
+    """读取 LeagueClient lockfile，并明确记录路径、存在性和解析结果。"""
     for directory in client_dirs:
         lockfile = directory / "lockfile"
+        log.info("[LCU诊断] 检查 Lockfile 路径：%s", lockfile)
         try:
             if not lockfile.is_file():
+                log.info("[LCU诊断] Lockfile 不存在：%s", lockfile)
                 continue
-            content = lockfile.read_text(encoding="utf-8", errors="replace").strip("\x00\r\n ")
+
+            log.info("[LCU诊断] Lockfile 文件存在：%s", lockfile)
+            content = lockfile.read_text(
+                encoding="utf-8", errors="replace"
+            ).strip("\x00\r\n ")
             parts = content.split(":")
             if len(parts) < 5 or parts[0].lower() != "leagueclient":
-                log.debug("[LCU诊断] Lockfile 格式不符合预期：%s", lockfile)
+                log.warning("[LCU诊断] Lockfile 解析失败：格式不符合预期，路径=%s", lockfile)
                 continue
+
             pid, port, token, protocol = parts[1:5]
             if not pid.isdigit() or not port.isdigit() or not token:
+                log.warning("[LCU诊断] Lockfile 解析失败：PID、端口或 Token 字段无效，路径=%s", lockfile)
                 continue
+
             port_number = int(port)
             if not 1 <= port_number <= 65535 or protocol.lower() not in ("http", "https"):
+                log.warning("[LCU诊断] Lockfile 解析失败：端口或协议无效，路径=%s", lockfile)
                 continue
-            log.info("[LCU诊断] 从 Lockfile 读取到候选凭据，端口=%s", port_number)
+
+            log.info("[LCU诊断] Lockfile 解析成功，端口=%s，路径=%s", port_number, lockfile)
             return (port_number, token)
         except (OSError, UnicodeError) as exc:
-            log.debug("[LCU诊断] 读取 Lockfile 失败 %s：%s", lockfile, exc)
+            log.warning("[LCU诊断] Lockfile 读取失败：路径=%s，原因=%s", lockfile, exc)
+
     return None
 
 
 def _scan_lcu_process_wmi(client_path):
-    """通过原生 WMI 查询 LeagueClientUx.exe，不启动 PowerShell 子进程。"""
+    """通过原生 WMI 查询客户端进程，返回凭据、进程存在标记和查询成功标记。"""
     if os.name != "nt":
-        return None
+        return None, False, False
 
     pythoncom = None
     locator = None
@@ -489,6 +501,9 @@ def _scan_lcu_process_wmi(client_path):
     processes = None
     item = None
     initialized = False
+    process_found = False
+    query_succeeded = False
+    credentials_found = None
     try:
         import pythoncom
         import win32com.client
@@ -505,11 +520,12 @@ def _scan_lcu_process_wmi(client_path):
             "WQL",
             0x30,
         )
+        query_succeeded = True
 
         for item in processes:
             exe_path = str(item.ExecutablePath or "").strip()
             command = str(item.CommandLine or "")
-            if not exe_path or not command:
+            if not exe_path:
                 continue
 
             actual = os.path.normcase(os.path.abspath(os.path.expandvars(exe_path)))
@@ -519,14 +535,18 @@ def _scan_lcu_process_wmi(client_path):
             except (ValueError, OSError):
                 continue
 
+            process_found = True
+            if not command:
+                continue
+
             credentials = _extract_credentials(command)
             if credentials:
+                credentials_found = credentials
                 log.info("[LCU诊断] 通过原生 WMI 从 LeagueClientUx.exe 读取到候选凭据")
-                return credentials
+                break
     except Exception as exc:
         log.warning("[LCU诊断] 原生 WMI 查询客户端进程失败：%s", exc)
     finally:
-        # 先释放 WMI COM 对象，再平衡当前线程的 COM 初始化。
         item = None
         processes = None
         services = None
@@ -534,7 +554,12 @@ def _scan_lcu_process_wmi(client_path):
         if initialized:
             pythoncom.CoUninitialize()
 
-    return None
+    if query_succeeded and not process_found:
+        log.info("[LCU诊断] WMI 查询成功：配置安装目录下未发现 LeagueClientUx.exe")
+    elif query_succeeded and process_found and not credentials_found:
+        log.warning("[LCU诊断] WMI 已发现 LeagueClientUx.exe，但未能从启动参数提取凭据")
+
+    return credentials_found, process_found, query_succeeded
 
 
 def _scan_lcu_credentials():
@@ -558,22 +583,27 @@ def _scan_lcu_credentials():
             return None
         valid, account_data = _validate_lcu_credentials(*credentials)
         if valid:
-            log.info("[LCU诊断] %s 候选凭据验证成功，端口=%s", source, credentials[0])
+            log.info("[LCU诊断] %s 候选凭据 HTTP 验证成功，端口=%s", source, credentials[0])
             return credentials, source, account_data
-        log.debug("[LCU诊断] %s 候选凭据验证失败，继续尝试下一来源", source)
+        log.warning(
+            "[LCU诊断] %s 候选凭据 HTTP 验证失败，端口=%s；继续尝试下一来源",
+            source, credentials[0],
+        )
         return None
 
-    # 1. Lockfile：无需扫描系统进程，优先尝试低开销的本地文件读取。
-    result = validate_candidate(_read_lcu_lockfile(client_dirs), "lockfile")
+    result = validate_candidate(_read_lcu_lockfile(client_dirs), "Lockfile")
     if result:
         return result
 
-    # 2. 原生 WMI：Lockfile 缺失或验证失败时查询进程启动参数。
-    result = validate_candidate(_scan_lcu_process_wmi(client_path), "process")
+    process_credentials, process_found, wmi_query_succeeded = _scan_lcu_process_wmi(client_path)
+    result = validate_candidate(process_credentials, "WMI")
     if result:
         return result
 
-    # 3. 客户端日志：兼容不同 lol_client_path 配置层级。
+    if wmi_query_succeeded and not process_found:
+        log.info("[LCU诊断] 当前未运行英雄联盟客户端，跳过历史客户端日志扫描")
+        return None, "", None
+
     log_files = []
     for directory in client_dirs:
         try:
@@ -586,7 +616,14 @@ def _scan_lcu_credentials():
     except OSError as exc:
         log.warning("[LCU诊断] 排序客户端日志失败：%s", exc)
 
-    for log_file in log_files:
+    max_log_candidates = 3
+    if len(log_files) > max_log_candidates:
+        log.info(
+            "[LCU诊断] 客户端日志共找到 %s 个，仅检查最新 %s 个",
+            len(log_files), max_log_candidates,
+        )
+
+    for log_file in log_files[:max_log_candidates]:
         try:
             with log_file.open("r", encoding="utf-8", errors="replace") as stream:
                 content = stream.read(64 * 1024)
@@ -596,13 +633,15 @@ def _scan_lcu_credentials():
                     "[LCU诊断] 从客户端日志读取到候选凭据：%s，端口=%s",
                     log_file.name, credentials[0],
                 )
-                result = validate_candidate(credentials, "log")
+                result = validate_candidate(credentials, "客户端日志")
                 if result:
                     return result
+            else:
+                log.debug("[LCU诊断] 客户端日志未解析出凭据：%s", log_file.name)
         except OSError as exc:
-            log.debug("[LCU诊断] 读取日志失败 %s：%s", log_file, exc)
+            log.warning("[LCU诊断] 读取客户端日志失败 %s：%s", log_file, exc)
 
-    log.warning("[LCU诊断] Lockfile、WMI 和客户端日志均未找到通过验证的凭据")
+    log.warning("[LCU诊断] 当前可用凭据均未通过验证，或日志回退未找到有效凭据")
     return None, "", None
 
 
