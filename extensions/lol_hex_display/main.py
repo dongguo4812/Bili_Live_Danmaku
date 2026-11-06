@@ -72,10 +72,10 @@ class SecretRedactionFilter(logging.Filter):
     """与主项目一致，对常见凭据字段进行日志脱敏。"""
 
     _secret_pattern = re.compile(
-        r"(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|cookie|password|passwd|token|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token)(\\s*[:=]\\s*)([\"']?)([^\\s,;}}\"']+)"
+        r"(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|cookie|password|passwd|token|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token)(\s*[:=]\s*)(["']?)([^\s,;}"']+)"
     )
     _header_pattern = re.compile(
-        r"(?i)((?:Cookie|Authorization)\\s*:\\s*)([^\\r\\n]+)"
+        r"(?i)((?:Cookie|Authorization)\s*:\s*)([^\r\n]+)"
     )
 
     def filter(self, record):
