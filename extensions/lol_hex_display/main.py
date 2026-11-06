@@ -729,7 +729,9 @@ def get_gameflow_phase():
             headers={'Accept': 'application/json'}
         )
 
-        log.info(
+        # 正常轮询每10/30秒都会经过这里；完整响应仅保留在 DEBUG，
+        # 避免持续写入重复的成功诊断日志。
+        log.debug(
             '[LCU诊断] gameflow-phase HTTP=%s，响应正文=%r',
             response.status_code,
             response.text[:200]
