@@ -922,7 +922,7 @@ def asset_worker():
         now = time.time()
         cfg = read_config()
         interval = max(60, int(cfg.get('asset_check_interval', '3600') or 3600))
-        version_interval = max(10, int(cfg.get('version_check_interval', '60') or 60))
+        version_interval = max(10, int(cfg.get('version_check_interval', '3600') or 3600))
 
         if now - last_version_check >= version_interval:
             last_version_check = now
