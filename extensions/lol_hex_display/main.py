@@ -350,11 +350,19 @@ def _update_assets_impl(force=False):
         r=requests.get(AUGMENTS_URL,timeout=20,headers={'User-Agent':'Mozilla/5.0'}); r.raise_for_status()
         new=normalize_assets(r.json())
         digest=lambda x: hashlib.sha256(json.dumps(x,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        # assets 只会整体替换，不会原地修改；在锁内取得当前字典引用后，
+        # 可在锁外完成序列化和摘要计算，避免阻塞截图匹配读取。
         with assets_lock:
-            changed=digest(new)!=digest(assets)
-            if changed:
-                assets=new; atomic_json(ASSET_CACHE,assets); log.info('海克斯索引更新：%d 条',len(assets))
-            else: log.debug('海克斯索引无变化：%d 条',len(assets))
+            current_assets = assets
+        changed = digest(new) != digest(current_assets)
+        if changed:
+            # 先在锁外持久化；写入失败时保留旧内存索引，避免内存与缓存不一致。
+            atomic_json(ASSET_CACHE, new)
+            with assets_lock:
+                assets = new
+            log.info('海克斯索引更新：%d 条', len(new))
+        else:
+            log.debug('海克斯索引无变化：%d 条', len(new))
         icon_sources=read_json(ICON_SOURCE_PATH,{})
         icon_sources_changed = False
         for aid,item in new.items():
