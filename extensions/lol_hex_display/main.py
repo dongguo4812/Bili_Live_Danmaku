@@ -610,8 +610,10 @@ def get_gameflow_phase():
 
         if isinstance(phase, str):
             phase = phase.strip()
-            if phase and phase.lower() != 'none':
-                return phase
+            if phase:
+                # LCU 返回字符串 "None" 表示当前没有对局流程，是有效状态；
+                # 只有请求失败或响应格式异常才返回 Python None。
+                return 'None' if phase.lower() == 'none' else phase
 
         log.warning(
             '[LCU诊断] 返回值不是有效阶段字符串：类型=%s，值=%r',
@@ -635,7 +637,7 @@ cleanup_lock = threading.Lock()
 cleanup_generation = 0
 
 def cleanup_match_data(reason):
-    """清空卡片与截图目录图片；保留配置、日志、海克斯图标缓存等非截图数据。"""
+    """清空卡片与截图目录图片；返回是否所有清理操作均成功。"""
     global cleanup_generation
     with cleanup_lock:
         with state_lock:
@@ -643,61 +645,71 @@ def cleanup_match_data(reason):
             state['cards'] = []
             state['updated_at'] = time.time()
             atomic_json(STATE_PATH, state)
+
         deleted = 0
         failures = 0
         folders = (screenshot_dir(), PROCESSED)
         seen = set()
+
         for folder in folders:
             try:
                 resolved = folder.resolve()
                 if resolved in seen:
                     continue
                 seen.add(resolved)
+
                 for candidate in folder.rglob('*'):
-                    if candidate.is_file() and candidate.suffix.lower() in SCREENSHOT_EXTENSIONS:
+                    if (
+                        candidate.is_file()
+                        and candidate.suffix.lower() in SCREENSHOT_EXTENSIONS
+                    ):
                         try:
                             candidate.unlink()
                             deleted += 1
                         except OSError as exc:
                             failures += 1
-                            log.warning('清理截图失败 %s：%s', candidate, exc)
+                            log.warning(
+                                '清理截图失败 %s：%s',
+                                candidate,
+                                exc
+                            )
             except OSError as exc:
                 failures += 1
-                log.warning('扫描清理目录失败 %s：%s', folder, exc)
+                log.warning(
+                    '扫描清理目录失败 %s：%s',
+                    folder,
+                    exc
+                )
+
         processed_files.clear()
-        log.info('[对局清理] %s；已删除图片 %d 张，失败 %d 项', reason, deleted, failures)
-
-
-
-
+        log.info(
+            '[对局清理] %s；已删除图片 %d 张，失败 %d 项',
+            reason,
+            deleted,
+            failures
+        )
+        return failures == 0
 
 
 def gameflow_worker():
-    """按固定时间间隔检测 LCU 阶段；仅在进入 ChampSelect 时清理残留数据。"""
+    """状态1每10秒检查并清理一次，清理成功后本轮不再重复；状态2每30秒仅检查阶段。"""
     log.info('[对局阶段] gameflow_worker 已启动')
 
+    state1_phases = {'Matchmaking', 'ReadyCheck', 'ChampSelect'}
     last_phase = None
-    next_check = time.monotonic()
+    last_monitor_state = None
+    cleanup_completed = False
 
     while not stop_event.is_set():
-        cfg = read_config()
-
-        try:
-            interval = max(
-                2.0,
-                float(cfg.get('gameflow_check_interval', '10') or 10)
-            )
-        except (TypeError, ValueError):
-            interval = 10.0
-
-        log.info('[对局阶段] 开始检测 LCU 阶段')
-
         try:
             phase = get_gameflow_phase()
 
             if phase is None:
+                # 读取失败不改变阶段、监控状态或清理标记。
                 log.info(
-                    '[对局阶段] 暂时无法读取 LCU 阶段；不会执行清理'
+                    '[对局阶段] 暂时无法读取 LCU 阶段；沿用%s，保持%s秒检测周期',
+                    last_monitor_state or '初始状态',
+                    10 if last_monitor_state == '状态1' else 30
                 )
             else:
                 if phase != last_phase:
@@ -707,72 +719,44 @@ def gameflow_worker():
                         phase
                     )
 
-                # 仅在首次检测到 ChampSelect 或阶段切换进入 ChampSelect 时检查残留。
-                # 持续停留在 ChampSelect 时不重复扫描截图目录。
-                if phase == 'ChampSelect' and last_phase != 'ChampSelect':
-                    with state_lock:
-                        has_cards = bool(state.get('cards'))
+                monitor_state = '状态1' if phase in state1_phases else '状态2'
 
-                    folders = (screenshot_dir(), PROCESSED)
-                    has_screenshots = False
-                    seen = set()
+                if monitor_state != last_monitor_state:
+                    interval = 10 if monitor_state == '状态1' else 30
+                    log.info(
+                        '[对局监控] %s -> %s；检测周期 %d 秒',
+                        last_monitor_state or '初始状态',
+                        monitor_state,
+                        interval
+                    )
+                    # 每次重新进入状态1，都开启新一轮清理；
+                    # 离开状态1进入状态2时，也重置标记。
+                    cleanup_completed = False
 
-                    for folder in folders:
-                        try:
-                            resolved = folder.resolve()
-
-                            if resolved in seen:
-                                continue
-
-                            seen.add(resolved)
-
-                            for candidate in folder.rglob('*'):
-                                if (
-                                    candidate.is_file()
-                                    and candidate.suffix.lower()
-                                    in SCREENSHOT_EXTENSIONS
-                                ):
-                                    has_screenshots = True
-                                    break
-
-                            if has_screenshots:
-                                break
-
-                        except OSError as exc:
-                            log.warning(
-                                '[选英雄清理] 检查截图目录失败 %s：%s',
-                                folder,
-                                exc
-                            )
-
-                    if has_cards or has_screenshots:
-                        cleanup_match_data(
-                            '检测到进入选英雄阶段，清理上一局或启动前残留'
+                if monitor_state == '状态1' and not cleanup_completed:
+                    completed = cleanup_match_data(
+                        '检测到进入状态1，清理上一局或启动前残留'
+                    )
+                    if completed:
+                        cleanup_completed = True
+                        log.info(
+                            '[选英雄清理] 清理已确认完成；本轮状态1不再重复清理'
                         )
                     else:
-                        log.info(
-                            '[选英雄清理] 卡片和截图均已清空，跳过清理'
+                        log.warning(
+                            '[选英雄清理] 本次清理未完全成功；将在下一次状态1检测时重试'
                         )
 
                 last_phase = phase
+                last_monitor_state = monitor_state
 
         except Exception:
             log.exception('[对局阶段] 检测过程中发生异常')
 
-        # 按固定周期安排下一轮，不再额外等待完整的 interval 秒。
-        next_check += interval
-        now = time.monotonic()
-
-        # 如果本轮执行超过了下次计划时间，跳过已经错过的周期，
-        # 避免连续补跑造成请求拥挤。
-        if next_check <= now:
-            missed = int((now - next_check) // interval) + 1
-            next_check += missed * interval
-
-        stop_event.wait(max(0.0, next_check - time.monotonic()))
-
-    log.info('[对局阶段] gameflow_worker 已退出')
-
+        # LCU 读取失败时沿用上一次成功识别的监控状态；
+        # 程序启动后尚无有效状态时，按状态2的30秒周期重试。
+        interval = 10 if last_monitor_state == '状态1' else 30
+        stop_event.wait(interval)
 
 
 def asset_worker():
