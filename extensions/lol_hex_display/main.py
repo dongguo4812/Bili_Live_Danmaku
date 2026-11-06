@@ -877,13 +877,36 @@ def get_gameflow_phase():
         return None
 
 
-SCREENSHOT_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff'}
 cleanup_lock = threading.Lock()
 processed_files_lock = threading.Lock()
 cleanup_generation = 0
 
+def _clear_directory_contents(folder):
+    """删除目录内全部内容，保留目录本身；子目录整体递归删除。"""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    deleted = 0
+    failures = 0
+
+    for candidate in folder.iterdir():
+        try:
+            # 符号链接按链接本身删除，绝不跟随链接清理目标目录。
+            if candidate.is_symlink():
+                candidate.unlink()
+            elif candidate.is_dir():
+                shutil.rmtree(candidate)
+            else:
+                candidate.unlink()
+            deleted += 1
+        except OSError as exc:
+            failures += 1
+            log.warning('清理目录内容失败 %s：%s', candidate, exc)
+
+    return deleted, failures
+
+
 def cleanup_match_data(reason):
-    """清空卡片与截图目录图片；返回是否所有清理操作均成功。"""
+    """清空卡片与截图目录内容，保留目录本身；返回是否所有清理操作均成功。"""
     global cleanup_generation
     with cleanup_lock:
         with state_lock:
@@ -904,33 +927,17 @@ def cleanup_match_data(reason):
                     continue
                 seen.add(resolved)
 
-                for candidate in folder.rglob('*'):
-                    if (
-                        candidate.is_file()
-                        and candidate.suffix.lower() in SCREENSHOT_EXTENSIONS
-                    ):
-                        try:
-                            candidate.unlink()
-                            deleted += 1
-                        except OSError as exc:
-                            failures += 1
-                            log.warning(
-                                '清理截图失败 %s：%s',
-                                candidate,
-                                exc
-                            )
+                folder_deleted, folder_failures = _clear_directory_contents(folder)
+                deleted += folder_deleted
+                failures += folder_failures
             except OSError as exc:
                 failures += 1
-                log.warning(
-                    '扫描清理目录失败 %s：%s',
-                    folder,
-                    exc
-                )
+                log.warning('清空截图目录失败 %s：%s', folder, exc)
 
         with processed_files_lock:
             processed_files.clear()
         log.info(
-            '[对局清理] %s；已删除图片 %d 张，失败 %d 项',
+            '[对局清理] %s；已清理目录项 %d 项，失败 %d 项',
             reason,
             deleted,
             failures
