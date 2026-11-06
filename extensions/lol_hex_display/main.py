@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """lol_hex_display：F1 自由区域截图 + 本地 OCR + 海克斯强化卡片展示。Python 3.10+"""
 from __future__ import annotations
-import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
+import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue, stat
 from logging.handlers import QueueHandler, QueueListener
 from collections import OrderedDict
 from datetime import date, datetime
@@ -524,7 +524,7 @@ def _read_lcu_lockfile(client_dirs):
                 stat_result.st_ctime_ns,
                 getattr(stat_result, "st_ino", 0),
             )
-            is_file = lockfile.is_file()
+            is_file = stat.S_ISREG(stat_result.st_mode)
 
         with _lcu_lockfile_cache_lock:
             cached = _lcu_lockfile_cache.get(cache_key, _LCU_LOCKFILE_CACHE_MISS)
@@ -653,13 +653,15 @@ def _scan_lcu_process_wmi(client_path):
     return credentials_found, process_found, query_succeeded
 
 
-def _scan_lcu_credentials():
+def _scan_lcu_credentials(configured_path=None):
     """按 Lockfile、原生 WMI、客户端日志顺序查找并验证 LCU 凭据。"""
     if os.name != "nt":
         return None, "", None
 
-    config = read_config()
-    configured_path = str(config.get("lol_client_path", "")).strip().strip('"')
+    if configured_path is None:
+        config = read_config()
+        configured_path = config.get("lol_client_path", "")
+    configured_path = str(configured_path).strip().strip('"')
     if not configured_path:
         log.debug("[LCU调试] 未配置 lol_client_path")
         return None, "", None
@@ -755,6 +757,9 @@ def lcu_is_available():
 def lcu_recognition_worker():
     """优先验证缓存凭据；凭据失效或尚未识别时才扫描客户端进程/日志。"""
     global _lcu_credentials
+    # 安装路径没有运行时编辑入口，进程启动后固定使用首次读取的配置。
+    lcu_config = read_config()
+    configured_client_path = lcu_config.get("lol_client_path", "")
     log.info("客户端识别服务已启动")
     last_logged_status = None
     while not stop_event.is_set():
@@ -773,7 +778,7 @@ def lcu_recognition_worker():
 
         # 首次识别，或缓存凭据已失效时，才按 Lockfile、WMI、日志顺序重新发现凭据。
         if not valid:
-            credentials, source, account_data = _scan_lcu_credentials()
+            credentials, source, account_data = _scan_lcu_credentials(configured_client_path)
             valid = credentials is not None
 
         with _lcu_lock:
