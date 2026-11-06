@@ -447,8 +447,7 @@ def _scan_lcu_credentials():
     client_path = str(config.get("lol_client_path", "")).strip().strip('"')
     if not client_path:
         log.warning("[LCU诊断] config.txt 未配置 lol_client_path")
-        return None, ""
-    client_path = os.path.normcase(os.path.abspath(os.path.expandvars(client_path)))
+        return None, ""    client_path = os.path.normcase(os.path.abspath(os.path.expandvars(client_path)))
 
     ps = r"""
 $ErrorActionPreference = 'Stop'
@@ -540,14 +539,28 @@ def lcu_is_available():
 
 
 def lcu_recognition_worker():
-    """未识别时每 5 秒检查；识别成功后每 10 秒检查。"""
+    """优先验证缓存凭据；凭据失效或尚未识别时才扫描客户端进程/日志。"""
     global _lcu_credentials
     log.info("[LCU识别] 客户端识别线程已启动")
     while not stop_event.is_set():
-        credentials, source = _scan_lcu_credentials()
+        # 客户端运行期间端口和 Token 通常保持不变。
+        # 先验证缓存值，避免每 10 秒都启动 PowerShell 查询进程。
+        with _lcu_lock:
+            cached_credentials = _lcu_credentials
+            cached_source = _lcu_status.get("source") or "cache"
+
+        credentials = cached_credentials
+        source = cached_source
         valid, account_data = (False, None)
+
         if credentials:
             valid, account_data = _validate_lcu_credentials(*credentials)
+
+        # 首次识别，或缓存凭据已失效时，才重新扫描进程参数和客户端日志。
+        if not valid:
+            credentials, source = _scan_lcu_credentials()
+            if credentials:
+                valid, account_data = _validate_lcu_credentials(*credentials)
 
         with _lcu_lock:
             if valid:
@@ -897,8 +910,7 @@ def match_asset(text, is_mutated=False):
     if len(exact) == 1:
         asset = dict(exact[0])
         asset['display_name'] = (
-            f"已质变：{asset['name']}"
-            if is_mutated
+            f"已质变：{asset['name']}"            if is_mutated
             else asset['name']
         )
         return asset, ''
@@ -1347,7 +1359,6 @@ class ScreenshotSelector:
             )
 
             canvas.pack(fill='both', expand=True)
-
             canvas.create_image(
                 0,
                 0,
