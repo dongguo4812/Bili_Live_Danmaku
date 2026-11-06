@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
 from logging.handlers import QueueHandler, QueueListener
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from bar_integration import register_bar_routes
@@ -49,10 +49,6 @@ try:
 except (TypeError, ValueError):
     LOG_RETENTION_DAYS = 7
 
-LOG_DATE = datetime.now().strftime("%Y-%m-%d")
-LOG_FILE = LOG_DIR / f"{LOG_DATE}.log"
-
-
 def cleanup_old_logs():
     """按主项目的 retention_days 规则清理日期日志；0 表示不自动清理。"""
     if LOG_RETENTION_DAYS <= 0:
@@ -67,6 +63,42 @@ def cleanup_old_logs():
                 path.unlink()
         except (ValueError, OSError):
             continue
+
+
+class DailyFileHandler(logging.Handler):
+    """与主项目一致，每天写入独立的 YYYY-MM-DD.log 文件。"""
+
+    def __init__(self, directory: Path):
+        super().__init__()
+        self.directory = directory
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self._current_date = date.today()
+        self._stream = None
+        self._open_stream()
+
+    def _open_stream(self):
+        if self._stream:
+            self._stream.close()
+        path = self.directory / f"{self._current_date.isoformat()}.log"
+        self._stream = path.open("a", encoding="utf-8", buffering=1)
+
+    def emit(self, record):
+        try:
+            today = date.today()
+            if today != self._current_date:
+                self._current_date = today
+                self._open_stream()
+            self._stream.write(self.format(record) + "\\n")
+        except Exception:
+            self.handleError(record)
+
+    def close(self):
+        try:
+            if self._stream:
+                self._stream.close()
+                self._stream = None
+        finally:
+            super().close()
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -107,8 +139,9 @@ class SecretRedactionFilter(logging.Filter):
 
 # Hex 是独立进程，使用独立文件，避免与主项目同时写入同一个日志文件；
 # 文件命名、格式、级别和保留策略遵循主项目规范。
+cleanup_old_logs()
 log_queue = queue.SimpleQueue()
-file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8", delay=False)
+file_handler = DailyFileHandler(LOG_DIR)
 file_handler.setLevel(LOG_LEVEL)
 formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
@@ -136,7 +169,6 @@ queue_handler.setLevel(LOG_LEVEL)
 queue_handler.addFilter(SecretRedactionFilter())
 root_logger.addHandler(queue_handler)
 log_listener.start()
-cleanup_old_logs()
 
 # 程序退出时停止日志监听线程
 def stop_async_logging():
