@@ -46,6 +46,7 @@ class LolHexExtensionManager:
         self._elevated_managed = False
         self._elevated_process_handle: int | None = None
         self._elevated_pid: int | None = None
+        self._elevated_creation_time: int | None = None
         self._last_error = ""
         self.host = self._read_host()
         self.port = self._read_port()
@@ -118,6 +119,31 @@ class LolHexExtensionManager:
     def _read_pid(self) -> int | None:
         record = self._read_pid_record()
         return record["pid"] if record else None
+
+    @staticmethod
+    def _creation_time_from_handle(handle: int) -> int | None:
+        class FILETIME(ctypes.Structure):
+            _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+
+        try:
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetProcessTimes.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+                ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+            ]
+            kernel32.GetProcessTimes.restype = ctypes.c_bool
+            creation = FILETIME()
+            exit_time = FILETIME()
+            kernel_time = FILETIME()
+            user_time = FILETIME()
+            if not kernel32.GetProcessTimes(
+                handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                ctypes.byref(kernel_time), ctypes.byref(user_time),
+            ):
+                return None
+            return (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+        except Exception:
+            return None
 
     @staticmethod
     def _pid_is_running(pid: int, expected_creation_time: int | None = None) -> bool:
@@ -212,9 +238,14 @@ class LolHexExtensionManager:
         self._close_elevated_process_handle()
         record = self._read_pid_record()
         pid = self._elevated_pid or (record["pid"] if record else None)
+        expected_creation_time = self._elevated_creation_time
         self._elevated_pid = None
+        self._elevated_creation_time = None
         self._elevated_managed = False
-        if record is not None:
+        if (
+            record is not None
+            and (expected_creation_time is None or record["creation_time"] == expected_creation_time)
+        ):
             try:
                 if self._read_pid_record() == record:
                     self.pid_file.unlink(missing_ok=True)
@@ -357,6 +388,7 @@ class LolHexExtensionManager:
                 get_process_id.argtypes = [ctypes.c_void_p]
                 get_process_id.restype = ctypes.c_ulong
                 self._elevated_pid = int(get_process_id(self._elevated_process_handle)) or None
+                self._elevated_creation_time = self._creation_time_from_handle(self._elevated_process_handle)
                 self._elevated_managed = True
             else:
                 env = os.environ.copy()
@@ -446,6 +478,7 @@ class LolHexExtensionManager:
                 self._owned = False
                 self._close_elevated_process_handle()
                 self._elevated_pid = None
+                self._elevated_creation_time = None
                 self._elevated_managed = False
                 self.logger.info("已确认 LOL Hex 进程退出，PID：%s", pid or "未知")
                 return self.status()
