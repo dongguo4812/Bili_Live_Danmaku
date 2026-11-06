@@ -1015,11 +1015,11 @@ def asset_worker():
                 last = now
                 retry_delay = 60
             else:
-                # 保留原有失败退避时间，同时允许程序退出时提前结束等待。
+                # 失败后按递增退避时间重试，不再额外等待完整资源检查周期。
                 if stop_event.wait(retry_delay):
                     break
                 retry_delay = min(retry_delay * 5, 1800)
-                last = time.time()
+                last = time.time() - interval
 
         # 配置仅在启动时读取；直接等待下一项任务到期，不做配置轮询。
         next_version_check = last_version_check + version_interval
