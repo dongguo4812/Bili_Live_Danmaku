@@ -45,6 +45,7 @@ def cleanup_old_logs():
 
     patterns = (
         re.compile(r'app_(\d{4}-\d{2}-\d{2})\.log'),
+        re.compile(r'thread_dump_(\d{4}-\d{2}-\d{2})\.log'),
     )
 
     for path in LOG_DIR.iterdir():
