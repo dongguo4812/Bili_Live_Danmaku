@@ -83,6 +83,11 @@ def register_bar_routes(
     stop_event = threading.Event()
     game_end_event = threading.Event()
 
+    def stop_worker():
+        """通知自动刷新线程退出，并唤醒可能正在等待的线程。"""
+        stop_event.set()
+        game_end_event.set()
+
     def notify_game_ended():
         """由主程序的唯一 gameflow 监控线程通知：已检测到离开对局。"""
         game_end_event.set()
@@ -1118,4 +1123,4 @@ def register_bar_routes(
         "/api/bar-config、/api/bar-action；账号缓存目录=%s",
         accounts_dir,
     )
-    return notify_game_ended
+    return notify_game_ended, stop_worker
