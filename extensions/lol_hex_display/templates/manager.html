@@ -308,12 +308,17 @@ async function loadClientStatus() {
   }
 }
 
+let lastRenderedAt = null;
+
 async function load() {
   try {
-    const d = await (await fetch('/api/state')).json();
+    const d = await (await fetch('/api/state', {cache: 'no-store'})).json();
 
     document.getElementById('meta').textContent =
       `截图目录：${d.screenshot_dir}　｜　海克斯索引：${d.asset_count} 条`;
+
+    if (lastRenderedAt !== null && d.updated_at === lastRenderedAt) return;
+    lastRenderedAt = d.updated_at;
 
     const root = document.getElementById('cards');
     root.innerHTML = '';
