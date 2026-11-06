@@ -2911,7 +2911,11 @@ def lol_hex_extension_logs():
     log_dir = LOL_HEX_EXTENSION.extension_dir / "logs"
     try:
         candidates = sorted(
-            log_dir.glob("app_*.log"),
+            (
+                item for item in log_dir.glob("*.log")
+                if re.fullmatch(r"(?:app_)?\d{4}-\d{2}-\d{2}\.log", item.name)
+                and item.is_file()
+            ),
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
