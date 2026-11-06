@@ -729,8 +729,12 @@ def lcu_recognition_worker():
 
 
 
+_gameflow_last_error = None
+
+
 def get_gameflow_phase():
     """读取 LCU 当前对局阶段；记录失败原因，避免断连时误判对局结束。"""
+    global _gameflow_last_error
     credentials = get_lcu_credentials()
     if not credentials:
         return None
@@ -749,37 +753,30 @@ def get_gameflow_phase():
 
         # 正常轮询每10/30秒都会经过这里；完整响应仅保留在 DEBUG，
         # 避免持续写入重复的成功诊断日志。
-        log.debug(
-            '[LCU调试] gameflow-phase HTTP=%s，响应正文=%r',
-            response.status_code,
-            response.text[:200]
-        )
-
         response.raise_for_status()
         phase = response.json()
 
         if isinstance(phase, str):
             phase = phase.strip()
             if phase:
-                # LCU 返回字符串 "None" 表示当前没有对局流程，是有效状态；
-                # 只有请求失败或响应格式异常才返回 Python None。
+                if _gameflow_last_error is not None:
+                    log.info("LCU 对局阶段接口已恢复")
+                    _gameflow_last_error = None
+                # LCU 返回字符串 "None" 表示当前没有对局流程，是有效状态。
                 return 'None' if phase.lower() == 'none' else phase
 
-        log.debug(
-            '[LCU调试] 返回值不是有效阶段字符串：类型=%s，值=%r',
-            type(phase).__name__,
-            phase
-        )
+        error = f"无效阶段响应：{type(phase).__name__}"
+        if error != _gameflow_last_error:
+            log.warning("LCU 对局阶段读取异常：%s", error)
+        _gameflow_last_error = error
         return None
 
     except Exception as exc:
-        log.debug(
-            '[LCU调试] 读取 gameflow-phase 失败：%s: %s',
-            type(exc).__name__,
-            exc
-        )
+        error = f"{type(exc).__name__}: {exc}"
+        if error != _gameflow_last_error:
+            log.warning("LCU 对局阶段读取失败：%s", error)
+        _gameflow_last_error = error
         return None
-
 
 
 SCREENSHOT_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff'}
@@ -1229,7 +1226,7 @@ def write_pid_file():
     temp_path = PID_FILE.with_suffix('.pid.tmp')
     temp_path.write_text(str(os.getpid()), encoding='ascii')
     os.replace(temp_path, PID_FILE)
-    log.info('Hex 进程 PID 已记录：%s', os.getpid())
+    log.debug('Hex 进程 PID 已记录：%s', os.getpid())
 
 
 def remove_pid_file():
@@ -1237,7 +1234,7 @@ def remove_pid_file():
     try:
         if PID_FILE.is_file() and PID_FILE.read_text(encoding='ascii').strip() == str(os.getpid()):
             PID_FILE.unlink()
-            log.info('Hex PID 文件已清理')
+            log.debug('Hex PID 文件已清理')
     except OSError:
         log.exception('清理 Hex PID 文件失败')
 
@@ -1445,9 +1442,7 @@ class ScreenshotSelector:
                     self.cancel_requested.clear()
                 else:
                     self.cancel_requested.set()
-                    log.info(
-                        '[热键] F1 已触发：请求取消当前截图'
-                    )
+                    log.debug("F1 已触发：取消截图任务")
                     return
 
             # 启动新截图任务
@@ -1467,15 +1462,12 @@ class ScreenshotSelector:
 
             try:
                 thread.start()
-                log.debug(
-                    '[热键] F1 已触发：启动截图任务，任务编号=%s',
-                    generation
-                )
+                log.debug("F1 已触发：启动截图任务，任务编号=%s", generation)
             except Exception:
                 self.active = False
                 self.thread = None
                 self.cancel_requested.clear()
-                log.exception('[截图调试] 截图线程启动失败')
+                log.exception('截图线程启动失败')
 
     def capture(self):
         """捕获整个虚拟桌面。"""
@@ -1609,10 +1601,7 @@ class ScreenshotSelector:
             root.mainloop()
 
         except Exception as e:
-            log.exception(
-                '[截图调试] 截图任务异常退出：%s',
-                e
-            )
+            log.exception("截图任务异常退出：%s", e)
 
         finally:
             # 无论正常结束还是异常退出，都必须复位状态。
@@ -1887,7 +1876,7 @@ def main():
             try:
                 import keyboard
                 keyboard.remove_hotkey(F1_HOTKEY_HANDLE)
-                log.info('F1 全局热键已注销')
+                log.debug('F1 全局热键已注销')
             except Exception:
                 log.exception('注销 F1 全局热键失败')
         try:
