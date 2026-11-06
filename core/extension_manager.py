@@ -213,9 +213,8 @@ class LolHexExtensionManager:
         script = self.extension_dir / "main.py"
         if not script.is_file():
             raise FileNotFoundError("未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。")
-        python = os.environ.get("LOL_HEX_PYTHON", "").strip()
-        command = [python, str(script)] if python else [sys.executable, str(script)]
-        return [*command, "--config", str(self.config_path)]
+        # 源码模式下，扩展必须复用主程序当前解释器，避免混用 venv 与系统 Python。
+        return [sys.executable, str(script), "--config", str(self.config_path)]
 
     def start(self) -> dict[str, Any]:
         with self._lock:
