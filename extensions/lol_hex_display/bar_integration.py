@@ -402,47 +402,47 @@ def register_bar_routes(
                 old, matches_path, migrated = load_account_cache(
                     puuid, account, platform
                 )
-    
+
                 if not isinstance(old, dict):
                     old = {}
-    
+
                 old_matches = old.get("matches", [])
-    
+
                 if not isinstance(old_matches, list):
                     old_matches = []
-    
+
                 indexed = {
                     str(item.get("gameId")): item
                     for item in old_matches
                     if isinstance(item, dict) and item.get("gameId")
                 }
-    
+
                 previously_cached_ids = set(indexed.keys())
                 newly_seen_ids = set()
                 updated_match_ids = set()
                 parsed_count = 0
                 unable_to_locate_count = 0
-    
+
                 for game in games:
                     try:
                         game_id = str(game.get("gameId") or "")
-    
+
                         if not game_id:
                             continue
-    
+
                         participants = game.get("participants") or []
                         identities = game.get("participantIdentities") or []
                         my_pid = None
-    
+
                         for identity in identities:
                             player = identity.get("player") or {}
-    
+
                             if player.get("puuid") == puuid:
                                 my_pid = identity.get("participantId")
                                 break
-    
+
                         mine = None
-    
+
                         if my_pid is not None:
                             mine = next(
                                 (
@@ -453,7 +453,7 @@ def register_bar_routes(
                             )
                         elif len(participants) == 1:
                             mine = participants[0]
-    
+
                         if not mine:
                             unable_to_locate_count += 1
                             log.debug(
@@ -461,11 +461,11 @@ def register_bar_routes(
                                 game_id,
                             )
                             continue
-    
+
                         stats = mine.get("stats") or {}
                         start_ms = safe_int(game.get("gameCreation"))
                         duration = safe_int(game.get("gameDuration"))
-    
+
                         match_record = {
                             "gameId": game_id,
                             "startMs": start_ms,
@@ -484,21 +484,21 @@ def register_bar_routes(
                             "assists": safe_int(stats.get("assists")),
                         }
                         previous_record = indexed.get(game_id)
-    
+
                         if previous_record != match_record:
                             indexed[game_id] = match_record
-    
+
                             if game_id in previously_cached_ids:
                                 updated_match_ids.add(game_id)
-    
+
                         parsed_count += 1
-    
+
                         if game_id not in previously_cached_ids:
                             newly_seen_ids.add(game_id)
-    
+
                     except (TypeError, ValueError, AttributeError):
                         log.exception("[战绩条诊断] 解析单局战绩失败")
-    
+
                 # 本地对局缓存最多保留最近 100 局；每个账号独立计算。
                 cached_matches = sorted(
                     indexed.values(),
@@ -509,7 +509,7 @@ def register_bar_routes(
                     reverse=True,
                 )
                 evicted_count = max(0, len(cached_matches) - CACHE_MATCH_LIMIT)
-    
+
                 if evicted_count:
                     evicted_matches = cached_matches[CACHE_MATCH_LIMIT:]
                     log.info(
@@ -520,13 +520,13 @@ def register_bar_routes(
                         [str(item.get("gameId") or "") for item in evicted_matches[:5]],
                     )
                     cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
-    
+
                 # 只有对局数据实际新增或变化（包括缓存上限清理）时，
                 # 才重写账号缓存并更新时间；普通轮询不触碰战绩文件。
                 match_data_changed = bool(
                     newly_seen_ids or updated_match_ids or evicted_count
                 )
-    
+
                 if match_data_changed:
                     # 保留手动批次边界，并清除旧缓存中的无用字段。
                     old.pop("manual_pins", None)
@@ -541,10 +541,10 @@ def register_bar_routes(
                         "fetched_at": time.time(),
                     })
                     write_json(matches_path, old)
-    
+
                 # 活动账号指针只在账号信息发生变化时写入。
                 save_active_account(puuid, account, platform)
-    
+
             message = (
                 f"战绩刷新完成，账号 {account}，缓存 {len(cached_matches)} 局，"
                 f"新增 {len(newly_seen_ids)} 局，清理最旧 {evicted_count} 局"
@@ -1056,16 +1056,16 @@ def register_bar_routes(
             with cache_lock:
                 active = get_active_account()
                 puuid = str(active.get("puuid") or "").strip()
-    
+
                 if not puuid:
                     return jsonify({
                         "ok": False,
                         "error": "尚未识别当前游戏账号，请等待战绩刷新完成后再开启新批次",
                     }), 409
-    
+
                 matches_path = account_cache_path(puuid)
                 saved = read_json(matches_path, {})
-    
+
                 if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
                     saved = {
                         "puuid": puuid,
@@ -1074,16 +1074,16 @@ def register_bar_routes(
                         "matches": [],
                         "manual_boundary_ms": 0,
                     }
-    
+
                 now_ms = int(time.time() * 1000)
                 saved["manual_boundary_ms"] = now_ms
-    
+
                 # 兼容并清理旧缓存中的无用字段，不影响有效的时间边界。
                 saved.pop("manual_pins", None)
-    
+
                 write_json(matches_path, saved)
-    
-                with lock:
+
+            with lock:
                 status["message"] = "已开启新批次，等待下一局结算"
 
             log.info(
