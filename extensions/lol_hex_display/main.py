@@ -1108,12 +1108,14 @@ def match_asset(text, is_mutated=False):
     if not text:
         return None, 'OCR 预处理后名称为空'
 
+    # 资源索引只整体替换、不原地修改；保留当前字典引用即可，
+    # 无需每次匹配都复制完整 values 列表。
     with assets_lock:
-        items = list(assets.values())
+        items = assets
 
     # 优先按原始名称精确匹配，保留标点差异。
     exact_raw = [
-        a for a in items
+        a for a in items.values()
         if str(a['name']).strip() == text
     ]
 
