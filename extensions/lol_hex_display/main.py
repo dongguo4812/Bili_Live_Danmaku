@@ -483,11 +483,12 @@ def _scan_lcu_process_wmi(client_path):
     if os.name != "nt":
         return None
 
-    import pythoncom
-    import win32com.client
-
+    pythoncom = None
     initialized = False
     try:
+        import pythoncom
+        import win32com.client
+
         pythoncom.CoInitialize()
         initialized = True
 
