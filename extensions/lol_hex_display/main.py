@@ -447,8 +447,7 @@ def _scan_lcu_credentials():
     client_path = str(config.get("lol_client_path", "")).strip().strip('"')
     if not client_path:
         log.warning("[LCU诊断] config.txt 未配置 lol_client_path")
-        return None, ""
-    client_path = os.path.normcase(os.path.abspath(os.path.expandvars(client_path)))
+        return None, ""    client_path = os.path.normcase(os.path.abspath(os.path.expandvars(client_path)))
     ps = r"""
 $ErrorActionPreference = 'Stop'
 $items = Get-CimInstance Win32_Process -Filter "Name = 'LeagueClientUx.exe'"
@@ -897,8 +896,8 @@ def match_asset(text, is_mutated=False):
             else asset['name']
         )
         return asset, ''
-    # 原有规范化精确匹配及兼容匹配规则保持不变。
-    norm = norm_name(text)
+
+    # 原有规范化精确匹配及兼容匹配规则保持不变。    norm = norm_name(text)
 
     # 完全匹配
     exact = [
@@ -1347,8 +1346,8 @@ class ScreenshotSelector:
                 f"{img.width}x{img.height}"
                 f"+{mon['left']}+{mon['top']}"
             )
-            tkimg = ImageTk.PhotoImage(img)
 
+            tkimg = ImageTk.PhotoImage(img)
             canvas = tk.Canvas(
                 root,
                 width=img.width,
