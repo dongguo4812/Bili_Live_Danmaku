@@ -57,8 +57,14 @@ def cleanup_old_logs():
 
     cutoff = datetime.now().date() - timedelta(days=LOG_RETENTION_DAYS - 1)
     for path in LOG_DIR.glob("*.log"):
+        match = re.fullmatch(
+            r"(?:app_|thread_dump_)?(\\d{4}-\\d{2}-\\d{2})",
+            path.stem,
+        )
+        if not match:
+            continue
         try:
-            file_date = datetime.strptime(path.stem, "%Y-%m-%d").date()
+            file_date = datetime.strptime(match.group(1), "%Y-%m-%d").date()
             if file_date < cutoff:
                 path.unlink()
         except (ValueError, OSError):
@@ -179,11 +185,6 @@ def stop_async_logging():
         pass
 
 atexit.register(stop_async_logging)
-
-
-
-# 项目日志对象
-log = logging.getLogger('lol_hex_display')
 
 
 
@@ -1880,11 +1881,6 @@ def main():
     log.info('lol_hex_display 启动；截图目录：%s', screenshot_dir())
     threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
     threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
-    cfg_for_gameflow = read_config()
-        # 程序启动时只输出一次客户端安装目录
-    client_path = str(
-        cfg_for_gameflow.get('lol_client_path', '')
-    ).strip().strip('"')
     threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
     threading.Thread(target=gameflow_worker,daemon=True,name='GameflowWatcher').start()
     if os.name == 'nt' and not start_hotkey():
