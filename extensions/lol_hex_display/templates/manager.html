@@ -372,8 +372,6 @@ let lastBarPreviewSignature = null;
 
 async function loadBarConfig() {
   const status = document.getElementById('barAdminStatus');
-  status.textContent = '正在保存……';
-  status.style.color = '#e0ad62';
 
   try {
     const response = await fetch('/api/bar-config', {cache: 'no-store'});
@@ -646,6 +644,8 @@ async function saveBarConfig() {
   };
 
   const status = document.getElementById('barAdminStatus');
+  status.textContent = '正在保存……';
+  status.style.color = '#e0ad62';
 
   try {
     const response = await fetch('/api/bar-config', {
