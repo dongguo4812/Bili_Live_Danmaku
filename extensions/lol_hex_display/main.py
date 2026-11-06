@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """lol_hex_display：F1 自由区域截图 + 本地 OCR + 海克斯强化卡片展示。Python 3.10+"""
 from __future__ import annotations
-import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue, stat
+import argparse, ctypes, subprocess, hashlib, heapq, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue, stat
 from logging.handlers import QueueHandler, QueueListener
 from collections import OrderedDict
 from datetime import date, datetime
@@ -697,26 +697,42 @@ def _scan_lcu_credentials(configured_path=None):
         log.debug("[LCU调试] 当前未运行英雄联盟客户端，跳过历史客户端日志扫描")
         return None, "", None
 
-    log_files = []
+    max_log_candidates = 3
+    latest_log_files = []
+    log_file_count = 0
+    sequence = 0
+
+    # 遍历目录时只保留修改时间最新的 3 个候选，避免保存并完整排序全部日志路径。
     for directory in client_dirs:
         try:
-            log_files.extend(directory.glob("*_LeagueClientUx.log"))
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if not entry.name.endswith("_LeagueClientUx.log"):
+                        continue
+                    log_file_count += 1
+                    try:
+                        modified_at = entry.stat().st_mtime
+                    except OSError as exc:
+                        log.debug("[LCU调试] 获取客户端日志修改时间失败 %s：%s", entry.path, exc)
+                        continue
+
+                    sequence += 1
+                    candidate = (modified_at, sequence, Path(entry.path))
+                    if len(latest_log_files) < max_log_candidates:
+                        heapq.heappush(latest_log_files, candidate)
+                    elif modified_at > latest_log_files[0][0]:
+                        heapq.heapreplace(latest_log_files, candidate)
         except OSError as exc:
             log.debug("[LCU调试] 枚举客户端日志失败 %s：%s", directory, exc)
 
-    try:
-        log_files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
-    except OSError as exc:
-        log.debug("[LCU调试] 排序客户端日志失败：%s", exc)
-
-    max_log_candidates = 3
-    if len(log_files) > max_log_candidates:
+    if log_file_count > max_log_candidates:
         log.debug(
             "[LCU调试] 客户端日志共找到 %s 个，仅检查最新 %s 个",
-            len(log_files), max_log_candidates,
+            log_file_count, max_log_candidates,
         )
 
-    for log_file in log_files[:max_log_candidates]:
+    latest_log_files.sort(key=lambda item: item[0], reverse=True)
+    for _, _, log_file in latest_log_files:
         try:
             with log_file.open("r", encoding="utf-8", errors="replace") as stream:
                 content = stream.read(64 * 1024)
