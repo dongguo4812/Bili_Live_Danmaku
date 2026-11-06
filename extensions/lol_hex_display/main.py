@@ -1349,7 +1349,10 @@ def remove_pid_file():
         if not isinstance(payload, dict) or payload.get('pid') != os.getpid():
             return
         current_creation_time = _current_process_creation_time()
-        if current_creation_time is not None and payload.get('creation_time') != current_creation_time:
+        if os.name == 'nt':
+            if current_creation_time is None or payload.get('creation_time') != current_creation_time:
+                return
+        elif payload.get('creation_time') is not None:
             return
         PID_FILE.unlink()
         log.debug('Hex PID 文件已清理')
