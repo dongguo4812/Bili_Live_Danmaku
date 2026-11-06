@@ -9,8 +9,25 @@ echo       B站直播互动控制中心 - 文件夹版打包
 echo ========================================
 echo.
 
-if not exist ".venv\Scripts\python.exe" (
-    echo [错误] 未找到项目虚拟环境，请先运行 start.bat 安装依赖。
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 未找到系统 Python，请先安装 Python 3.10+ 并确保 python 命令可用。
+    pause
+    exit /b 1
+)
+
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 当前 python 不是 Python 3.10 或更高版本。
+    pause
+    exit /b 1
+)
+
+python -c "import PyInstaller, flask, requests, aiohttp, qrcode, bilibili_api, websocket, edge_tts, obsws_python, selenium, keyboard, mss, rapidocr_onnxruntime" >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 系统 Python 缺少项目打包依赖。
+    echo 请先手动执行：python -m pip install -r requirements.txt
+    echo 并确保已安装 PyInstaller：python -m pip install pyinstaller
     pause
     exit /b 1
 )
@@ -36,16 +53,17 @@ if exist "extensions\lol_hex_display\data" xcopy "extensions\lol_hex_display\dat
 if exist "extensions\lol_hex_display\screenshots" xcopy "extensions\lol_hex_display\screenshots" "extensions\lol_hex_display\dist\lol_hex_display\screenshots" /E /I /Y >nul
 if exist "extensions\lol_hex_display\logs" xcopy "extensions\lol_hex_display\logs" "extensions\lol_hex_display\dist\lol_hex_display\logs" /E /I /Y >nul
 
-echo [2/4] 安装/检查 PyInstaller...
-".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
+echo [2/4] 检查 PyInstaller...
+python -c "import PyInstaller" >nul 2>nul
 if errorlevel 1 (
-    echo [错误] PyInstaller 安装失败。
+    echo [错误] 系统 Python 未安装 PyInstaller。
+    echo 请手动执行：python -m pip install pyinstaller
     pause
     exit /b 1
 )
 
 echo [3/4] 正在生成 EXE...
-".venv\Scripts\python.exe" -m PyInstaller ^
+python -m PyInstaller ^
   --noconfirm ^
   --clean ^
   --onedir ^
