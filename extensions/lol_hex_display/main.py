@@ -1032,9 +1032,14 @@ def asset_worker():
                     '检测到游戏版本变化：%s -> %s，立即刷新索引',
                     version, current
                 )
-                update_assets(True)
-                last = now
-                retry_delay = 60
+                if update_assets(True):
+                    last = now
+                    retry_delay = 60
+                else:
+                    # 版本变化触发的更新失败也进入统一退避调度；
+                    # 将下一次资源检查安排在 retry_delay 后，避免等待完整小时。
+                    last = now + retry_delay - interval
+                    retry_delay = min(retry_delay * 5, 1800)
 
             if current:
                 version = current
