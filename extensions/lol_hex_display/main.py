@@ -696,8 +696,17 @@ def gameflow_worker():
     log.info('[对局阶段] gameflow_worker 已启动')
 
     state1_phases = {'Matchmaking', 'ReadyCheck', 'ChampSelect'}
+    gaming_phases = {
+        'GameStart',
+        'InProgress',
+        'WaitingForStats',
+        'PreEndOfGame',
+        'EndOfGame',
+        'Reconnect',
+    }
     last_phase = None
     last_monitor_state = None
+    was_gaming = False
     cleanup_completed = False
 
     while not stop_event.is_set():
@@ -719,6 +728,19 @@ def gameflow_worker():
                         phase
                     )
 
+                is_gaming = phase in gaming_phases
+                if was_gaming and not is_gaming:
+                    log.info(
+                        '[对局阶段] 检测到离开对局：%s -> %s；通知战绩条立即刷新',
+                        last_phase or '未知阶段',
+                        phase
+                    )
+                    try:
+                        notify_bar_game_ended()
+                    except Exception:
+                        log.exception('[战绩条] 发送对局结束通知失败')
+
+                was_gaming = is_gaming
                 monitor_state = '状态1' if phase in state1_phases else '状态2'
 
                 if monitor_state != last_monitor_state:
@@ -988,7 +1010,7 @@ def request_server_shutdown():
         threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
 
 atexit.register(remove_pid_file)
-register_bar_routes(
+notify_bar_game_ended = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
