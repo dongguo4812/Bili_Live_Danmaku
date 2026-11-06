@@ -14,8 +14,8 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
-DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; PROCESSED = SHOTS / 'processed'; LOG_DIR = ROOT / 'logs'
-for p in (DATA, ICON_DIR, SHOTS, PROCESSED, LOG_DIR): p.mkdir(parents=True, exist_ok=True)
+DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; LOG_DIR = ROOT / 'logs'
+for p in (DATA, ICON_DIR, SHOTS, LOG_DIR): p.mkdir(parents=True, exist_ok=True)
 _config_parser = argparse.ArgumentParser(add_help=False)
 _config_parser.add_argument("--config", type=Path)
 _config_args, _ = _config_parser.parse_known_args()
@@ -917,22 +917,14 @@ def cleanup_match_data(reason):
 
         deleted = 0
         failures = 0
-        folders = (screenshot_dir(), PROCESSED)
-        seen = set()
-
-        for folder in folders:
-            try:
-                resolved = folder.resolve()
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-
-                folder_deleted, folder_failures = _clear_directory_contents(folder)
-                deleted += folder_deleted
-                failures += folder_failures
-            except OSError as exc:
-                failures += 1
-                log.warning('清空截图目录失败 %s：%s', folder, exc)
+        folder = screenshot_dir()
+        try:
+            folder_deleted, folder_failures = _clear_directory_contents(folder)
+            deleted += folder_deleted
+            failures += folder_failures
+        except OSError as exc:
+            failures += 1
+            log.warning('清空截图目录失败 %s：%s', folder, exc)
 
         with processed_files_lock:
             processed_files.clear()
@@ -943,6 +935,31 @@ def cleanup_match_data(reason):
             failures
         )
         return failures == 0
+
+
+def cleanup_legacy_processed_directory():
+    """移除旧版本创建的截图备份目录；不触碰当前配置的截图目录。"""
+    legacy = SHOTS / 'processed'
+    try:
+        configured = screenshot_dir().resolve()
+        legacy_resolved = legacy.resolve()
+
+        # 用户可能将截图目录配置在旧目录内部；这种情况下不能删除它。
+        if configured == legacy_resolved or configured.is_relative_to(legacy_resolved):
+            return
+
+        if legacy.is_symlink():
+            legacy.unlink()
+        elif legacy.is_dir():
+            shutil.rmtree(legacy)
+        elif legacy.exists():
+            legacy.unlink()
+        else:
+            return
+
+        log.info('[启动清理] 已移除旧版截图备份目录')
+    except OSError as exc:
+        log.warning('[启动清理] 移除旧版截图备份目录失败：%s', exc)
 
 
 def gameflow_worker():
@@ -1252,9 +1269,6 @@ def process_screenshot(path):
         state['updated_at'] = time.time()
         atomic_json(STATE_PATH, state)
 
-    try:
-        if path.exists(): shutil.copy2(path,PROCESSED/path.name)
-    except Exception: pass
     log_method = log.error if err.startswith('OCR 初始化或识别失败：') else log.info
     log_method(
         '截图识别：%s | OCR=%s | 匹配=%s | 原因=%s',
@@ -1316,7 +1330,6 @@ def screenshot_watcher():
                 ]
                 files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
-                    # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
                     process_screenshot(p)
                     _mark_processed_file(p.name)
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
@@ -1522,11 +1535,6 @@ def api_action():
                 if candidate.parent.resolve()==screenshot_dir().resolve() and candidate.is_file():
                     candidate.unlink(); deleted.append(str(candidate))
             except OSError as e: failures.append(f'{candidate}: {e}')
-            # Keep the legacy processed copy in sync too, if present.
-            try:
-                archived=PROCESSED/candidate.name
-                if archived.is_file(): archived.unlink()
-            except OSError as e: failures.append(f'{PROCESSED/candidate.name}: {e}')
         if removed: _forget_processed_file(removed[0].name)
     return jsonify({'ok':True,'deleted_count':len(deleted),'delete_failures':failures})
 
@@ -1566,11 +1574,10 @@ def hex_asset(aid):
     return ('',404)
 @app.get('/asset/screenshot/<path:filename>')
 def screenshot_asset(filename):
-    p=screenshot_dir()/Path(filename).name
-    if p.is_file(): return send_from_directory(p.parent,p.name)
-    p=PROCESSED/Path(filename).name
-    if p.is_file(): return send_from_directory(p.parent,p.name)
-    return ('',404)
+    p = screenshot_dir() / Path(filename).name
+    if p.is_file():
+        return send_from_directory(p.parent, p.name)
+    return ('', 404)
 
 
 
@@ -2030,7 +2037,9 @@ def main():
                     log.debug('设置控制台模式失败，Windows 错误码：%s', error_code)
         except Exception as e:
             log.debug('设置控制台模式失败：%s', e)
-    log.info('lol_hex_display 启动；截图目录：%s', screenshot_dir())
+    screenshot_folder = screenshot_dir()
+    cleanup_legacy_processed_directory()
+    log.info('lol_hex_display 启动；截图目录：%s', screenshot_folder)
     threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
     threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
     threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
