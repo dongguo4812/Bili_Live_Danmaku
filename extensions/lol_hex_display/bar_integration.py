@@ -17,7 +17,6 @@ from flask import Blueprint, jsonify, render_template, request
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 log = logging.getLogger(__name__)
 
-# 后台自动刷新间隔（秒）
 # 普通空闲轮询、对局结束追赶窗口及追赶周期（秒）
 IDLE_REFRESH_INTERVAL = 30
 POST_GAME_CHASE_WINDOW = 5 * 60
@@ -322,12 +321,12 @@ def register_bar_routes(
             message = "英雄联盟客户端尚未识别，暂不刷新战绩；现有缓存保持不变"
             with lock:
                 status["message"] = message
-            return False, message
+            return False, message, False
         if lcu_is_available is not None and not lcu_is_available():
             message = "LCU 凭据尚未验证通过，暂不刷新战绩；现有缓存保持不变"
             with lock:
                 status["message"] = message
-            return False, message
+            return False, message, False
         with lock:
             if status["busy"]:
                 return False, "战绩刷新正在进行，请稍后再试", False
