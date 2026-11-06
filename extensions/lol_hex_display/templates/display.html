@@ -30,9 +30,13 @@ function qualityClass(level){
     })[level]||''
 }
 
+let lastRenderedAt=null;
+
 async function load(){
     try{
-        const d=await(await fetch('/api/state')).json();
+        const d=await(await fetch('/api/state',{cache:'no-store'})).json();
+        if(lastRenderedAt!==null && d.updated_at===lastRenderedAt) return;
+        lastRenderedAt=d.updated_at;
         const root=document.getElementById('cards');
         root.innerHTML='';
 
