@@ -1894,6 +1894,8 @@ class ScreenshotSelector:
             crop = img.crop(box)
 
             folder = screenshot_dir()
+            # 目录可能在程序运行期间被手动删除；只在实际保存截图时按需重建。
+            folder.mkdir(parents=True, exist_ok=True)
 
             stamp = (
                 datetime.now().strftime('%Y%m%d_%H%M%S_')
