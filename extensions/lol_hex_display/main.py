@@ -1426,43 +1426,12 @@ def api_runtime_status():
 
 @app.get('/api/state')
 def api_state():
-    # 只为缺少等级的旧卡片查询资源索引；补齐后写回 state.json，
-    # 后续轮询无需重复查询已经补齐的卡片。
     with state_lock:
-        missing_ids = {
-            str(card.get('augment_id') or '')
-            for card in state['cards']
-            if not card.get('level') and card.get('augment_id')
-        }
-
-    with assets_lock:
-        asset_levels = {}
-        for aid in missing_ids:
-            item = assets.get(aid)
-            if isinstance(item, dict):
-                level = str(item.get('level') or '')
-                if level:
-                    asset_levels[aid] = level
-        count = len(assets)
-
-    with state_lock:
-        changed = False
-        if asset_levels:
-            for card in state['cards']:
-                if not card.get('level'):
-                    level = asset_levels.get(
-                        str(card.get('augment_id') or '')
-                    )
-                    if level:
-                        card['level'] = level
-                        changed = True
-
-        if changed:
-            # 等级补齐属于旧卡片数据迁移，不改变卡片更新时间。
-            atomic_json(STATE_PATH, state)
-
         cards = [dict(card) for card in state['cards']]
         updated_at = state.get('updated_at', 0)
+
+    with assets_lock:
+        count = len(assets)
 
     return jsonify({
         'cards': cards,
