@@ -241,8 +241,8 @@ def register_bar_routes(
             if not isinstance(migrated.get("matches"), list):
                 migrated["matches"] = []
 
-            if not isinstance(migrated.get("manual_pins"), list):
-                migrated["manual_pins"] = []
+            # 清除旧版无实际用途的手动批次历史列表。
+            migrated.pop("manual_pins", None)
 
             migrated["manual_boundary_ms"] = safe_int(
                 migrated.get("manual_boundary_ms")
@@ -276,7 +276,6 @@ def register_bar_routes(
             "platform": platform,
             "matches": [],
             "manual_boundary_ms": 0,
-            "manual_pins": [],
         }
 
         return fresh, path, False
@@ -499,7 +498,8 @@ def register_bar_routes(
                 )
                 cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
 
-            # 保留该账号自己的手动批次边界和历史标记。
+            # 保留手动批次边界，并清除旧缓存中的无用字段。
+            old.pop("manual_pins", None)
             old.update({
                 "puuid": puuid,
                 "account": account,
@@ -507,11 +507,6 @@ def register_bar_routes(
                 "matches": cached_matches,
                 "manual_boundary_ms": safe_int(
                     old.get("manual_boundary_ms")
-                ),
-                "manual_pins": (
-                    old.get("manual_pins")
-                    if isinstance(old.get("manual_pins"), list)
-                    else []
                 ),
                 "fetched_at": time.time(),
             })
@@ -1071,19 +1066,13 @@ def register_bar_routes(
                     "platform": str(active.get("platform") or ""),
                     "matches": [],
                     "manual_boundary_ms": 0,
-                    "manual_pins": [],
                 }
 
             now_ms = int(time.time() * 1000)
             saved["manual_boundary_ms"] = now_ms
 
-            pins = saved.get("manual_pins", [])
-
-            if not isinstance(pins, list):
-                pins = []
-
-            pins.append(now_ms)
-            saved["manual_pins"] = pins
+            # 兼容并清理旧缓存中的无用字段，不影响有效的时间边界。
+            saved.pop("manual_pins", None)
 
             write_json(matches_path, saved)
 
