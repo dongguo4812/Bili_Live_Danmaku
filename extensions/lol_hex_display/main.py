@@ -368,11 +368,10 @@ def _update_assets_impl(force=False):
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
             if not url: continue
+            # 本地文件存在且来源 URL 未变化时直接复用，避免每轮更新重复读取并校验全部 PNG。
+            # 若图标损坏，可删除对应文件（或清空本地图标目录）后手动更新，缺失文件会自动重新下载。
             if dest.exists() and icon_sources.get(aid)==url:
-                try:
-                    with Image.open(dest) as im: im.verify()
-                    continue
-                except Exception: pass
+                continue
             try:
                 ir=requests.get(url,timeout=15,headers={'User-Agent':'Mozilla/5.0'}); ir.raise_for_status()
                 with Image.open(io.BytesIO(ir.content)) as im:
