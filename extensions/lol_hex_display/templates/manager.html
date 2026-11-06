@@ -370,25 +370,16 @@ async function load() {
 
 let lastBarPreviewSignature = null;
 
-async function loadBarAdmin() {
+async function loadBarConfig() {
+  const status = document.getElementById('barAdminStatus');
+  status.textContent = '正在保存……';
+  status.style.color = '#e0ad62';
+
   try {
-    const [configResponse, snapshotResponse] = await Promise.all([
-      fetch('/api/bar-config', {cache: 'no-store'}),
-      fetch('/api/snapshot', {cache: 'no-store'})
-    ]);
+    const response = await fetch('/api/bar-config', {cache: 'no-store'});
+    if (!response.ok) throw new Error('战绩条配置读取失败');
 
-    if (!configResponse.ok || !snapshotResponse.ok) {
-      throw new Error('战绩条接口请求失败');
-    }
-
-    const config = await configResponse.json();
-    const snapshot = await snapshotResponse.json();
-
-    const fetchedAt = Number(snapshot.fetched_at || 0);
-    const updatedEl = document.getElementById('barLastUpdated');
-    updatedEl.textContent = fetchedAt > 0 && Number.isFinite(fetchedAt)
-      ? `最近更新时间：${new Date(fetchedAt * 1000).toLocaleString()}`
-      : '最近更新时间：暂无战绩数据更新记录';
+    const config = await response.json();
 
     document.getElementById('barMaxGames').value =
       config.max_games ?? 5;
@@ -398,6 +389,27 @@ async function loadBarAdmin() {
 
     document.getElementById('barGapMin').value =
       config.batch_gap_min ?? 100000;
+  } catch (error) {
+    status.textContent = '配置读取失败：' + error.message;
+    status.style.color = '#e08b8b';
+  }
+}
+
+async function loadBarAdmin() {
+  try {
+    const snapshotResponse = await fetch('/api/snapshot', {cache: 'no-store'});
+
+    if (!snapshotResponse.ok) {
+      throw new Error('战绩条数据接口请求失败');
+    }
+
+    const snapshot = await snapshotResponse.json();
+
+    const fetchedAt = Number(snapshot.fetched_at || 0);
+    const updatedEl = document.getElementById('barLastUpdated');
+    updatedEl.textContent = fetchedAt > 0 && Number.isFinite(fetchedAt)
+      ? `最近更新时间：${new Date(fetchedAt * 1000).toLocaleString()}`
+      : '最近更新时间：暂无战绩数据更新记录';
 
     const preview = document.getElementById('barAdminPreview');
     const games = Array.isArray(snapshot.games) ? snapshot.games : [];
@@ -644,13 +656,16 @@ async function saveBarConfig() {
 
     const result = await response.json();
 
-    status.textContent = result.ok
-      ? '战绩条配置已保存'
-      : (result.error || '保存失败');
-
-    if (result.ok) loadBarAdmin();
+    if (result.ok) {
+      status.textContent = '战绩条配置已保存';
+      status.style.color = '#55c98a';
+    } else {
+      status.textContent = '保存失败：' + (result.error || '服务端未能保存配置');
+      status.style.color = '#e08b8b';
+    }
   } catch (error) {
     status.textContent = '保存失败：' + error.message;
+    status.style.color = '#e08b8b';
   }
 }
 
@@ -683,6 +698,7 @@ async function barAction(action) {
   }
 }
 
+loadBarConfig();
 loadBarAdmin();
 setInterval(loadBarAdmin, 5000);
 
