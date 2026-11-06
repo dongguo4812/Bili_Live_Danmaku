@@ -1162,16 +1162,73 @@ def process_screenshot(path):
 
 stop_event=threading.Event(); processed_files=set(); update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def screenshot_watcher():
+    """仅在截图目录发生变化时枚举文件，保持原有扫描间隔和处理顺序。"""
+    folder = None
+    folder_refresh_at = 0.0
+    scan_interval = 1.0
+    directory_signature = None
+
     while not stop_event.is_set():
-        folder=screenshot_dir()
+        now = time.monotonic()
+
+        # 配置可能在运行期间更新；每5秒检查一次目录和扫描间隔，
+        # 避免每轮扫描都重新解析 JSON、创建目录。
+        if folder is None or now - folder_refresh_at >= 5.0:
+            try:
+                folder = screenshot_dir()
+                cfg = read_config()
+                scan_interval = max(
+                    0.2,
+                    float(cfg.get('scan_interval', '1') or 1)
+                )
+                directory_signature = None
+                folder_refresh_at = now
+            except (TypeError, ValueError) as exc:
+                log.warning('[截图监控] 配置的扫描间隔无效，沿用上次设置：%s', exc)
+                folder_refresh_at = now
+
         try:
-            files=sorted(folder.glob('GameShot_*.png'),key=lambda p:p.stat().st_mtime)
-            for p in files:
-                if p.name in processed_files: continue
-                # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
-                process_screenshot(p); processed_files.add(p.name)
-        except Exception as e: log.warning('扫描截图目录异常：%s',e)
-        stop_event.wait(max(.2,float(read_config().get('scan_interval','1') or 1)))
+            stat_result = folder.stat()
+            current_signature = (
+                stat_result.st_mtime_ns,
+                stat_result.st_ctime_ns,
+            )
+
+            if current_signature != directory_signature:
+                # 在枚举前记录指纹。若枚举期间又有新截图写入，
+                # 目录时间会再次变化，下一轮仍会触发扫描。
+                directory_signature = current_signature
+                files = sorted(
+                    folder.glob('GameShot_*.png'),
+                    key=lambda p: p.stat().st_mtime
+                )
+                for p in files:
+                    if p.name in processed_files:
+                        continue
+                    # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
+                    process_screenshot(p)
+                    processed_files.add(p.name)
+        except OSError as exc:
+            # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
+            directory_signature = None
+            log.warning('[截图监控] 读取目录状态失败，执行完整扫描：%s', exc)
+            try:
+                files = sorted(
+                    folder.glob('GameShot_*.png'),
+                    key=lambda p: p.stat().st_mtime
+                )
+                for p in files:
+                    if p.name in processed_files:
+                        continue
+                    process_screenshot(p)
+                    processed_files.add(p.name)
+            except Exception as scan_exc:
+                log.warning('扫描截图目录异常：%s', scan_exc)
+        except Exception as exc:
+            directory_signature = None
+            log.warning('扫描截图目录异常：%s', exc)
+
+        stop_event.wait(scan_interval)
 
 BASE_DIR = (
     os.path.dirname(sys.executable)
