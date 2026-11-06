@@ -847,6 +847,7 @@ def get_gameflow_phase():
 
 SCREENSHOT_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff'}
 cleanup_lock = threading.Lock()
+processed_files_lock = threading.Lock()
 cleanup_generation = 0
 
 def cleanup_match_data(reason):
@@ -894,7 +895,8 @@ def cleanup_match_data(reason):
                     exc
                 )
 
-        processed_files.clear()
+        with processed_files_lock:
+            processed_files.clear()
         log.info(
             '[对局清理] %s；已删除图片 %d 张，失败 %d 项',
             reason,
@@ -1218,10 +1220,21 @@ def process_screenshot(path):
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def _mark_processed_file(name):
-    processed_files[name] = None
-    processed_files.move_to_end(name)
-    while len(processed_files) > PROCESSED_FILES_LIMIT:
-        processed_files.popitem(last=False)
+    with processed_files_lock:
+        processed_files[name] = None
+        processed_files.move_to_end(name)
+        while len(processed_files) > PROCESSED_FILES_LIMIT:
+            processed_files.popitem(last=False)
+
+
+def _is_processed_file(name):
+    with processed_files_lock:
+        return name in processed_files
+
+
+def _forget_processed_file(name):
+    with processed_files_lock:
+        processed_files.pop(name, None)
 
 
 def screenshot_watcher():
@@ -1253,7 +1266,7 @@ def screenshot_watcher():
                 directory_signature = current_signature
                 files = [
                     p for p in folder.glob('GameShot_*.png')
-                    if p.name not in processed_files
+                    if not _is_processed_file(p.name)
                 ]
                 files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
@@ -1272,7 +1285,7 @@ def screenshot_watcher():
             try:
                 files = [
                     p for p in folder.glob('GameShot_*.png')
-                    if p.name not in processed_files
+                    if not _is_processed_file(p.name)
                 ]
                 files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
@@ -1482,7 +1495,7 @@ def api_action():
                 archived=PROCESSED/candidate.name
                 if archived.is_file(): archived.unlink()
             except OSError as e: failures.append(f'{PROCESSED/candidate.name}: {e}')
-        if removed: processed_files.pop(removed[0].name, None)
+        if removed: _forget_processed_file(removed[0].name)
     return jsonify({'ok':True,'deleted_count':len(deleted),'delete_failures':failures})
 
 @app.post('/api/update-assets')
