@@ -707,7 +707,9 @@ def gameflow_worker():
                         phase
                     )
 
-                if phase == 'ChampSelect':
+                # 仅在首次检测到 ChampSelect 或阶段切换进入 ChampSelect 时检查残留。
+                # 持续停留在 ChampSelect 时不重复扫描截图目录。
+                if phase == 'ChampSelect' and last_phase != 'ChampSelect':
                     with state_lock:
                         has_cards = bool(state.get('cards'))
 
