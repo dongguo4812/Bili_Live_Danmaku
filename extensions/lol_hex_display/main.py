@@ -43,7 +43,7 @@ def _load_logging_settings():
 log = logging.getLogger("lol_hex_display")
 _logging_settings = _load_logging_settings()
 LOG_LEVEL_NAME = str(_logging_settings.get("level", "INFO")).upper()
-LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+LOG_LEVEL = logging.DEBUG if _logging_settings.get("debug") is True else getattr(logging, LOG_LEVEL_NAME, logging.INFO)
 try:
     LOG_RETENTION_DAYS = max(0, int(_logging_settings.get("retention_days", 7)))
 except (TypeError, ValueError):
