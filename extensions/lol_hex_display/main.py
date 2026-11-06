@@ -275,7 +275,7 @@ _screenshot_log_states = {}
 def _log_screenshot_issue(key, message, exc):
     signature = f"{type(exc).__name__}: {exc}"
     with _screenshot_log_lock:
-        if _screenshot_log_states.get(key) == signature:
+        if key in _screenshot_log_states:
             return
         _screenshot_log_states[key] = signature
     log.warning("%s：%s", message, exc)
@@ -1250,6 +1250,7 @@ def screenshot_watcher():
                     # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
                     process_screenshot(p)
                     processed_files.add(p.name)
+                _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
         except OSError as exc:
             # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
             directory_signature = None
@@ -1268,6 +1269,7 @@ def screenshot_watcher():
                         continue
                     process_screenshot(p)
                     processed_files.add(p.name)
+                _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
             except Exception as scan_exc:
                 _log_screenshot_issue("watcher_scan", "扫描截图目录异常", scan_exc)
         except Exception as exc:
