@@ -88,7 +88,7 @@ class DailyFileHandler(logging.Handler):
             if today != self._current_date:
                 self._current_date = today
                 self._open_stream()
-            self._stream.write(self.format(record) + "\\n")
+            self._stream.write(self.format(record) + "\n")
         except Exception:
             self.handleError(record)
 
