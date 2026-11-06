@@ -40,6 +40,7 @@ def _load_logging_settings():
     return settings
 
 
+log = logging.getLogger("lol_hex_display")
 _logging_settings = _load_logging_settings()
 LOG_LEVEL_NAME = str(_logging_settings.get("level", "INFO")).upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
@@ -114,7 +115,6 @@ formatter = logging.Formatter(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 file_handler.setFormatter(formatter)
-file_handler.addFilter(SecretRedactionFilter())
 
 log_listener = QueueListener(
     log_queue,
@@ -133,6 +133,7 @@ for handler in root_logger.handlers[:]:
 
 queue_handler = QueueHandler(log_queue)
 queue_handler.setLevel(LOG_LEVEL)
+queue_handler.addFilter(SecretRedactionFilter())
 root_logger.addHandler(queue_handler)
 log_listener.start()
 cleanup_old_logs()
@@ -173,10 +174,10 @@ def check_admin_privileges():
 
     try:
         if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-            logging.info("[权限检查] 当前以管理员身份运行")
+            log.info("[权限检查] 当前以管理员身份运行")
             return True
     except Exception:
-        logging.exception("[权限检查] 无法检查 Windows 管理员权限")
+        log.exception("[权限检查] 无法检查 Windows 管理员权限")
         return False
 
     # PyInstaller 打包版由 requireAdministrator 清单负责触发 UAC。
@@ -194,11 +195,11 @@ def check_admin_privileges():
         # SW_HIDE keeps the elevated background extension from opening a console window.
         result = shell_execute(None, "runas", executable, parameters, str(ROOT), 0)
         if result and result > 32:
-            logging.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
+            log.info("[权限检查] 已请求 Windows 以管理员权限重新启动 LOL Hex")
             return False
 
         error_code = int(result or 0)
-        logging.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s", error_code)
+        log.error("[权限检查] Windows 管理员启动失败，ShellExecuteW 返回：%s", error_code)
         try:
             ctypes.windll.user32.MessageBoxW(
                 None,
@@ -210,7 +211,7 @@ def check_admin_privileges():
         except Exception:
             pass
     except Exception as exc:
-        logging.exception("[权限检查] 请求管理员启动失败：%s", exc)
+        log.exception("[权限检查] 请求管理员启动失败：%s", exc)
         try:
             ctypes.windll.user32.MessageBoxW(
                 None,
@@ -863,6 +864,7 @@ def gameflow_worker():
 
             if phase is None:
                 # 读取失败不改变阶段、监控状态或清理标记。
+                pass
             else:
                 if phase != last_phase:
                     log.info(
@@ -887,7 +889,6 @@ def gameflow_worker():
                 monitor_state = '状态1' if phase in state1_phases else '状态2'
 
                 if monitor_state != last_monitor_state:
-                    interval = 10 if monitor_state == '状态1' else 30
                     # 每次重新进入状态1，都开启新一轮清理；
                     # 离开状态1进入状态2时，也重置标记。
                     cleanup_completed = False
@@ -1124,7 +1125,7 @@ def process_screenshot(path):
 
     with state_lock:
         if generation_at_start != cleanup_generation or not path.exists():
-            log.info('截图处理结果已因对局清理而丢弃：%s', path.name)
+            log.debug('截图处理结果已因对局清理而丢弃：%s', path.name)
             return
 
         # 防止程序重启后，将已有截图再次加入卡片列表。
@@ -1132,7 +1133,7 @@ def process_screenshot(path):
             str(existing.get('filename', '')) == path.name
             for existing in state['cards']
         ):
-            log.info('截图已存在于卡片列表，跳过重复添加：%s', path.name)
+            log.debug('截图已存在于卡片列表，跳过重复添加：%s', path.name)
             return
 
         state['cards'].append(card)
