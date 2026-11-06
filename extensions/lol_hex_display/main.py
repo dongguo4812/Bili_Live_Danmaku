@@ -211,6 +211,8 @@ DEFAULT_CONFIG = {
     'asset_check_interval': 3600,
     'version_check_interval': 3600,
     'gameflow_check_interval': 10,
+    'ocr_intra_op_num_threads': 2,
+    'ocr_inter_op_num_threads': 1,
     'lol_client_path': r'D:\WeGameApps\英雄联盟（含经典模式）',
 }
 def check_admin_privileges():
@@ -806,7 +808,36 @@ def ocr_text(image_path):
         with _ocr_lock:
             if _ocr is None:
                 from rapidocr_onnxruntime import RapidOCR
-                _ocr=RapidOCR()
+
+                cfg = read_config()
+                cpu_count = os.cpu_count() or 1
+
+                try:
+                    intra_threads = min(
+                        cpu_count,
+                        max(1, int(cfg.get('ocr_intra_op_num_threads', 2)))
+                    )
+                except (TypeError, ValueError):
+                    intra_threads = min(2, cpu_count)
+
+                try:
+                    inter_threads = min(
+                        cpu_count,
+                        max(1, int(cfg.get('ocr_inter_op_num_threads', 1)))
+                    )
+                except (TypeError, ValueError):
+                    inter_threads = 1
+
+                _ocr = RapidOCR(
+                    intra_op_num_threads=intra_threads,
+                    inter_op_num_threads=inter_threads,
+                )
+                log.info(
+                    '[OCR] ONNX Runtime 线程配置：intra_op=%s，inter_op=%s，CPU逻辑处理器=%s',
+                    intra_threads,
+                    inter_threads,
+                    cpu_count,
+                )
         result,_=_ocr(str(image_path))
         if not result: return '', '未识别到文字'
         texts=[]
