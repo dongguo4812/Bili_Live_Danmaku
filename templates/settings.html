@@ -52,8 +52,9 @@
     </section>
     <section class="panel">
       <h2>日志设置</h2>
-      <p class="muted">日志按日期写入 logs/YYYY-MM-DD.log，保留天数到期后自动清理；设置修改后立即生效。</p>
+      <p class="muted">日志按日期写入文件，并按保留天数自动清理。DEBUG 开关用于临时查看详细诊断信息；主项目保存后立即生效，LOL Hex 在下次启动时读取新配置。</p>
       <label class="setting-field"><span>日志等级</span><select id="log-level"><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select></label>
+      <label class="setting-field"><span><input id="log-debug" type="checkbox"> 手动开启 DEBUG 详细日志</span></label>
       <label class="setting-field"><span>日志保留时间</span><select id="log-retention"><option value="3">3 天</option><option value="5">5 天</option><option value="7">7 天</option><option value="15">15 天</option><option value="30">30 天</option><option value="60">60 天</option><option value="90">90 天</option><option value="0">永久保留</option></select></label>
       <button id="save-logging" type="button">保存日志设置</button>
       <p id="logging-status" class="muted" role="status"></p>
@@ -74,9 +75,9 @@
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{cache:"no-store",...options});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||d.message||("HTTP "+r.status));return d}
-async function load(){try{const [obs,logs,admins]=await Promise.all([api("/api/settings/obs"),api("/api/settings/logging"),api("/api/settings/admins")]);$("system-admin-uids").value=(admins.admin_uids||[]).join("\n");$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("log-level").value=logs.level;$("log-retention").value=String(logs.retention_days);}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
+async function load(){try{const [obs,logs,admins]=await Promise.all([api("/api/settings/obs"),api("/api/settings/logging"),api("/api/settings/admins")]);$("system-admin-uids").value=(admins.admin_uids||[]).join("\n");$("obs-host").value=obs.host;$("obs-port").value=obs.port;$("obs-timeout").value=obs.timeout;$("obs-source").value=obs.source_name;$("log-level").value=logs.level;$("log-debug").checked=logs.debug===true;$("log-retention").value=String(logs.retention_days);}catch(e){$("obs-status").textContent="读取设置失败："+e.message}}
 $("save-admin-uids").addEventListener("click",async()=>{try{const ids=$("system-admin-uids").value.split(/[\s,;，；]+/).filter(Boolean);const d=await api("/api/settings/admins",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({admin_uids:ids})});$("admin-status").textContent=d.message;}catch(e){$("admin-status").textContent="保存失败："+e.message}});
-$("save-logging").addEventListener("click",async()=>{try{const d=await api("/api/settings/logging",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({level:$("log-level").value,retention_days:Number($("log-retention").value)})});$("logging-status").textContent=d.message;}catch(e){$("logging-status").textContent="保存失败："+e.message}});
+$("save-logging").addEventListener("click",async()=>{try{const d=await api("/api/settings/logging",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({level:$("log-level").value,debug:$("log-debug").checked,retention_days:Number($("log-retention").value)})});$("logging-status").textContent=d.message;}catch(e){$("logging-status").textContent="保存失败："+e.message}});
 $("save-obs").addEventListener("click",async()=>{try{const d=await api("/api/settings/obs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({host:$("obs-host").value,port:Number($("obs-port").value),timeout:Number($("obs-timeout").value),source_name:$("obs-source").value})});$("obs-status").textContent=d.message;}catch(e){$("obs-status").textContent="保存失败："+e.message}});
 
 load();
