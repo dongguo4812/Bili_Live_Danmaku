@@ -1175,13 +1175,15 @@ def screenshot_watcher():
         # 避免每轮扫描都重新解析 JSON、创建目录。
         if folder is None or now - folder_refresh_at >= 5.0:
             try:
-                folder = screenshot_dir()
+                refreshed_folder = screenshot_dir()
+                if refreshed_folder != folder:
+                    folder = refreshed_folder
+                    directory_signature = None
                 cfg = read_config()
                 scan_interval = max(
                     0.2,
                     float(cfg.get('scan_interval', '1') or 1)
                 )
-                directory_signature = None
                 folder_refresh_at = now
             except (TypeError, ValueError) as exc:
                 log.warning('[截图监控] 配置的扫描间隔无效，沿用上次设置：%s', exc)
