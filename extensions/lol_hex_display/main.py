@@ -1235,13 +1235,13 @@ def process_screenshot(path):
     with state_lock: generation_at_start = cleanup_generation
     # Wait until file size stabilizes to avoid reading a partial PNG.
     old=-1; stable=0
-    for _ in range(30):
+    for _ in range(10):
         try: size=path.stat().st_size
         except OSError: return
         if size>0 and size==old: stable+=1
         else: stable=0
         if stable>=2: break
-        old=size; time.sleep(.15)
+        old=size; time.sleep(.5)
 
     text, err = ocr_text(path)
     item, match_err = match_asset(text)
