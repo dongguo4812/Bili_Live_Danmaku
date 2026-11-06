@@ -2664,6 +2664,7 @@ def get_logging_settings():
     return jsonify({
         "ok": True,
         "level": config.get("level", "INFO"),
+        "debug": config.get("debug") is True,
         "retention_days": int(config.get("retention_days", 7)),
         "retention_options": config.get("retention_options", [3, 5, 7, 15, 30, 60, 90, 0]),
     })
@@ -2677,6 +2678,9 @@ def save_logging_settings():
     try:
         level = str(payload.get("level", "INFO")).upper()
         retention = int(payload.get("retention_days", 7))
+        debug = payload.get("debug", False)
+        if not isinstance(debug, bool):
+            raise ValueError("DEBUG 开关必须为布尔值。")
         allowed_retention = {3, 5, 7, 15, 30, 60, 90, 0}
         if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("日志等级无效。")
@@ -2686,12 +2690,13 @@ def save_logging_settings():
         config.pop("daily_rotation", None)
         config.update({
             "level": level,
+            "debug": debug,
             "retention_days": retention,
             "retention_options": [3, 5, 7, 15, 30, 60, 90, 0],
         })
         ConfigManager().save("logging", config)
         setup_logging()
-        logger.info("日志设置已更新：level=%s retention_days=%s", level, retention)
+        logger.info("日志设置已更新：level=%s debug=%s retention_days=%s", level, debug, retention)
         return jsonify({"ok": True, "message": "日志设置已保存并立即生效。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "日志设置保存失败。"}), 400
