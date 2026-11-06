@@ -1451,7 +1451,8 @@ def api_action():
             request_server_shutdown()
             return jsonify({'ok': True, 'message': 'Hex 正在退出'})
         if action=='clear':
-            state['cards']=[]
+            # cleanup_match_data() 统一清空状态并持久化，避免重复写入。
+            pass
         elif action=='delete':
             target=next((c for c in cards if str(c.get('key'))==key),None)
             if target is None: return jsonify({'ok':False,'error':'找不到要删除的卡片记录'}),404
@@ -1464,7 +1465,8 @@ def api_action():
             j=idx+(-1 if action=='up' else 1)
             if idx>=0 and 0<=j<len(cards): cards[idx],cards[j]=cards[j],cards[idx]
         else: return jsonify({'ok':False,'error':'未知操作'}),400
-        state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
+        if action != 'clear':
+            state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
     deleted=[]; failures=[]
     if action=='clear':
         cleanup_match_data('用户在管理页手动清空')
