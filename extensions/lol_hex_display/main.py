@@ -356,6 +356,7 @@ def _update_assets_impl(force=False):
                 assets=new; atomic_json(ASSET_CACHE,assets); log.info('海克斯索引更新：%d 条',len(assets))
             else: log.debug('海克斯索引无变化：%d 条',len(assets))
         icon_sources=read_json(ICON_SOURCE_PATH,{})
+        icon_sources_changed = False
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
             if not url: continue
@@ -369,8 +370,10 @@ def _update_assets_impl(force=False):
                 with Image.open(io.BytesIO(ir.content)) as im:
                     im.convert('RGBA').save(dest,format='PNG')
                 icon_sources[aid]=url
-                atomic_json(ICON_SOURCE_PATH,icon_sources)
+                icon_sources_changed = True
             except Exception as e: log.warning('图标下载失败 id=%s：%s',aid,e)
+        if icon_sources_changed:
+            atomic_json(ICON_SOURCE_PATH,icon_sources)
         return True
     except Exception as e:
         log.warning('海克斯索引更新失败，保留本地缓存：%s',e); return False
