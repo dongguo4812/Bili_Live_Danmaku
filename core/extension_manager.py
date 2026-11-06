@@ -213,10 +213,8 @@ class LolHexExtensionManager:
             if (
                 record
                 and record["pid"] == self._elevated_pid
-                and (
-                    self._elevated_creation_time is None
-                    or record["creation_time"] == self._elevated_creation_time
-                )
+                and self._elevated_creation_time is not None
+                and record["creation_time"] == self._elevated_creation_time
             ):
                 return self._pid_is_running(self._elevated_pid, record["creation_time"])
             return False
