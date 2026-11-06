@@ -438,7 +438,7 @@ def _extract_credentials(command):
 def _client_directories(client_path):
     """兼容 lol_client_path 指向安装根目录或 LeagueClient 子目录。"""
     root = Path(client_path)
-    candidates = (root, root / "LeagueClient")
+    candidates = (root,) if root.name.lower() == "leagueclient" else (root, root / "LeagueClient")
     result = []
     seen = set()
     for candidate in candidates:
