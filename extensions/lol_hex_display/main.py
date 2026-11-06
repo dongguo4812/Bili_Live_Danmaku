@@ -292,7 +292,7 @@ def _update_assets_impl(force=False):
             changed=digest(new)!=digest(assets)
             if changed:
                 assets=new; atomic_json(ASSET_CACHE,assets); log.info('海克斯索引更新：%d 条',len(assets))
-            else: log.info('海克斯索引无变化：%d 条',len(assets))
+            else: log.debug('海克斯索引无变化：%d 条',len(assets))
         icon_sources=read_json(ICON_SOURCE_PATH,{})
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
@@ -663,7 +663,8 @@ def lcu_is_available():
 def lcu_recognition_worker():
     """优先验证缓存凭据；凭据失效或尚未识别时才扫描客户端进程/日志。"""
     global _lcu_credentials
-    log.info("[LCU识别] 客户端识别线程已启动")
+    log.info("客户端识别服务已启动")
+    last_logged_status = None
     while not stop_event.is_set():
         # 客户端运行期间端口和 Token 通常保持不变。
         # 先验证缓存值，只有缓存失效时才重新读取 Lockfile、查询 WMI 或检查日志。
@@ -697,22 +698,33 @@ def lcu_recognition_worker():
                 })
             else:
                 _lcu_credentials = None
+                account = ""
                 _lcu_status.update({
                     "recognized": False, "available": False, "source": "",
                     "message": "未识别到可用的英雄联盟客户端凭据",
                     "checked_at": time.time(), "account": "",
                 })
 
-        if valid:
-            log.info("[LCU识别] 验证成功：来源=%s，端口=%s", source, credentials[0])
-            interval = _lcu_scan_interval_recognized
-        else:
-            log.info("[LCU识别] 暂未识别到有效客户端，保留现有卡片和截图")
-            interval = _lcu_scan_interval_unrecognized
+        current_status = (bool(valid), source if valid else "", account)
+        if current_status != last_logged_status:
+            if valid:
+                log.info(
+                    "客户端已识别，LCU 连接可用：账号=%s，来源=%s",
+                    account or "未知账号",
+                    source,
+                )
+            elif last_logged_status is not None and last_logged_status[0]:
+                log.warning("LCU 连接已断开，正在重新识别客户端")
+            last_logged_status = current_status
+
+        interval = (
+            _lcu_scan_interval_recognized
+            if valid else _lcu_scan_interval_unrecognized
+        )
 
         if stop_event.wait(interval):
             break
-    log.info("[LCU识别] 客户端识别线程已退出")
+    log.info("客户端识别服务已停止")
 
 
 
@@ -720,7 +732,6 @@ def get_gameflow_phase():
     """读取 LCU 当前对局阶段；记录失败原因，避免断连时误判对局结束。"""
     credentials = get_lcu_credentials()
     if not credentials:
-        log.warning('[LCU诊断] 未获取到客户端端口或认证令牌')
         return None
 
     port, token = credentials
@@ -831,7 +842,6 @@ def cleanup_match_data(reason):
 
 def gameflow_worker():
     """状态1每10秒检查并清理一次，清理成功后本轮不再重复；状态2每30秒仅检查阶段。"""
-    log.info('[对局阶段] gameflow_worker 已启动')
 
     state1_phases = {'Matchmaking', 'ReadyCheck', 'ChampSelect'}
     gaming_phases = {
@@ -853,11 +863,6 @@ def gameflow_worker():
 
             if phase is None:
                 # 读取失败不改变阶段、监控状态或清理标记。
-                log.info(
-                    '[对局阶段] 暂时无法读取 LCU 阶段；沿用%s，保持%s秒检测周期',
-                    last_monitor_state or '初始状态',
-                    10 if last_monitor_state == '状态1' else 30
-                )
             else:
                 if phase != last_phase:
                     log.info(
@@ -883,12 +888,6 @@ def gameflow_worker():
 
                 if monitor_state != last_monitor_state:
                     interval = 10 if monitor_state == '状态1' else 30
-                    log.info(
-                        '[对局监控] %s -> %s；检测周期 %d 秒',
-                        last_monitor_state or '初始状态',
-                        monitor_state,
-                        interval
-                    )
                     # 每次重新进入状态1，都开启新一轮清理；
                     # 离开状态1进入状态2时，也重置标记。
                     cleanup_completed = False
@@ -904,9 +903,6 @@ def gameflow_worker():
                     )
                     if completed:
                         cleanup_completed = True
-                        log.info(
-                            '[选英雄清理] 清理已确认完成；本轮状态1不再重复清理'
-                        )
                     else:
                         log.warning(
                             '[选英雄清理] 本次清理未完全成功；将在下一次状态1检测时重试'
@@ -1737,7 +1733,7 @@ class ScreenshotSelector:
             box[2] - box[0] < 5
             or box[3] - box[1] < 5
         ):
-            log.info('选区太小，已取消')
+
             return
 
         try:
@@ -1754,12 +1750,6 @@ class ScreenshotSelector:
 
             crop.save(path, 'PNG')
 
-            log.info(
-                '截图已保存：%s (%dx%d)',
-                path,
-                crop.width,
-                crop.height
-            )
 
         except Exception as ex:
             log.exception('保存截图失败：%s', ex)
@@ -1806,7 +1796,7 @@ class ScreenshotSelector:
 
             self.cancel_requested.set()
 
-        log.info('已请求取消截图')
+
 
 
 selector = ScreenshotSelector()
@@ -1869,12 +1859,10 @@ def main():
     threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
     threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
     cfg_for_gameflow = read_config()
-    log.info('LCU 对局阶段检测间隔：%s 秒（lol_hex_display.json: gameflow_check_interval）', cfg_for_gameflow.get('gameflow_check_interval', 10))
         # 程序启动时只输出一次客户端安装目录
     client_path = str(
         cfg_for_gameflow.get('lol_client_path', '')
     ).strip().strip('"')
-    log.info('[LCU诊断] 配置的客户端安装目录：%s', client_path or '(未配置)')
     threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
     threading.Thread(target=gameflow_worker,daemon=True,name='GameflowWatcher').start()
     if os.name == 'nt' and not start_hotkey():
