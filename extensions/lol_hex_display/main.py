@@ -507,7 +507,7 @@ def _read_lcu_lockfile(client_dirs):
         try:
             file_content = lockfile.read_text(
                 encoding="utf-8", errors="replace"
-            ).strip("\\x00\\r\\n ")
+            ).strip("\x00\r\n ")
         except (OSError, UnicodeError) as exc:
             log.warning("[LCU诊断] Lockfile 读取失败：路径=%s，原因=%s", lockfile, exc)
             continue
