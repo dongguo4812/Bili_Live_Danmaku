@@ -1341,12 +1341,19 @@ def write_pid_file():
 
 
 def remove_pid_file():
-    """只删除属于当前进程的 PID 文件，避免误删新实例记录。"""
+    """只删除 PID 和进程创建时间均属于当前进程的记录，避免误删新实例记录。"""
     try:
-        if PID_FILE.is_file() and PID_FILE.read_text(encoding='ascii').strip() == str(os.getpid()):
-            PID_FILE.unlink()
-            log.debug('Hex PID 文件已清理')
-    except OSError:
+        if not PID_FILE.is_file():
+            return
+        payload = json.loads(PID_FILE.read_text(encoding='utf-8'))
+        if not isinstance(payload, dict) or payload.get('pid') != os.getpid():
+            return
+        current_creation_time = _current_process_creation_time()
+        if current_creation_time is not None and payload.get('creation_time') != current_creation_time:
+            return
+        PID_FILE.unlink()
+        log.debug('Hex PID 文件已清理')
+    except (OSError, ValueError, TypeError):
         log.exception('清理 Hex PID 文件失败')
 
 
