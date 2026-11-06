@@ -1240,13 +1240,12 @@ def screenshot_watcher():
                 # 在枚举前记录指纹。若枚举期间又有新截图写入，
                 # 目录时间会再次变化，下一轮仍会触发扫描。
                 directory_signature = current_signature
-                files = sorted(
-                    folder.glob('GameShot_*.png'),
-                    key=lambda p: p.stat().st_mtime
-                )
+                files = [
+                    p for p in folder.glob('GameShot_*.png')
+                    if p.name not in processed_files
+                ]
+                files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
-                    if p.name in processed_files:
-                        continue
                     # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
                     process_screenshot(p)
                     processed_files.add(p.name)
@@ -1260,13 +1259,12 @@ def screenshot_watcher():
                 exc,
             )
             try:
-                files = sorted(
-                    folder.glob('GameShot_*.png'),
-                    key=lambda p: p.stat().st_mtime
-                )
+                files = [
+                    p for p in folder.glob('GameShot_*.png')
+                    if p.name not in processed_files
+                ]
+                files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
-                    if p.name in processed_files:
-                        continue
                     process_screenshot(p)
                     processed_files.add(p.name)
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
