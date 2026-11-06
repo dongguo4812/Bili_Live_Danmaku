@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """lol_hex_display：F1 自由区域截图 + 本地 OCR + 海克斯强化卡片展示。Python 3.10+"""
 from __future__ import annotations
-import argparse, ctypes, subprocess, faulthandler, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
+import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
 from logging.handlers import QueueHandler, QueueListener
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +45,6 @@ def cleanup_old_logs():
 
     patterns = (
         re.compile(r'app_(\d{4}-\d{2}-\d{2})\.log'),
-        re.compile(r'thread_dump_(\d{4}-\d{2}-\d{2})\.log'),
     )
 
     for path in LOG_DIR.iterdir():
@@ -148,61 +147,6 @@ log = logging.getLogger('lol_hex_display')
 
 log.info('异步日志系统初始化完成')
 
-# 独立线程堆栈诊断：不经过 logging，避免主日志输出阻塞时失去诊断能力。
-_THREAD_DUMP_FILE = None
-_THREAD_DUMP_INTERVAL = 30
-
-
-def start_thread_diagnostics():
-    """启动独立的周期性线程堆栈转储。"""
-    global _THREAD_DUMP_FILE
-    if _THREAD_DUMP_FILE is not None:
-        return
-    try:
-        dump_path = LOG_DIR / f'thread_dump_{LOG_DATE}.log'
-        
-        _THREAD_DUMP_FILE = dump_path.open('a', encoding='utf-8', buffering=1)
-        _THREAD_DUMP_FILE.write(
-            f"\n\n===== 线程诊断启动 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-            f"PID={os.getpid()}；每 {_THREAD_DUMP_INTERVAL} 秒记录一次 =====\n"
-        )
-        faulthandler.enable(file=_THREAD_DUMP_FILE, all_threads=True)
-        faulthandler.dump_traceback_later(
-            _THREAD_DUMP_INTERVAL, repeat=True,
-            file=_THREAD_DUMP_FILE, exit=False,
-        )
-        log.info('[线程诊断] 已启动，堆栈文件：%s，间隔：%s 秒', dump_path, _THREAD_DUMP_INTERVAL)
-    except Exception:
-        log.exception('[线程诊断] 启动失败')
-        if _THREAD_DUMP_FILE is not None:
-            try:
-                _THREAD_DUMP_FILE.close()
-            except Exception:
-                pass
-            _THREAD_DUMP_FILE = None
-
-
-def stop_thread_diagnostics():
-    """停止周期性转储并关闭独立诊断文件。"""
-    global _THREAD_DUMP_FILE
-    try:
-        faulthandler.cancel_dump_traceback_later()
-    except Exception:
-        pass
-    try:
-        faulthandler.disable()
-    except Exception:
-        pass
-    if _THREAD_DUMP_FILE is not None:
-        try:
-            _THREAD_DUMP_FILE.write(
-                f"\n===== 线程诊断停止 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====\n"
-            )
-            _THREAD_DUMP_FILE.flush()
-            _THREAD_DUMP_FILE.close()
-        except Exception:
-            pass
-        _THREAD_DUMP_FILE = None
 DEFAULT_CONFIG = {
     'screenshot_dir': 'screenshots/inbox',
     'host': '127.0.0.1',
@@ -1876,7 +1820,6 @@ def start_hotkey():
 
 
 def main():
-    start_thread_diagnostics()
         # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
     if os.name == 'nt':
         try:
@@ -1932,7 +1875,6 @@ def main():
         except Exception:
             log.exception('关闭 Hex HTTP 服务失败')
         HTTP_SERVER = None
-        stop_thread_diagnostics()
         remove_pid_file()
         log.info('Hex 管理员进程退出清理完成')
         try:
