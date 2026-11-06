@@ -272,6 +272,10 @@ def read_config():
 _screenshot_log_lock = threading.Lock()
 _screenshot_log_states = {}
 
+# 截图目录在进程生命周期内固定；首次解析后复用，配置修改后重启生效。
+_screenshot_dir_lock = threading.Lock()
+_screenshot_dir_cache = None
+
 
 def _log_screenshot_issue(key, message, exc):
     signature = f"{type(exc).__name__}: {exc}"
@@ -290,21 +294,37 @@ def _clear_screenshot_issue(key, message):
 
 
 def screenshot_dir(config=None):
-    config = config if config is not None else read_config()
-    raw=str(config.get('screenshot_dir','screenshots/inbox') or 'screenshots/inbox')
-    p=Path(os.path.expandvars(os.path.expanduser(raw)))
-    if not p.is_absolute(): p=ROOT/p
-    try:
-        p.mkdir(parents=True, exist_ok=True)
-        _clear_screenshot_issue("configured_directory", "截图目录已恢复可用")
-        return p.resolve()
-    except Exception as e:
-        _log_screenshot_issue(
-            "configured_directory",
-            f"截图目录不可用 {p}；回退到默认目录",
-            e,
-        )
-        fallback=SHOTS/'inbox'; fallback.mkdir(parents=True,exist_ok=True); return fallback.resolve()
+    """返回本进程固定的截图目录；首次调用解析配置并确保目录存在。"""
+    global _screenshot_dir_cache
+
+    if _screenshot_dir_cache is not None:
+        return _screenshot_dir_cache
+
+    with _screenshot_dir_lock:
+        if _screenshot_dir_cache is not None:
+            return _screenshot_dir_cache
+
+        config = config if config is not None else read_config()
+        raw = str(config.get('screenshot_dir', 'screenshots/inbox') or 'screenshots/inbox')
+        path = Path(os.path.expandvars(os.path.expanduser(raw)))
+        if not path.is_absolute():
+            path = ROOT / path
+
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            _clear_screenshot_issue("configured_directory", "截图目录已恢复可用")
+            _screenshot_dir_cache = path.resolve()
+        except Exception as exc:
+            _log_screenshot_issue(
+                "configured_directory",
+                f"截图目录不可用 {path}；回退到默认目录",
+                exc,
+            )
+            fallback = SHOTS / 'inbox'
+            fallback.mkdir(parents=True, exist_ok=True)
+            _screenshot_dir_cache = fallback.resolve()
+
+        return _screenshot_dir_cache
 
 def read_json(path, default):
     try: return json.loads(path.read_text(encoding='utf-8'))
