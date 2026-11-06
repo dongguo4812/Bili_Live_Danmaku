@@ -249,8 +249,8 @@ class LolHexExtensionManager:
         self._elevated_managed = False
         if (
             record is not None
-            and self._elevated_pid is not None
-            and record["pid"] == self._elevated_pid
+            and pid is not None
+            and record["pid"] == pid
             and expected_creation_time is not None
             and record["creation_time"] == expected_creation_time
         ):
