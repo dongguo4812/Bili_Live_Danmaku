@@ -453,39 +453,86 @@ def _client_directories(client_path):
     return result
 
 
+_lcu_lockfile_cache_lock = threading.RLock()
+# 路径 -> (文件状态指纹, 解析结果)。文件状态未变化时不重复打开/读取 Lockfile。
+_lcu_lockfile_cache = {}
+_LCU_LOCKFILE_CACHE_MISS = object()
+
+
 def _read_lcu_lockfile(client_dirs):
-    """读取 LeagueClient lockfile，并明确记录路径、存在性和解析结果。"""
+    """读取 LeagueClient lockfile；未变化的缺失/空/无效文件使用负缓存。"""
     for directory in client_dirs:
         lockfile = directory / "lockfile"
-        log.info("[LCU诊断] 检查 Lockfile 路径：%s", lockfile)
+        cache_key = os.path.normcase(str(lockfile))
+
         try:
-            if not lockfile.is_file():
-                log.info("[LCU诊断] Lockfile 不存在：%s", lockfile)
-                continue
+            stat_result = lockfile.stat()
+        except FileNotFoundError:
+            signature = None
+            is_file = False
+        except OSError as exc:
+            log.warning("[LCU诊断] 检查 Lockfile 状态失败：路径=%s，原因=%s", lockfile, exc)
+            continue
+        else:
+            signature = (
+                stat_result.st_size,
+                stat_result.st_mtime_ns,
+                stat_result.st_ctime_ns,
+                getattr(stat_result, "st_ino", 0),
+            )
+            is_file = lockfile.is_file()
 
-            log.info("[LCU诊断] Lockfile 文件存在：%s", lockfile)
-            content = lockfile.read_text(
+        with _lcu_lockfile_cache_lock:
+            cached = _lcu_lockfile_cache.get(cache_key, _LCU_LOCKFILE_CACHE_MISS)
+
+        if cached is not _LCU_LOCKFILE_CACHE_MISS and cached[0] == signature:
+            # 缓存的 None 表示该文件状态下无法取得凭据；不再重复读取。
+            if cached[1] is not None:
+                return cached[1]
+            continue
+
+        if not is_file:
+            log.info("[LCU诊断] Lockfile 不存在或不是普通文件：%s", lockfile)
+            with _lcu_lockfile_cache_lock:
+                _lcu_lockfile_cache[cache_key] = (signature, None)
+            continue
+
+        if stat_result.st_size == 0:
+            log.info("[LCU诊断] Lockfile 文件为空，已缓存文件状态：%s", lockfile)
+            with _lcu_lockfile_cache_lock:
+                _lcu_lockfile_cache[cache_key] = (signature, None)
+            continue
+
+        log.info("[LCU诊断] Lockfile 文件存在，读取内容：%s", lockfile)
+        try:
+            file_content = lockfile.read_text(
                 encoding="utf-8", errors="replace"
-            ).strip("\x00\r\n ")
-            parts = content.split(":")
-            if len(parts) < 5 or parts[0].lower() != "leagueclient":
-                log.warning("[LCU诊断] Lockfile 解析失败：格式不符合预期，路径=%s", lockfile)
-                continue
+            ).strip("\\x00\\r\\n ")
+        except (OSError, UnicodeError) as exc:
+            log.warning("[LCU诊断] Lockfile 读取失败：路径=%s，原因=%s", lockfile, exc)
+            continue
 
+        credentials = None
+        parts = file_content.split(":")
+        if len(parts) < 5 or parts[0].lower() != "leagueclient":
+            log.warning("[LCU诊断] Lockfile 解析失败：格式不符合预期，路径=%s", lockfile)
+        else:
             pid, port, token, protocol = parts[1:5]
             if not pid.isdigit() or not port.isdigit() or not token:
                 log.warning("[LCU诊断] Lockfile 解析失败：PID、端口或 Token 字段无效，路径=%s", lockfile)
-                continue
+            else:
+                port_number = int(port)
+                if not 1 <= port_number <= 65535 or protocol.lower() not in ("http", "https"):
+                    log.warning("[LCU诊断] Lockfile 解析失败：端口或协议无效，路径=%s", lockfile)
+                else:
+                    credentials = (port_number, token)
+                    log.info("[LCU诊断] Lockfile 解析成功，端口=%s，路径=%s", port_number, lockfile)
 
-            port_number = int(port)
-            if not 1 <= port_number <= 65535 or protocol.lower() not in ("http", "https"):
-                log.warning("[LCU诊断] Lockfile 解析失败：端口或协议无效，路径=%s", lockfile)
-                continue
+        with _lcu_lockfile_cache_lock:
+            _lcu_lockfile_cache[cache_key] = (signature, credentials)
 
-            log.info("[LCU诊断] Lockfile 解析成功，端口=%s，路径=%s", port_number, lockfile)
-            return (port_number, token)
-        except (OSError, UnicodeError) as exc:
-            log.warning("[LCU诊断] Lockfile 读取失败：路径=%s，原因=%s", lockfile, exc)
+        if credentials is not None:
+            return credentials
 
     return None
 
