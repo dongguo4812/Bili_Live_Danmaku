@@ -913,19 +913,54 @@ def gameflow_worker():
 
 
 def asset_worker():
-    last=0; last_version_check=0; version=''; retry_delay=60
-    while True:
-        now=time.time(); cfg=read_config()
-        interval=max(60,int(cfg.get('asset_check_interval','3600') or 3600)); vinterval=max(10,int(cfg.get('version_check_interval','60') or 60))
-        if now-last_version_check>=vinterval:
-            last_version_check=now; current=find_game_version()
-            if current and version and current!=version:
-                log.info('检测到游戏版本变化：%s -> %s，立即刷新索引',version,current); update_assets(True); last=now; retry_delay=60
-            if current: version=current
-        if now-last>=interval:
-            if update_assets(): last=now; retry_delay=60
-            else: time.sleep(retry_delay); retry_delay=min(retry_delay*5,1800); last=time.time()
-        time.sleep(2)
+    last = 0
+    last_version_check = 0
+    version = ''
+    retry_delay = 60
+
+    while not stop_event.is_set():
+        now = time.time()
+        cfg = read_config()
+        interval = max(60, int(cfg.get('asset_check_interval', '3600') or 3600))
+        version_interval = max(10, int(cfg.get('version_check_interval', '60') or 60))
+
+        if now - last_version_check >= version_interval:
+            last_version_check = now
+            current = find_game_version()
+
+            if current and version and current != version:
+                log.info(
+                    '检测到游戏版本变化：%s -> %s，立即刷新索引',
+                    version, current
+                )
+                update_assets(True)
+                last = now
+                retry_delay = 60
+
+            if current:
+                version = current
+
+        if now - last >= interval:
+            if update_assets():
+                last = now
+                retry_delay = 60
+            else:
+                # 保留原有失败退避时间，同时允许程序退出时提前结束等待。
+                if stop_event.wait(retry_delay):
+                    break
+                retry_delay = min(retry_delay * 5, 1800)
+                last = time.time()
+
+        # 不再每2秒唤醒。按最近的版本检查/资源更新期限等待；
+        # 最长等待60秒，以便运行期间修改配置后及时重新读取。
+        next_version_check = last_version_check + version_interval
+        next_asset_check = last + interval
+        wait_seconds = max(
+            0,
+            min(next_version_check, next_asset_check) - time.time()
+        )
+        if stop_event.wait(min(wait_seconds, 60.0)):
+            break
 
 # OCR model is initialized lazily, so the UI can start even if OCR dependency/model is unavailable.
 _ocr=None; _ocr_lock=threading.Lock()
