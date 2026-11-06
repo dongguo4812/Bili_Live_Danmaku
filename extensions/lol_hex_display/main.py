@@ -1433,7 +1433,7 @@ def request_server_shutdown():
         threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
 
 atexit.register(remove_pid_file)
-notify_bar_game_ended = register_bar_routes(
+notify_bar_game_ended, stop_bar_worker = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
@@ -2040,6 +2040,7 @@ def main():
         HTTP_SERVER = make_server(host, port, app, threaded=True)
         HTTP_SERVER.serve_forever()
     finally:
+        stop_bar_worker()
         stop_event.set()
         try:
             selector.cancel()
