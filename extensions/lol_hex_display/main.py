@@ -1896,7 +1896,7 @@ def start_hotkey():
             raise RuntimeError('keyboard 未返回有效的 F1 热键注册句柄')
 
         F1_HOTKEY_REGISTERED = True
-        log.info('全局热键已启用：F1 开始/取消截图；管理员权限检查通过')
+        log.info('全局热键已启用：F1 开始/取消截图')
         return True
 
     except Exception as e:
@@ -1916,7 +1916,9 @@ def main():
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
                 new_mode = mode.value & ~0x0040  # 关闭 QuickEdit
                 new_mode |= 0x0080  # 启用扩展控制台标志
-                kernel32.SetConsoleMode(handle, new_mode)
+                if not kernel32.SetConsoleMode(handle, new_mode):
+                    error_code = kernel32.GetLastError()
+                    log.debug('设置控制台模式失败，Windows 错误码：%s', error_code)
         except Exception as e:
             log.debug('设置控制台模式失败：%s', e)
     log.info('lol_hex_display 启动；截图目录：%s', screenshot_dir())
