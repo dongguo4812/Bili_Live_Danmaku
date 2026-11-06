@@ -182,13 +182,26 @@ def register_bar_routes(
         return cfg
 
     def save_active_account(puuid, account, platform):
-        """更新当前活动账号指针，不覆盖其他账号的缓存。"""
+        """仅在活动账号信息变化时更新指针文件。"""
+        current = get_active_account()
+        next_puuid = str(puuid or "")
+        next_account = str(account or "")
+        next_platform = str(platform or "")
+
+        if (
+            current.get("puuid") == next_puuid
+            and str(current.get("account") or "") == next_account
+            and str(current.get("platform") or "") == next_platform
+        ):
+            return False
+
         write_json(active_account_path, {
-            "puuid": str(puuid or ""),
-            "account": str(account or ""),
-            "platform": str(platform or ""),
+            "puuid": next_puuid,
+            "account": next_account,
+            "platform": next_platform,
             "updated_at": time.time(),
         })
+        return True
 
     def get_active_account():
         saved = read_json(active_account_path, {})
@@ -404,6 +417,7 @@ def register_bar_routes(
 
             previously_cached_ids = set(indexed.keys())
             newly_seen_ids = set()
+            updated_match_ids = set()
             parsed_count = 0
             unable_to_locate_count = 0
 
@@ -450,7 +464,7 @@ def register_bar_routes(
                     start_ms = safe_int(game.get("gameCreation"))
                     duration = safe_int(game.get("gameDuration"))
 
-                    indexed[game_id] = {
+                    match_record = {
                         "gameId": game_id,
                         "startMs": start_ms,
                         "endMs": start_ms + duration * 1000,
@@ -467,6 +481,13 @@ def register_bar_routes(
                         "deaths": safe_int(stats.get("deaths")),
                         "assists": safe_int(stats.get("assists")),
                     }
+                    previous_record = indexed.get(game_id)
+
+                    if previous_record != match_record:
+                        indexed[game_id] = match_record
+
+                        if game_id in previously_cached_ids:
+                            updated_match_ids.add(game_id)
 
                     parsed_count += 1
 
@@ -498,22 +519,28 @@ def register_bar_routes(
                 )
                 cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
 
-            # 保留手动批次边界，并清除旧缓存中的无用字段。
-            old.pop("manual_pins", None)
-            old.update({
-                "puuid": puuid,
-                "account": account,
-                "platform": platform,
-                "matches": cached_matches,
-                "manual_boundary_ms": safe_int(
-                    old.get("manual_boundary_ms")
-                ),
-                "fetched_at": time.time(),
-            })
+            # 只有对局数据实际新增或变化（包括缓存上限清理）时，
+            # 才重写账号缓存并更新时间；普通轮询不触碰战绩文件。
+            match_data_changed = bool(
+                newly_seen_ids or updated_match_ids or evicted_count
+            )
 
-            write_json(matches_path, old)
+            if match_data_changed:
+                # 保留手动批次边界，并清除旧缓存中的无用字段。
+                old.pop("manual_pins", None)
+                old.update({
+                    "puuid": puuid,
+                    "account": account,
+                    "platform": platform,
+                    "matches": cached_matches,
+                    "manual_boundary_ms": safe_int(
+                        old.get("manual_boundary_ms")
+                    ),
+                    "fetched_at": time.time(),
+                })
+                write_json(matches_path, old)
 
-            # 只有成功取得当前账号战绩并保存后，才切换活动账号指针。
+            # 活动账号指针只在账号信息发生变化时写入。
             save_active_account(puuid, account, platform)
 
             message = (
