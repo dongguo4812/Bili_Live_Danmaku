@@ -733,6 +733,11 @@ def gameflow_worker():
                     # 离开状态1进入状态2时，也重置标记。
                     cleanup_completed = False
 
+                # 先记录本次有效阶段。即使清理过程抛出异常，
+                # 也能保留状态1并在10秒后重试，而不是退回30秒。
+                last_phase = phase
+                last_monitor_state = monitor_state
+
                 if monitor_state == '状态1' and not cleanup_completed:
                     completed = cleanup_match_data(
                         '检测到进入状态1，清理上一局或启动前残留'
@@ -746,9 +751,6 @@ def gameflow_worker():
                         log.warning(
                             '[选英雄清理] 本次清理未完全成功；将在下一次状态1检测时重试'
                         )
-
-                last_phase = phase
-                last_monitor_state = monitor_state
 
         except Exception:
             log.exception('[对局阶段] 检测过程中发生异常')
