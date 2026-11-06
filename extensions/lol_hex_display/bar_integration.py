@@ -620,8 +620,9 @@ def register_bar_routes(
                     log.exception("[战绩条] 自动刷新出现未处理异常")
                 first_refresh = False
 
-            # 追赶窗口结束后，如果已确认新增记录，仍完整执行30秒尾随；
-            # 没有新增或尾随结束则恢复普通空闲轮询。
+            # 一旦确认新增 gameId，30秒尾随窗口优先于剩余的5分钟追赶窗口。
+            # 尾随窗口到期后立即结束本轮追赶，恢复30秒空闲轮询。
+            # 如果5分钟内始终没有新增记录，则等5分钟追赶窗口到期后恢复空闲轮询。
             now = time.monotonic()
             chasing = (
                 chase_deadline is not None
@@ -632,10 +633,19 @@ def register_bar_routes(
                 and now < tail_deadline
             )
 
-            if chase_deadline is not None and not chasing and not tailing:
-                log.info("[战绩条] 对局结束追赶完成，恢复%d秒空闲轮询", IDLE_REFRESH_INTERVAL)
+            if tail_deadline is not None and not tailing:
+                log.info(
+                    "[战绩条] 新增对局尾随追踪结束，恢复%d秒空闲轮询",
+                    IDLE_REFRESH_INTERVAL,
+                )
                 chase_deadline = None
                 tail_deadline = None
+            elif chase_deadline is not None and not chasing:
+                log.info(
+                    "[战绩条] 5分钟追赶窗口内未确认新增对局，恢复%d秒空闲轮询",
+                    IDLE_REFRESH_INTERVAL,
+                )
+                chase_deadline = None
 
             interval = (
                 POST_GAME_REFRESH_INTERVAL
