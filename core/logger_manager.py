@@ -99,7 +99,7 @@ def setup_logging() -> None:
             "logging", {"level": "INFO", "retention_days": 7}
         )
         level_name = str(config.get("level", "INFO")).upper()
-        level = getattr(logging, level_name, logging.INFO)
+        level = logging.DEBUG if config.get("debug") is True else getattr(logging, level_name, logging.INFO)
         retention = max(0, int(config.get("retention_days", 7) or 0))
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         _cleanup_old_logs(retention)
