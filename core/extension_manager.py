@@ -97,15 +97,30 @@ class LolHexExtensionManager:
         except (TypeError, ValueError):
             return 8767
 
-    def _read_pid(self) -> int | None:
+    def _read_pid_record(self) -> dict[str, int | None] | None:
+        """读取带进程创建时间的 PID 记录；旧版纯 PID 文件不再用于进程归属判断。"""
         try:
-            pid = int(self.pid_file.read_text(encoding="ascii").strip())
-            return pid if pid > 0 else None
-        except (OSError, ValueError):
+            payload = json.loads(self.pid_file.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return None
+            pid = payload.get("pid")
+            creation_time = payload.get("creation_time")
+            if not isinstance(pid, int) or pid <= 0:
+                return None
+            if os.name == "nt" and (not isinstance(creation_time, int) or creation_time <= 0):
+                return None
+            if creation_time is not None and (not isinstance(creation_time, int) or creation_time <= 0):
+                return None
+            return {"pid": pid, "creation_time": creation_time}
+        except (OSError, ValueError, TypeError):
             return None
 
+    def _read_pid(self) -> int | None:
+        record = self._read_pid_record()
+        return record["pid"] if record else None
+
     @staticmethod
-    def _pid_is_running(pid: int) -> bool:
+    def _pid_is_running(pid: int, expected_creation_time: int | None = None) -> bool:
         if pid <= 0:
             return False
         if os.name != "nt":
@@ -116,24 +131,45 @@ class LolHexExtensionManager:
                 return False
             except PermissionError:
                 return True
+        if expected_creation_time is None:
+            return False
         try:
+            class FILETIME(ctypes.Structure):
+                _fields_ = [("dwLowDateTime", ctypes.c_ulong), ("dwHighDateTime", ctypes.c_ulong)]
+
             kernel32 = ctypes.windll.kernel32
             kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_ulong]
             kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.GetProcessTimes.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+                ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+            ]
+            kernel32.GetProcessTimes.restype = ctypes.c_bool
             kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
             kernel32.WaitForSingleObject.restype = ctypes.c_ulong
             kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
             kernel32.CloseHandle.restype = ctypes.c_bool
-            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            handle = kernel32.OpenProcess(0x00101000, False, pid)  # QUERY_LIMITED_INFORMATION | SYNCHRONIZE
             if not handle:
-                # ACCESS_DENIED 代表进程仍存在，只是当前权限无法查询。
-                return ctypes.get_last_error() == 5
+                return False
             try:
-                return kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+                if kernel32.WaitForSingleObject(handle, 0) != 0x00000102:
+                    return False
+                creation = FILETIME()
+                exit_time = FILETIME()
+                kernel_time = FILETIME()
+                user_time = FILETIME()
+                if not kernel32.GetProcessTimes(
+                    handle, ctypes.byref(creation), ctypes.byref(exit_time),
+                    ctypes.byref(kernel_time), ctypes.byref(user_time),
+                ):
+                    return False
+                actual = (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+                return actual == expected_creation_time
             finally:
                 kernel32.CloseHandle(handle)
         except Exception:
-            return True
+            return False
 
     def _elevated_process_running(self) -> bool:
         handle = self._elevated_process_handle
@@ -146,8 +182,13 @@ class LolHexExtensionManager:
                 return kernel32.WaitForSingleObject(handle, 0) != 0x00000000
             except Exception:
                 return True
-        pid = self._elevated_pid or self._read_pid()
-        return pid is not None and self._pid_is_running(pid)
+        if self._elevated_pid is not None:
+            record = self._read_pid_record()
+            if record and record["pid"] == self._elevated_pid:
+                return self._pid_is_running(self._elevated_pid, record["creation_time"])
+            return False
+        record = self._read_pid_record()
+        return bool(record and self._pid_is_running(record["pid"], record["creation_time"]))
 
     def _close_elevated_process_handle(self) -> None:
         handle = self._elevated_process_handle
@@ -169,12 +210,13 @@ class LolHexExtensionManager:
             return
 
         self._close_elevated_process_handle()
-        pid = self._elevated_pid or self._read_pid()
+        record = self._read_pid_record()
+        pid = self._elevated_pid or (record["pid"] if record else None)
         self._elevated_pid = None
         self._elevated_managed = False
-        if pid is not None:
+        if record is not None:
             try:
-                if self._read_pid() == pid:
+                if self._read_pid_record() == record:
                     self.pid_file.unlink(missing_ok=True)
             except OSError:
                 self.logger.warning("清理已退出 LOL Hex 的 PID 文件失败。", exc_info=True)
@@ -202,14 +244,20 @@ class LolHexExtensionManager:
                 if not self._elevated_process_running():
                     return True
             elif pid is not None:
-                if not self._pid_is_running(pid):
+                record = self._read_pid_record()
+                if not record or record["pid"] != pid:
+                    return True
+                if not self._pid_is_running(pid, record["creation_time"]):
                     return True
             elif not self._is_healthy():
                 return True
             time.sleep(0.2)
         if self._elevated_process_handle:
             return not self._elevated_process_running()
-        return pid is not None and not self._pid_is_running(pid)
+        if pid is not None:
+            record = self._read_pid_record()
+            return not record or record["pid"] != pid or not self._pid_is_running(pid, record["creation_time"])
+        return False
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -369,7 +417,8 @@ class LolHexExtensionManager:
     def stop(self) -> dict[str, Any]:
         with self._lock:
             process = self._process
-            pid = self._read_pid() or self._elevated_pid
+            record = self._read_pid_record()
+            pid = (record["pid"] if record else None) or self._elevated_pid
             if process is not None and process.poll() is not None:
                 self._process = None
                 self._owned = False
