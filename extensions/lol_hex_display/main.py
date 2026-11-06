@@ -907,11 +907,11 @@ def process_screenshot(path):
         if stable>=2: break
         old=size; time.sleep(.15)
 
-        text, err = ocr_text(path)
-        item, match_err = match_asset(text)
+    text, err = ocr_text(path)
+    item, match_err = match_asset(text)
 
-        # OCR 保留原始名称，展示名称添加质变前缀
-        display_name = f"已质变：{item['name']}" if item else ''
+    # OCR 保留原始名称，展示名称添加质变前缀
+    display_name = f"已质变：{item['name']}" if item else ''
 
     card={'key':f'{path.name}-{time.time_ns()}','filename':path.name,'ocr_text':text,'name':item['name'] if item else '', 'augment_id':item['id'] if item else '', 'reason':err or match_err, 'level': item.get('level', '') if item else '', 'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
