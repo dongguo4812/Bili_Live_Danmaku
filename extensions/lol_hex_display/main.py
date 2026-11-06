@@ -487,6 +487,7 @@ def _scan_lcu_process_wmi(client_path):
     locator = None
     services = None
     processes = None
+    item = None
     initialized = False
     try:
         import pythoncom
@@ -526,6 +527,7 @@ def _scan_lcu_process_wmi(client_path):
         log.warning("[LCU诊断] 原生 WMI 查询客户端进程失败：%s", exc)
     finally:
         # 先释放 WMI COM 对象，再平衡当前线程的 COM 初始化。
+        item = None
         processes = None
         services = None
         locator = None
