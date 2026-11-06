@@ -17,11 +17,8 @@ from flask import Blueprint, jsonify, render_template, request
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 log = logging.getLogger(__name__)
 
-# 普通空闲轮询、对局结束追赶窗口及追赶周期（秒）
+# 普通空闲轮询间隔（秒）
 IDLE_REFRESH_INTERVAL = 30
-POST_GAME_CHASE_WINDOW = 5 * 60
-POST_GAME_REFRESH_INTERVAL = 5
-NEW_MATCH_TAIL_WINDOW = 30
 
 # 每个账号最多保留的本地对局数量
 CACHE_MATCH_LIMIT = 100
@@ -91,7 +88,7 @@ def register_bar_routes(
     def notify_game_ended():
         """由主程序的唯一 gameflow 监控线程通知：已检测到离开对局。"""
         game_end_event.set()
-        log.info("[战绩条] 已收到对局结束事件；准备立即刷新并启动追赶窗口")
+        log.info("[战绩条] 已收到离开对局事件；将立即刷新一次")
 
     # 用于避免网页频繁轮询时反复输出相同的完整诊断日志。
     last_snapshot_diag_signature = None
@@ -591,97 +588,34 @@ def register_bar_routes(
     def auto_refresh_worker():
         """
         战绩自动刷新调度：
-        - 启动时先刷新一次，之后空闲状态每30秒刷新；
-        - 收到主程序的对局结束事件后立即刷新，开启5分钟追赶窗口；
-        - 追赶期间每5秒刷新，确认新增 gameId 后继续追踪完整30秒；
-        - 追赶/尾随结束后恢复30秒空闲轮询。
+        - 启动时刷新一次，之后空闲状态每30秒刷新；
+        - 收到主程序的离开对局事件后立即刷新一次；
+        - 不额外启动短间隔追赶或新增对局尾随轮询。
         """
         log.info(
-            "[战绩条] 自动刷新线程启动：空闲%s秒；对局结束追赶%s分钟，"
-            "追赶间隔%s秒；新增记录后尾随%s秒",
+            "[战绩条] 自动刷新线程启动：空闲%s秒；离开对局后立即刷新一次",
             IDLE_REFRESH_INTERVAL,
-            POST_GAME_CHASE_WINDOW // 60,
-            POST_GAME_REFRESH_INTERVAL,
-            NEW_MATCH_TAIL_WINDOW,
         )
 
-        chase_deadline = None
-        tail_deadline = None
         first_refresh = True
 
         while not stop_event.is_set():
-            # 结束事件可打断空闲等待；若刷新进行中收到事件，则在本轮结束后立即处理。
+            # 结束事件可打断空闲等待；若刷新进行中收到事件，
+            # 事件会保留到本轮结束后，立即触发下一次刷新。
             if game_end_event.is_set():
                 game_end_event.clear()
-                chase_deadline = time.monotonic() + POST_GAME_CHASE_WINDOW
-                tail_deadline = None
                 first_refresh = True
-                log.info(
-                    "[战绩条] 检测到离开对局：立即刷新，开启%d秒追赶窗口",
-                    POST_GAME_CHASE_WINDOW,
-                )
+                log.info("[战绩条] 检测到离开对局：立即刷新一次")
 
-            now = time.monotonic()
-            chasing = (
-                chase_deadline is not None
-                and now < chase_deadline
-            )
-            tailing = (
-                tail_deadline is not None
-                and now < tail_deadline
-            )
-
-            should_refresh = first_refresh or chasing or tailing
-            if should_refresh:
+            if first_refresh:
                 try:
-                    ok, message, has_new_matches = refresh_matches()
-                    if ok and has_new_matches and (chasing or tailing):
-                        tail_deadline = (
-                            time.monotonic() + NEW_MATCH_TAIL_WINDOW
-                        )
-                        log.info(
-                            "[战绩条] 已确认新增 gameId；继续追踪%d秒",
-                            NEW_MATCH_TAIL_WINDOW,
-                        )
+                    refresh_matches()
                 except Exception:
                     log.exception("[战绩条] 自动刷新出现未处理异常")
                 first_refresh = False
 
-            # 一旦确认新增 gameId，30秒尾随窗口优先于剩余的5分钟追赶窗口。
-            # 尾随窗口到期后立即结束本轮追赶，恢复30秒空闲轮询。
-            # 如果5分钟内始终没有新增记录，则等5分钟追赶窗口到期后恢复空闲轮询。
-            now = time.monotonic()
-            chasing = (
-                chase_deadline is not None
-                and now < chase_deadline
-            )
-            tailing = (
-                tail_deadline is not None
-                and now < tail_deadline
-            )
-
-            if tail_deadline is not None and not tailing:
-                log.info(
-                    "[战绩条] 新增对局尾随追踪结束，恢复%d秒空闲轮询",
-                    IDLE_REFRESH_INTERVAL,
-                )
-                chase_deadline = None
-                tail_deadline = None
-            elif chase_deadline is not None and not chasing:
-                log.info(
-                    "[战绩条] 5分钟追赶窗口内未确认新增对局，恢复%d秒空闲轮询",
-                    IDLE_REFRESH_INTERVAL,
-                )
-                chase_deadline = None
-
-            interval = (
-                POST_GAME_REFRESH_INTERVAL
-                if chase_deadline is not None
-                else IDLE_REFRESH_INTERVAL
-            )
-
-            # 等待期间可被新的对局结束事件立即唤醒。
-            if game_end_event.wait(interval):
+            # 空闲期间每30秒检查一次；新的离开对局事件可立即唤醒。
+            if game_end_event.wait(IDLE_REFRESH_INTERVAL):
                 continue
 
         log.info("[战绩条] 后台自动刷新线程已退出")
