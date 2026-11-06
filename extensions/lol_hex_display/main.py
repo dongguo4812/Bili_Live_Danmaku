@@ -21,89 +21,109 @@ _config_args, _ = _config_parser.parse_known_args()
 CONFIG_PATH = (_config_args.config.resolve() if _config_args.config else ROOT / "config.json")
 ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_SOURCE_PATH = DATA / 'hex_icon_sources.json'
 AUGMENTS_URL = 'https://game.gtimg.cn/images/lol/act/img/js/kiwi/kiwi_augments.json'
-# 日志格式
-LOG_FORMAT = '%(asctime)s [%(levelname)s] %(message)s'
+# 日志配置与主项目 config/default/local/logging.json 保持一致。
+def _load_logging_settings():
+    settings = {"level": "INFO", "retention_days": 7}
+    try:
+        # 主项目通过 --config config/local/lol_hex_display.json 启动 Hex。
+        # 独立启动时若目录结构不同，则使用与主项目相同的默认值。
+        project_root = CONFIG_PATH.parent.parent.parent
+        default_path = project_root / "config" / "default" / "logging.json"
+        local_path = project_root / "config" / "local" / "logging.json"
+        for path in (default_path, local_path):
+            if path.is_file():
+                payload = json.loads(path.read_text(encoding="utf-8-sig"))
+                if isinstance(payload, dict):
+                    settings.update(payload)
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    return settings
 
-# 日志级别
-LOG_LEVEL = logging.INFO
 
-# 日志文件：按启动日期归档
-LOG_DATE = datetime.now().strftime('%Y-%m-%d')
-LOG_FILE = LOG_DIR / f'app_{LOG_DATE}.log'
+_logging_settings = _load_logging_settings()
+LOG_LEVEL_NAME = str(_logging_settings.get("level", "INFO")).upper()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+try:
+    LOG_RETENTION_DAYS = max(0, int(_logging_settings.get("retention_days", 7)))
+except (TypeError, ValueError):
+    LOG_RETENTION_DAYS = 7
 
-# 清理五天以前的日志
+LOG_DATE = datetime.now().strftime("%Y-%m-%d")
+LOG_FILE = LOG_DIR / f"{LOG_DATE}.log"
+
+
 def cleanup_old_logs():
-    """
-    保留今天及之前四天的日志。
-    只清理本项目 logs 目录中符合命名规则的归档文件。
-    """
+    """按主项目的 retention_days 规则清理日期日志；0 表示不自动清理。"""
+    if LOG_RETENTION_DAYS <= 0:
+        return
     from datetime import timedelta
 
-    cutoff = datetime.now().date() - timedelta(days=4)
-    deleted = []
-    failed = []
-
-    patterns = (
-        re.compile(r'app_(\d{4}-\d{2}-\d{2})\.log'),
-        re.compile(r'thread_dump_(\d{4}-\d{2}-\d{2})\.log'),
-    )
-
-    for path in LOG_DIR.iterdir():
-        if not path.is_file():
+    cutoff = datetime.now().date() - timedelta(days=LOG_RETENTION_DAYS - 1)
+    for path in LOG_DIR.glob("*.log"):
+        try:
+            file_date = datetime.strptime(path.stem, "%Y-%m-%d").date()
+            if file_date < cutoff:
+                path.unlink()
+        except (ValueError, OSError):
             continue
 
-        for pattern in patterns:
-            match = pattern.fullmatch(path.name)
-            if not match:
-                continue
 
-            try:
-                file_date = datetime.strptime(
-                    match.group(1), '%Y-%m-%d'
-                ).date()
+class SecretRedactionFilter(logging.Filter):
+    """与主项目一致，对常见凭据字段进行日志脱敏。"""
 
-                if file_date < cutoff:
-                    path.unlink()
-                    deleted.append(path.name)
-            except Exception as exc:
-                failed.append(f'{path.name}: {exc}')
+    _secret_pattern = re.compile(
+        r"(?i)(SESSDATA|bili_jct|buvid3|buvid4|ac_time_value|DedeUserID|cookie|password|passwd|token|authorization|api[_-]?key|access[_-]?token|refresh[_-]?token)(\\s*[:=]\\s*)([\"']?)([^\\s,;}}\"']+)"
+    )
+    _header_pattern = re.compile(
+        r"(?i)((?:Cookie|Authorization)\\s*:\\s*)([^\\r\\n]+)"
+    )
 
-            break
+    def filter(self, record):
+        try:
+            message = record.getMessage()
+            message = self._secret_pattern.sub(
+                lambda match: match.group(1) + match.group(2) + "***",
+                message,
+            )
+            message = self._header_pattern.sub(
+                lambda match: match.group(1) + "***",
+                message,
+            )
+            record.msg = message
+            record.args = ()
+            if record.exc_info:
+                formatted = logging.Formatter().formatException(record.exc_info)
+                record.exc_text = self._secret_pattern.sub(
+                    lambda match: match.group(1) + match.group(2) + "***",
+                    formatted,
+                )
+                record.exc_info = None
+        except Exception:
+            record.msg = "[log message redacted]"
+            record.args = ()
+        return True
 
-    return deleted, failed
 
-
-
-# 创建日志队列
-# 使用 SimpleQueue，避免队列满导致业务线程阻塞
+# Hex 是独立进程，使用独立文件，避免与主项目同时写入同一个日志文件；
+# 文件命名、格式、级别和保留策略遵循主项目规范。
 log_queue = queue.SimpleQueue()
-
-# 创建文件输出处理器
-file_handler = logging.FileHandler(
-    LOG_FILE,
-    encoding='utf-8',
-    delay=False
-)
+file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8", delay=False)
 file_handler.setLevel(LOG_LEVEL)
-
-# 统一设置日志格式
-formatter = logging.Formatter(LOG_FORMAT)
+formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 file_handler.setFormatter(formatter)
+file_handler.addFilter(SecretRedactionFilter())
 
-# Hex 由主项目以隐藏的管理员后台进程启动，仅保留文件日志输出，不创建控制台处理器。
-
-# 创建日志监听线程
 log_listener = QueueListener(
     log_queue,
     file_handler,
-    respect_handler_level=True
+    respect_handler_level=True,
 )
 
-# 配置 Root Logger
 root_logger = logging.getLogger()
 root_logger.setLevel(LOG_LEVEL)
-
-# 清理原有处理器
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
     try:
@@ -111,25 +131,11 @@ for handler in root_logger.handlers[:]:
     except Exception:
         pass
 
-# 业务线程只向队列写入日志
 queue_handler = QueueHandler(log_queue)
 queue_handler.setLevel(LOG_LEVEL)
 root_logger.addHandler(queue_handler)
-
-# 启动独立日志线程
 log_listener.start()
-
-# 启动时清理五天以前的日志
-deleted_logs, failed_logs = cleanup_old_logs()
-
-if deleted_logs:
-    logging.info('[日志清理] 已删除过期日志：%s', ', '.join(deleted_logs))
-
-if failed_logs:
-    for item in failed_logs:
-        logging.warning('[日志清理] 删除日志失败：%s', item)
-
-logging.info('[日志系统] 普通日志文件：%s', LOG_FILE)
+cleanup_old_logs()
 
 # 程序退出时停止日志监听线程
 def stop_async_logging():
@@ -146,7 +152,7 @@ atexit.register(stop_async_logging)
 # 项目日志对象
 log = logging.getLogger('lol_hex_display')
 
-log.info('异步日志系统初始化完成')
+
 
 DEFAULT_CONFIG = {
     'screenshot_dir': 'screenshots/inbox',
