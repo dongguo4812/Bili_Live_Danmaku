@@ -106,7 +106,7 @@ class LolHexExtensionManager:
                 return None
             pid = payload.get("pid")
             creation_time = payload.get("creation_time")
-            if not isinstance(pid, int) or pid <= 0:
+            if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
                 return None
             if os.name == "nt" and (not isinstance(creation_time, int) or creation_time <= 0):
                 return None
@@ -249,6 +249,8 @@ class LolHexExtensionManager:
         self._elevated_managed = False
         if (
             record is not None
+            and self._elevated_pid is not None
+            and record["pid"] == self._elevated_pid
             and expected_creation_time is not None
             and record["creation_time"] == expected_creation_time
         ):
