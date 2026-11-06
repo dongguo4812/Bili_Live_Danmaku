@@ -538,30 +538,40 @@ def _scan_lcu_process_wmi(client_path):
 
 
 def _scan_lcu_credentials():
-    """按 Lockfile、原生 WMI、客户端日志顺序查找 LCU 凭据。"""
+    """按 Lockfile、原生 WMI、客户端日志顺序查找并验证 LCU 凭据。"""
     if os.name != "nt":
-        return None, ""
+        return None, "", None
 
     config = read_config()
     configured_path = str(config.get("lol_client_path", "")).strip().strip('"')
     if not configured_path:
         log.warning("[LCU诊断] 未配置 lol_client_path")
-        return None, ""
+        return None, "", None
 
     client_path = os.path.normcase(
         os.path.abspath(os.path.expandvars(os.path.expanduser(configured_path)))
     )
     client_dirs = _client_directories(client_path)
 
-    # 1. Lockfile：无需扫描系统进程，优先尝试低开销的本地文件读取。
-    credentials = _read_lcu_lockfile(client_dirs)
-    if credentials:
-        return credentials, "lockfile"
+    def validate_candidate(credentials, source):
+        if not credentials:
+            return None
+        valid, account_data = _validate_lcu_credentials(*credentials)
+        if valid:
+            log.info("[LCU诊断] %s 候选凭据验证成功，端口=%s", source, credentials[0])
+            return credentials, source, account_data
+        log.debug("[LCU诊断] %s 候选凭据验证失败，继续尝试下一来源", source)
+        return None
 
-    # 2. 原生 WMI：只在 Lockfile 不可用时查询进程启动参数。
-    credentials = _scan_lcu_process_wmi(client_path)
-    if credentials:
-        return credentials, "process"
+    # 1. Lockfile：无需扫描系统进程，优先尝试低开销的本地文件读取。
+    result = validate_candidate(_read_lcu_lockfile(client_dirs), "lockfile")
+    if result:
+        return result
+
+    # 2. 原生 WMI：Lockfile 缺失或验证失败时查询进程启动参数。
+    result = validate_candidate(_scan_lcu_process_wmi(client_path), "process")
+    if result:
+        return result
 
     # 3. 客户端日志：兼容不同 lol_client_path 配置层级。
     log_files = []
@@ -586,12 +596,14 @@ def _scan_lcu_credentials():
                     "[LCU诊断] 从客户端日志读取到候选凭据：%s，端口=%s",
                     log_file.name, credentials[0],
                 )
-                return credentials, "log"
+                result = validate_candidate(credentials, "log")
+                if result:
+                    return result
         except OSError as exc:
             log.debug("[LCU诊断] 读取日志失败 %s：%s", log_file, exc)
 
-    log.warning("[LCU诊断] Lockfile、WMI 和客户端日志均未找到可用候选凭据")
-    return None, ""
+    log.warning("[LCU诊断] Lockfile、WMI 和客户端日志均未找到通过验证的凭据")
+    return None, "", None
 
 
 def get_lcu_credentials():
@@ -630,9 +642,8 @@ def lcu_recognition_worker():
 
         # 首次识别，或缓存凭据已失效时，才重新扫描进程参数和客户端日志。
         if not valid:
-            credentials, source = _scan_lcu_credentials()
-            if credentials:
-                valid, account_data = _validate_lcu_credentials(*credentials)
+            credentials, source, account_data = _scan_lcu_credentials()
+            valid = credentials is not None
 
         with _lcu_lock:
             if valid:
