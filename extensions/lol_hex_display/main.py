@@ -23,7 +23,7 @@ ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_S
 AUGMENTS_URL = 'https://game.gtimg.cn/images/lol/act/img/js/kiwi/kiwi_augments.json'
 # 日志配置与主项目 config/default/local/logging.json 保持一致。
 def _load_logging_settings():
-    settings = {"level": "INFO", "retention_days": 7}
+    settings = {"retention_days": 7, "debug": False}
     try:
         # 主项目通过 --config config/local/lol_hex_display.json 启动 Hex。
         # 独立启动时若目录结构不同，则使用与主项目相同的默认值。
@@ -42,8 +42,8 @@ def _load_logging_settings():
 
 log = logging.getLogger("lol_hex_display")
 _logging_settings = _load_logging_settings()
-LOG_LEVEL_NAME = str(_logging_settings.get("level", "INFO")).upper()
-LOG_LEVEL = logging.DEBUG if _logging_settings.get("debug") is True else getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+# 日常固定为 INFO；仅通过 debug 开关额外启用 DEBUG。
+LOG_LEVEL = logging.DEBUG if _logging_settings.get("debug") is True else logging.INFO
 try:
     LOG_RETENTION_DAYS = max(0, int(_logging_settings.get("retention_days", 7)))
 except (TypeError, ValueError):
