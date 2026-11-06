@@ -144,6 +144,7 @@
     </div>
 
     <p id="barAdminStatus" aria-live="polite"></p>
+    <p id="barLastUpdated" style="margin:8px 0;color:#8992a3">最近更新时间：暂无</p>
     <div id="barAdminPreview"></div>
   </section>
 
@@ -380,6 +381,12 @@ async function loadBarAdmin() {
 
     const config = await configResponse.json();
     const snapshot = await snapshotResponse.json();
+
+    const fetchedAt = Number(snapshot.fetched_at || 0);
+    const updatedEl = document.getElementById('barLastUpdated');
+    updatedEl.textContent = fetchedAt > 0 && Number.isFinite(fetchedAt)
+      ? `最近更新时间：${new Date(fetchedAt * 1000).toLocaleString()}`
+      : '最近更新时间：暂无战绩数据更新记录';
 
     document.getElementById('barMaxGames').value =
       config.max_games ?? 5;
