@@ -368,6 +368,8 @@ async function load() {
   }
 }
 
+let lastBarPreviewSignature = null;
+
 async function loadBarAdmin() {
   try {
     const [configResponse, snapshotResponse] = await Promise.all([
@@ -399,9 +401,27 @@ async function loadBarAdmin() {
 
     const preview = document.getElementById('barAdminPreview');
     const games = Array.isArray(snapshot.games) ? snapshot.games : [];
+    const previewSignature = JSON.stringify({
+      account: snapshot.account,
+      region: snapshot.region,
+      wins: snapshot.wins,
+      losses: snapshot.losses,
+      games: games.map(game => [
+        game.gameId,
+        game.champion_id,
+        game.win,
+        game.k,
+        game.d,
+        game.a
+      ])
+    });
+
+    // 预览内容没有变化时保留现有 DOM，避免重复销毁和加载英雄头像。
+    if (previewSignature === lastBarPreviewSignature) return;
 
     if (!games.length) {
       preview.replaceChildren();
+      lastBarPreviewSignature = previewSignature;
       return;
     }
 
@@ -599,6 +619,7 @@ async function loadBarAdmin() {
         }).join('')}
       </div>
     `;
+    lastBarPreviewSignature = previewSignature;
   } catch (error) {
     document.getElementById('barAdminStatus').textContent =
       '战绩条数据读取失败：' + error.message;
