@@ -207,7 +207,7 @@ def check_admin_privileges():
 
     try:
         if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-            log.info("[权限检查] 当前以管理员身份运行")
+            log.debug("[权限检查] 当前以管理员身份运行")
             return True
     except Exception:
         log.exception("[权限检查] 无法检查 Windows 管理员权限")
@@ -268,14 +268,41 @@ def read_config():
         log.error("[配置] 读取 JSON 配置失败 %s：%s；使用默认值", CONFIG_PATH, exc)
     return cfg
 
+_screenshot_log_lock = threading.Lock()
+_screenshot_log_states = {}
+
+
+def _log_screenshot_issue(key, message, exc):
+    signature = f"{type(exc).__name__}: {exc}"
+    with _screenshot_log_lock:
+        if _screenshot_log_states.get(key) == signature:
+            return
+        _screenshot_log_states[key] = signature
+    log.warning("%s：%s", message, exc)
+
+
+def _clear_screenshot_issue(key, message):
+    with _screenshot_log_lock:
+        existed = _screenshot_log_states.pop(key, None) is not None
+    if existed:
+        log.info("%s", message)
+
+
 def screenshot_dir(config=None):
     config = config if config is not None else read_config()
     raw=str(config.get('screenshot_dir','screenshots/inbox') or 'screenshots/inbox')
     p=Path(os.path.expandvars(os.path.expanduser(raw)))
     if not p.is_absolute(): p=ROOT/p
-    try: p.mkdir(parents=True, exist_ok=True); return p.resolve()
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+        _clear_screenshot_issue("configured_directory", "截图目录已恢复可用")
+        return p.resolve()
     except Exception as e:
-        log.error('截图目录不可用 %s：%s；回退到默认目录', p, e)
+        _log_screenshot_issue(
+            "configured_directory",
+            f"截图目录不可用 {p}；回退到默认目录",
+            e,
+        )
         fallback=SHOTS/'inbox'; fallback.mkdir(parents=True,exist_ok=True); return fallback.resolve()
 
 def read_json(path, default):
@@ -747,7 +774,9 @@ def lcu_recognition_worker():
                     account or "未知账号",
                     source,
                 )
-            elif last_logged_status is not None and last_logged_status[0]:
+            elif last_logged_status is None:
+                log.info("未检测到可用的英雄联盟客户端，等待客户端启动")
+            elif last_logged_status[0]:
                 log.warning("LCU 连接已断开，正在重新识别客户端")
             last_logged_status = current_status
 
@@ -1174,7 +1203,14 @@ def process_screenshot(path):
     try:
         if path.exists(): shutil.copy2(path,PROCESSED/path.name)
     except Exception: pass
-    log.info('截图识别：%s | OCR=%s | 匹配=%s | 原因=%s',path.name,text,card['name'] or '未匹配',card['reason'])
+    log_method = log.error if err.startswith('OCR 初始化或识别失败：') else log.info
+    log_method(
+        '截图识别：%s | OCR=%s | 匹配=%s | 原因=%s',
+        path.name,
+        text,
+        card['name'] or '未匹配',
+        card['reason'],
+    )
 
 stop_event=threading.Event(); processed_files=set(); update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def screenshot_watcher():
@@ -1194,6 +1230,7 @@ def screenshot_watcher():
     while not stop_event.is_set():
         try:
             stat_result = folder.stat()
+            _clear_screenshot_issue("watcher_stat", "截图目录状态读取已恢复")
             current_signature = (
                 stat_result.st_mtime_ns,
                 stat_result.st_ctime_ns,
@@ -1216,7 +1253,11 @@ def screenshot_watcher():
         except OSError as exc:
             # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
             directory_signature = None
-            log.warning('[截图监控] 读取目录状态失败，执行完整扫描：%s', exc)
+            _log_screenshot_issue(
+                "watcher_stat",
+                "[截图监控] 读取目录状态失败，执行完整扫描",
+                exc,
+            )
             try:
                 files = sorted(
                     folder.glob('GameShot_*.png'),
@@ -1228,10 +1269,10 @@ def screenshot_watcher():
                     process_screenshot(p)
                     processed_files.add(p.name)
             except Exception as scan_exc:
-                log.warning('扫描截图目录异常：%s', scan_exc)
+                _log_screenshot_issue("watcher_scan", "扫描截图目录异常", scan_exc)
         except Exception as exc:
             directory_signature = None
-            log.warning('扫描截图目录异常：%s', exc)
+            _log_screenshot_issue("watcher_scan", "扫描截图目录异常", exc)
 
         stop_event.wait(scan_interval)
 
@@ -1877,7 +1918,7 @@ def main():
                 new_mode |= 0x0080  # 启用扩展控制台标志
                 kernel32.SetConsoleMode(handle, new_mode)
         except Exception as e:
-            log.warning('设置控制台模式失败：%s', e)
+            log.debug('设置控制台模式失败：%s', e)
     log.info('lol_hex_display 启动；截图目录：%s', screenshot_dir())
     threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
     threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
