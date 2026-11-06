@@ -435,78 +435,136 @@ def _extract_credentials(command):
     return (port, token) if port > 0 and token else None
 
 
+def _client_directories(client_path):
+    """兼容 lol_client_path 指向安装根目录或 LeagueClient 子目录。"""
+    root = Path(client_path)
+    candidates = (root, root / "LeagueClient")
+    result = []
+    seen = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate.absolute()
+        key = os.path.normcase(str(resolved))
+        if key not in seen and resolved.is_dir():
+            seen.add(key)
+            result.append(resolved)
+    return result
+
+
+def _read_lcu_lockfile(client_dirs):
+    """读取 LeagueClient lockfile，返回尚未验证的端口和 Token。"""
+    for directory in client_dirs:
+        lockfile = directory / "lockfile"
+        try:
+            if not lockfile.is_file():
+                continue
+            content = lockfile.read_text(encoding="utf-8", errors="replace").strip("\x00\r\n ")
+            parts = content.split(":")
+            if len(parts) < 5 or parts[0].lower() != "leagueclient":
+                log.debug("[LCU诊断] Lockfile 格式不符合预期：%s", lockfile)
+                continue
+            pid, port, token, protocol = parts[1:5]
+            if not pid.isdigit() or not port.isdigit() or not token:
+                continue
+            port_number = int(port)
+            if not 1 <= port_number <= 65535 or protocol.lower() not in ("http", "https"):
+                continue
+            log.info("[LCU诊断] 从 Lockfile 读取到候选凭据，端口=%s", port_number)
+            return (port_number, token)
+        except (OSError, UnicodeError) as exc:
+            log.debug("[LCU诊断] 读取 Lockfile 失败 %s：%s", lockfile, exc)
+    return None
+
+
+def _scan_lcu_process_wmi(client_path):
+    """通过原生 WMI 查询 LeagueClientUx.exe，不启动 PowerShell 子进程。"""
+    if os.name != "nt":
+        return None
+
+    import pythoncom
+    import win32com.client
+
+    initialized = False
+    try:
+        pythoncom.CoInitialize()
+        initialized = True
+
+        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+        services = locator.ConnectServer(".", r"root\cimv2")
+        services.Security_.ImpersonationLevel = 3
+        processes = services.ExecQuery(
+            "SELECT ExecutablePath, CommandLine FROM Win32_Process "
+            "WHERE Name='LeagueClientUx.exe'",
+            "WQL",
+            0x30,
+        )
+
+        for item in processes:
+            exe_path = str(item.ExecutablePath or "").strip()
+            command = str(item.CommandLine or "")
+            if not exe_path or not command:
+                continue
+
+            actual = os.path.normcase(os.path.abspath(os.path.expandvars(exe_path)))
+            try:
+                if os.path.commonpath([client_path, actual]) != client_path:
+                    continue
+            except (ValueError, OSError):
+                continue
+
+            credentials = _extract_credentials(command)
+            if credentials:
+                log.info("[LCU诊断] 通过原生 WMI 从 LeagueClientUx.exe 读取到候选凭据")
+                return credentials
+    except Exception as exc:
+        log.warning("[LCU诊断] 原生 WMI 查询客户端进程失败：%s", exc)
+    finally:
+        if initialized:
+            pythoncom.CoUninitialize()
+
+    return None
+
+
 def _scan_lcu_credentials():
-    """先读运行进程参数；进程不存在/参数不可用时回退到客户端日志。"""
+    """按 Lockfile、原生 WMI、客户端日志顺序查找 LCU 凭据。"""
     if os.name != "nt":
         return None, ""
 
-    import subprocess
-    import base64
-
     config = read_config()
-    client_path = str(config.get("lol_client_path", "")).strip().strip('"')
-    if not client_path:
-        log.warning("[LCU诊断] config.txt 未配置 lol_client_path")
+    configured_path = str(config.get("lol_client_path", "")).strip().strip('"')
+    if not configured_path:
+        log.warning("[LCU诊断] 未配置 lol_client_path")
         return None, ""
-    client_path = os.path.normcase(os.path.abspath(os.path.expandvars(client_path)))
 
-    ps = r"""
-$ErrorActionPreference = 'Stop'
-$items = Get-CimInstance Win32_Process -Filter "Name = 'LeagueClientUx.exe'"
-foreach ($item in $items) {
-    $exe = [string]$item.ExecutablePath
-    $cmd = [string]$item.CommandLine
-    $exe64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($exe))
-    $cmd64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($cmd))
-    Write-Output ($exe64 + "`t" + $cmd64)
-}
-"""
-    try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=8, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        if result.returncode == 0:
-            for line in (result.stdout or "").splitlines():
-                parts = line.split("\t", 1)
-                if len(parts) != 2:
-                    continue
-                try:
-                    exe_path = base64.b64decode(parts[0], validate=True).decode("utf-8", errors="replace")
-                    command = base64.b64decode(parts[1], validate=True).decode("utf-8", errors="replace")
-                except Exception:
-                    continue
-                if exe_path:
-                    actual = os.path.normcase(os.path.abspath(exe_path))
-                    try:
-                        if os.path.commonpath([client_path, actual]) != client_path:
-                            continue
-                    except (ValueError, OSError):
-                        continue
-                credentials = _extract_credentials(command)
-                if credentials:
-                    log.info("[LCU诊断] 从 LeagueClientUx.exe 启动参数读取到凭据")
-                    return credentials, "process"
-    except subprocess.TimeoutExpired:
-        log.warning("[LCU诊断] 查询 LeagueClientUx.exe 进程超时")
-    except Exception as exc:
-        log.warning("[LCU诊断] 查询客户端进程失败：%s", exc)
+    client_path = os.path.normcase(
+        os.path.abspath(os.path.expandvars(os.path.expanduser(configured_path)))
+    )
+    client_dirs = _client_directories(client_path)
 
-    # WeGame 国服实际日志目录：<lol_client_path>\LeagueClient
-    log_dir = Path(client_path) / "LeagueClient"
-    if not log_dir.is_dir():
-        log.warning("[LCU诊断] 客户端日志目录不存在：%s", log_dir)
-        return None, ""
+    # 1. Lockfile：无需扫描系统进程，优先尝试低开销的本地文件读取。
+    credentials = _read_lcu_lockfile(client_dirs)
+    if credentials:
+        return credentials, "lockfile"
+
+    # 2. 原生 WMI：只在 Lockfile 不可用时查询进程启动参数。
+    credentials = _scan_lcu_process_wmi(client_path)
+    if credentials:
+        return credentials, "process"
+
+    # 3. 客户端日志：兼容不同 lol_client_path 配置层级。
+    log_files = []
+    for directory in client_dirs:
+        try:
+            log_files.extend(directory.glob("*_LeagueClientUx.log"))
+        except OSError as exc:
+            log.debug("[LCU诊断] 枚举客户端日志失败 %s：%s", directory, exc)
+
     try:
-        log_files = sorted(
-            log_dir.glob("*_LeagueClientUx.log"),
-            key=lambda item: item.stat().st_mtime,
-            reverse=True,
-        )
+        log_files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
     except OSError as exc:
-        log.warning("[LCU诊断] 枚举客户端日志失败：%s", exc)
-        return None, ""
+        log.warning("[LCU诊断] 排序客户端日志失败：%s", exc)
 
     for log_file in log_files:
         try:
@@ -514,12 +572,15 @@ foreach ($item in $items) {
                 content = stream.read(64 * 1024)
             credentials = _extract_credentials(content)
             if credentials:
-                log.info("[LCU诊断] 从客户端日志读取凭据：%s，端口=%s", log_file.name, credentials[0])
+                log.info(
+                    "[LCU诊断] 从客户端日志读取到候选凭据：%s，端口=%s",
+                    log_file.name, credentials[0],
+                )
                 return credentials, "log"
         except OSError as exc:
             log.debug("[LCU诊断] 读取日志失败 %s：%s", log_file, exc)
 
-    log.warning("[LCU诊断] 客户端日志中未找到端口和 Token 参数")
+    log.warning("[LCU诊断] Lockfile、WMI 和客户端日志均未找到可用候选凭据")
     return None, ""
 
 
@@ -545,7 +606,7 @@ def lcu_recognition_worker():
     log.info("[LCU识别] 客户端识别线程已启动")
     while not stop_event.is_set():
         # 客户端运行期间端口和 Token 通常保持不变。
-        # 先验证缓存值，避免每 10 秒都启动 PowerShell 查询进程。
+        # 先验证缓存值，只有缓存失效时才重新读取 Lockfile、查询 WMI 或检查日志。
         with _lcu_lock:
             cached_credentials = _lcu_credentials
             cached_source = _lcu_status.get("source") or "cache"
