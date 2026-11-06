@@ -9,20 +9,22 @@ A modular Bilibili live-stream assistant with danmaku, Live2D, Edge TTS, music/v
 Requirements: Python 3.10 or newer.
 
 1. Download or clone this repository.
-2. Double-click \`start.bat\`.
-3. On the first launch, the script creates a local \`.venv\` virtual environment and installs dependencies.
-4. Open the management page at \`http://127.0.0.1:8768/\`.
-5. The transparent OBS display page is at \`http://127.0.0.1:8768/live2d/display\`.
+2. Install Python 3.10 or newer and ensure the `python` command points to the interpreter you intend to use.
+3. Install the project dependencies into that same Python installation: `python -m pip install -r requirements.txt`.
+4. Double-click `start.bat`. The script uses `python` directly and does not create or activate a virtual environment or install packages automatically.
+5. Open the management page at `http://127.0.0.1:8768/`.
+6. The transparent OBS display page is at `http://127.0.0.1:8768/live2d/display`.
 
-Keep the console window open while using the application. Press \`Ctrl+C\` in that window to stop the server.
+Keep the console window open while using the application. Press `Ctrl+C` in that window to stop the server. The root startup script checks the required imports and reports the manual installation command if dependencies are missing.
 
 Manual startup:
 
-\`\`\`powershell
-py -3 -m venv .venv
-.venv\\Scripts\\python.exe -m pip install -r requirements.txt
-.venv\\Scripts\\python.exe main.py
-\`\`\`
+```powershell
+python -m pip install -r requirements.txt
+python main.py
+```
+
+The source startup and build scripts use the Python selected by the `python` command. The LOL Hex extension, when launched by the main application in source mode, uses the exact same interpreter as the main process. Existing `.venv` folders are not automatically deleted; they are simply no longer used by these scripts.
 
 ## Bilibili login and live room
 

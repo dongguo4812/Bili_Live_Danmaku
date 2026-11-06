@@ -68,29 +68,35 @@ SC 播报示例：
 
 ## 安装与启动
 
+### 运行环境
+
+需要 Python 3.10 或更高版本。请确保命令行中的 `python` 指向你准备使用的系统 Python。
+
+### 启动程序
+
 1. 下载或克隆本仓库。
-2. 确保已安装 Python 3.10 或更高版本，并能通过 `py -3` 调用。
-3. 双击项目目录中的 `start.bat`。
-4. 首次启动时，脚本会创建本地 `.venv` 虚拟环境并安装依赖。
-5. 打开管理页面：
+2. 在项目根目录打开 PowerShell，使用同一个 Python 安装依赖：`python -m pip install -r requirements.txt`。
+3. 双击项目目录中的 `start.bat`。脚本直接使用 `python` 启动，不会创建或激活虚拟环境，也不会自动安装或升级依赖。
+4. 打开管理页面：
 
    `http://127.0.0.1:8768/`
 
-6. OBS Live2D 透明展示页面：
+5. OBS Live2D 透明展示页面：
 
    `http://127.0.0.1:8768/live2d/display`
 
-使用期间请保持启动程序的控制台窗口运行。正常停止时，可在控制台按 `Ctrl+C`；也可以使用窗口关闭按钮退出。程序退出时不会修改 OBS 来源的显示/隐藏状态。
+使用期间请保持启动程序的控制台窗口运行。正常停止时，可在控制台按 `Ctrl+C`；也可以使用窗口关闭按钮退出。程序退出时不会修改 OBS 来源的显示/隐藏状态。如果依赖缺失，启动脚本会提示需要手动执行的安装命令。
 
 ### 手动启动
 
 在项目根目录打开 PowerShell：
 
 ```powershell
-py -3 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe main.py
+python -m pip install -r requirements.txt
+python main.py
 ```
+
+源码启动和打包脚本统一使用 `python` 命令所指向的系统 Python。主项目以源码模式启动 LOL Hex 时，扩展会直接复用主程序的 `sys.executable`，不会再读取 `LOL_HEX_PYTHON` 环境变量。已有的 `.venv` 文件夹不会被自动删除，但这些启动和打包脚本不再使用它。
 
 ## B站登录与直播间连接
 

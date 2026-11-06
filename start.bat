@@ -18,57 +18,33 @@ echo       B站直播弹幕助手 - 启动程序
 echo ========================================
 echo.
 
-where py >nul 2>nul
-if %errorlevel%==0 (
-    py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
-    if errorlevel 1 (
-        echo [错误] 需要 Python 3.10 或更高版本。
-        echo 请安装 Python 3.10+ 后重试。
-        pause
-        exit /b 1
-    )
-    set "PYTHON=py -3"
-) else (
-    where python >nul 2>nul
-    if errorlevel 1 (
-        echo [错误] 未找到 Python，请先安装 Python 3.10+。
-        pause
-        exit /b 1
-    )
-    python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
-    if errorlevel 1 (
-        echo [错误] 需要 Python 3.10 或更高版本。
-        pause
-        exit /b 1
-    )
-    set "PYTHON=python"
-)
-
-if not exist ".venv\Scripts\python.exe" (
-    echo [1/3] 正在创建虚拟环境...
-    %PYTHON% -m venv .venv
-    if errorlevel 1 (
-        echo [错误] 创建虚拟环境失败。
-        pause
-        exit /b 1
-    )
-)
-
-echo [2/3] 正在检查并安装依赖...
-".venv\Scripts\python.exe" -m pip install --upgrade pip
+where python >nul 2>nul
 if errorlevel 1 (
-    echo [错误] 更新 pip 失败，请检查网络。
-    pause
-    exit /b 1
-)
-".venv\Scripts\python.exe" -m pip install -r requirements.txt
-if errorlevel 1 (
-    echo [错误] 安装依赖失败，请检查网络或 requirements.txt。
+    echo [错误] 未找到系统 Python，请先安装 Python 3.10+ 并确保 python 命令可用。
     pause
     exit /b 1
 )
 
-echo [3/3] 正在启动服务...
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 当前 python 不是 Python 3.10 或更高版本。
+    echo 请检查 PATH 中 python 命令指向的解释器。
+    pause
+    exit /b 1
+)
+
+echo [1/2] 正在检查系统 Python 依赖...
+python -c "import flask, requests, aiohttp, qrcode, bilibili_api, websocket, edge_tts, obsws_python, selenium, keyboard, mss, rapidocr_onnxruntime" >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 系统 Python 缺少项目依赖，或依赖导入失败。
+    echo 请在项目目录手动执行：python -m pip install -r requirements.txt
+    pause
+    exit /b 1
+)
+
+echo [2/2] 正在启动服务...
+echo Python： 
+python -c "import sys; print(sys.executable)"
 echo 管理页面：http://127.0.0.1:8768/
 echo Live2D OBS 页面：http://127.0.0.1:8768/live2d/display
 echo 综合展示 OBS 页面：http://127.0.0.1:8768/display/combined
@@ -76,7 +52,7 @@ echo 综合展示布局编辑：http://127.0.0.1:8768/dashboard
 echo 按 Ctrl+C 可停止服务。
 echo.
 start "" http://127.0.0.1:8768/
-".venv\Scripts\python.exe" main.py
+python main.py
 
 echo.
 echo 服务已退出。

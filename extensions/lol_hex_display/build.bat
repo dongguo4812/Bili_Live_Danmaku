@@ -61,22 +61,29 @@ echo [通过] 网页模板检查完成。
 
 REM 3. 检查 Python
 echo.
-echo [3/6] 检查 Python...
+echo [3/6] 检查系统 Python...
 
-py -3 --version
+where python >nul 2>nul
 if errorlevel 1 (
-    echo [错误] 未检测到 Python 3
+    echo [错误] 未找到系统 Python。
     goto failed
 )
 
-REM 4. 安装依赖
-echo.
-echo [4/6] 安装打包依赖...
-
-py -3 -m pip install pyinstaller flask requests pillow rapidocr_onnxruntime mss keyboard
-
+python --version
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)"
 if errorlevel 1 (
-    echo [错误] 依赖安装失败
+    echo [错误] 需要 Python 3.10 或更高版本。
+    goto failed
+)
+
+REM 4. 检查打包依赖，不自动安装或升级全局 Python 包
+echo.
+echo [4/6] 检查打包依赖...
+
+python -c "import PyInstaller, flask, requests, PIL, rapidocr_onnxruntime, onnxruntime, mss, keyboard"
+if errorlevel 1 (
+    echo [错误] 系统 Python 缺少 LOL Hex 打包依赖。
+    echo 请手动执行：python -m pip install pyinstaller flask requests pillow rapidocr_onnxruntime mss keyboard
     goto failed
 )
 
@@ -84,7 +91,7 @@ REM 5. 执行打包
 echo.
 echo [5/6] 开始打包...
 
-py -3 -m PyInstaller ^
+python -m PyInstaller ^
     --noconfirm ^
     --clean ^
     --onedir ^
