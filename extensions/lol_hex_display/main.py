@@ -58,7 +58,7 @@ def cleanup_old_logs():
     cutoff = datetime.now().date() - timedelta(days=LOG_RETENTION_DAYS - 1)
     for path in LOG_DIR.glob("*.log"):
         match = re.fullmatch(
-            r"(?:app_|thread_dump_)?(\\d{4}-\\d{2}-\\d{2})",
+            r"(?:app_|thread_dump_)?(\d{4}-\d{2}-\d{2})",
             path.stem,
         )
         if not match:
