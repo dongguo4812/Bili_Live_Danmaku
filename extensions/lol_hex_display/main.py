@@ -228,8 +228,9 @@ def read_config():
         log.error("[配置] 读取 JSON 配置失败 %s：%s；使用默认值", CONFIG_PATH, exc)
     return cfg
 
-def screenshot_dir():
-    raw=str(read_config().get('screenshot_dir','screenshots/inbox') or 'screenshots/inbox')
+def screenshot_dir(config=None):
+    config = config if config is not None else read_config()
+    raw=str(config.get('screenshot_dir','screenshots/inbox') or 'screenshots/inbox')
     p=Path(os.path.expandvars(os.path.expanduser(raw)))
     if not p.is_absolute(): p=ROOT/p
     try: p.mkdir(parents=True, exist_ok=True); return p.resolve()
@@ -913,6 +914,10 @@ def gameflow_worker():
 
 
 def asset_worker():
+    # 配置没有运行时编辑入口，启动时读取一次；修改 JSON 后重启生效。
+    cfg = read_config()
+    interval = max(60, int(cfg.get('asset_check_interval', '3600') or 3600))
+    version_interval = max(10, int(cfg.get('version_check_interval', '3600') or 3600))
     last = 0
     last_version_check = 0
     version = ''
@@ -920,9 +925,6 @@ def asset_worker():
 
     while not stop_event.is_set():
         now = time.time()
-        cfg = read_config()
-        interval = max(60, int(cfg.get('asset_check_interval', '3600') or 3600))
-        version_interval = max(10, int(cfg.get('version_check_interval', '3600') or 3600))
 
         if now - last_version_check >= version_interval:
             last_version_check = now
@@ -951,15 +953,14 @@ def asset_worker():
                 retry_delay = min(retry_delay * 5, 1800)
                 last = time.time()
 
-        # 不再每2秒唤醒。按最近的版本检查/资源更新期限等待；
-        # 最长等待60秒，以便运行期间修改配置后及时重新读取。
+        # 配置仅在启动时读取；直接等待下一项任务到期，不做配置轮询。
         next_version_check = last_version_check + version_interval
         next_asset_check = last + interval
         wait_seconds = max(
             0,
             min(next_version_check, next_asset_check) - time.time()
         )
-        if stop_event.wait(min(wait_seconds, 60.0)):
+        if stop_event.wait(wait_seconds):
             break
 
 # OCR model is initialized lazily, so the UI can start even if OCR dependency/model is unavailable.
@@ -1142,33 +1143,20 @@ def process_screenshot(path):
 
 stop_event=threading.Event(); processed_files=set(); update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def screenshot_watcher():
-    """仅在截图目录发生变化时枚举文件，保持原有扫描间隔和处理顺序。"""
-    folder = None
-    folder_refresh_at = 0.0
-    scan_interval = 1.0
+    """仅在截图目录发生变化时枚举文件；配置在启动时读取，修改后重启生效。"""
+    cfg = read_config()
+    folder = screenshot_dir(cfg)
+    try:
+        scan_interval = max(
+            0.2,
+            float(cfg.get('scan_interval', '1') or 1)
+        )
+    except (TypeError, ValueError) as exc:
+        log.warning('[截图监控] 配置的扫描间隔无效，使用默认值1秒：%s', exc)
+        scan_interval = 1.0
     directory_signature = None
 
     while not stop_event.is_set():
-        now = time.monotonic()
-
-        # 配置可能在运行期间更新；每5秒检查一次目录和扫描间隔，
-        # 避免每轮扫描都重新解析 JSON、创建目录。
-        if folder is None or now - folder_refresh_at >= 5.0:
-            try:
-                refreshed_folder = screenshot_dir()
-                if refreshed_folder != folder:
-                    folder = refreshed_folder
-                    directory_signature = None
-                cfg = read_config()
-                scan_interval = max(
-                    0.2,
-                    float(cfg.get('scan_interval', '1') or 1)
-                )
-                folder_refresh_at = now
-            except (TypeError, ValueError) as exc:
-                log.warning('[截图监控] 配置的扫描间隔无效，沿用上次设置：%s', exc)
-                folder_refresh_at = now
-
         try:
             stat_result = folder.stat()
             current_signature = (
