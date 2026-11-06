@@ -118,6 +118,12 @@ class LolHexExtensionManager:
                 return True
         try:
             kernel32 = ctypes.windll.kernel32
+            kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_ulong]
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            kernel32.CloseHandle.restype = ctypes.c_bool
             handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
             if not handle:
                 # ACCESS_DENIED 代表进程仍存在，只是当前权限无法查询。
@@ -133,7 +139,11 @@ class LolHexExtensionManager:
         handle = self._elevated_process_handle
         if handle:
             try:
-                return ctypes.windll.kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+                kernel32 = ctypes.windll.kernel32
+                kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+                kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+                # 只有 WAIT_OBJECT_0 才能确认进程退出；其他结果保守地视为仍在运行。
+                return kernel32.WaitForSingleObject(handle, 0) != 0x00000000
             except Exception:
                 return True
         pid = self._elevated_pid or self._read_pid()
@@ -144,7 +154,10 @@ class LolHexExtensionManager:
         self._elevated_process_handle = None
         if handle:
             try:
-                ctypes.windll.kernel32.CloseHandle(handle)
+                kernel32 = ctypes.windll.kernel32
+                kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+                kernel32.CloseHandle.restype = ctypes.c_bool
+                kernel32.CloseHandle(handle)
             except Exception:
                 self.logger.debug("关闭 LOL Hex 进程句柄失败。", exc_info=True)
 
@@ -332,7 +345,11 @@ class LolHexExtensionManager:
                         self.logger.warning("启动超时后发送 Hex 有序退出请求失败：%s", exc)
                 if not self._wait_for_process_exit(self._elevated_pid, 3.0):
                     try:
-                        ctypes.windll.kernel32.TerminateProcess(self._elevated_process_handle, 1)
+                        terminate_process = ctypes.windll.kernel32.TerminateProcess
+                        terminate_process.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                        terminate_process.restype = ctypes.c_bool
+                        if not terminate_process(self._elevated_process_handle, 1):
+                            raise ctypes.WinError(ctypes.get_last_error())
                     except Exception:
                         self.logger.exception("启动超时后终止本次 LOL Hex 进程失败。")
                     self._wait_for_process_exit(self._elevated_pid, 3.0)
