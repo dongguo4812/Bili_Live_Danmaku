@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, ctypes, subprocess, hashlib, io, json, logging, os, re, shutil, sys, threading, time , atexit, queue
 from logging.handlers import QueueHandler, QueueListener
+from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -1212,7 +1213,14 @@ def process_screenshot(path):
         card['reason'],
     )
 
-stop_event=threading.Event(); processed_files=set(); update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
+stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
+def _mark_processed_file(name):
+    processed_files[name] = None
+    processed_files.move_to_end(name)
+    while len(processed_files) > PROCESSED_FILES_LIMIT:
+        processed_files.popitem(last=False)
+
+
 def screenshot_watcher():
     """仅在截图目录发生变化时枚举文件；配置在启动时读取，修改后重启生效。"""
     cfg = read_config()
@@ -1248,7 +1256,7 @@ def screenshot_watcher():
                 for p in files:
                     # If using processed folder itself, avoid feedback. Files are marked in-memory after handling.
                     process_screenshot(p)
-                    processed_files.add(p.name)
+                    _mark_processed_file(p.name)
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
         except OSError as exc:
             # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
@@ -1266,7 +1274,7 @@ def screenshot_watcher():
                 files.sort(key=lambda p: p.stat().st_mtime)
                 for p in files:
                     process_screenshot(p)
-                    processed_files.add(p.name)
+                    _mark_processed_file(p.name)
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
             except Exception as scan_exc:
                 _log_screenshot_issue("watcher_scan", "扫描截图目录异常", scan_exc)
@@ -1469,7 +1477,7 @@ def api_action():
                 archived=PROCESSED/candidate.name
                 if archived.is_file(): archived.unlink()
             except OSError as e: failures.append(f'{PROCESSED/candidate.name}: {e}')
-        if removed: processed_files.discard(removed[0].name)
+        if removed: processed_files.pop(removed[0].name, None)
     return jsonify({'ok':True,'deleted_count':len(deleted),'delete_failures':failures})
 
 @app.post('/api/update-assets')
