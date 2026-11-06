@@ -1782,7 +1782,7 @@ class ScreenshotSelector:
             # 不绑定 ESC。
             # 再次按 F1 请求取消。
             root.after(
-                30,
+                100,
                 lambda: self.poll_cancel(generation)
             )
 
@@ -1822,7 +1822,7 @@ class ScreenshotSelector:
 
         try:
             root.after(
-                30,
+                100,
                 lambda: self.poll_cancel(generation)
             )
         except Exception:
