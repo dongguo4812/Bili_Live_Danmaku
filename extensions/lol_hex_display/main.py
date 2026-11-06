@@ -640,7 +640,7 @@ def lcu_recognition_worker():
         if credentials:
             valid, account_data = _validate_lcu_credentials(*credentials)
 
-        # 首次识别，或缓存凭据已失效时，才重新扫描进程参数和客户端日志。
+        # 首次识别，或缓存凭据已失效时，才按 Lockfile、WMI、日志顺序重新发现凭据。
         if not valid:
             credentials, source, account_data = _scan_lcu_credentials()
             valid = credentials is not None
