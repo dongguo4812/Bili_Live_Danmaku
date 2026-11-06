@@ -44,6 +44,8 @@ class LolHexExtensionManager:
         self._process: subprocess.Popen[Any] | None = None
         self._owned = False
         self._elevated_managed = False
+        self._elevated_process_handle: int | None = None
+        self._elevated_pid: int | None = None
         self._last_error = ""
         self.host = self._read_host()
         self.port = self._read_port()
@@ -127,14 +129,35 @@ class LolHexExtensionManager:
         except Exception:
             return True
 
+    def _elevated_process_running(self) -> bool:
+        handle = self._elevated_process_handle
+        if handle:
+            try:
+                return ctypes.windll.kernel32.WaitForSingleObject(handle, 0) == 0x00000102
+            except Exception:
+                return True
+        pid = self._elevated_pid or self._read_pid()
+        return pid is not None and self._pid_is_running(pid)
+
+    def _close_elevated_process_handle(self) -> None:
+        handle = self._elevated_process_handle
+        self._elevated_process_handle = None
+        if handle:
+            try:
+                ctypes.windll.kernel32.CloseHandle(handle)
+            except Exception:
+                self.logger.debug("关闭 LOL Hex 进程句柄失败。", exc_info=True)
+
     def _clear_stale_elevated_process(self) -> None:
-        """清理已退出的管理员 Hex 进程标记，避免状态永久停留在启动中。"""
+        """仅在已确认本次管理员进程退出后清理托管状态。"""
         if not self._elevated_managed:
             return
-        pid = self._read_pid()
-        if pid is not None and self._pid_is_running(pid):
+        if self._elevated_process_running():
             return
 
+        self._close_elevated_process_handle()
+        pid = self._elevated_pid or self._read_pid()
+        self._elevated_pid = None
         self._elevated_managed = False
         if pid is not None:
             try:
@@ -162,12 +185,17 @@ class LolHexExtensionManager:
     def _wait_for_process_exit(self, pid: int | None, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if pid is not None:
+            if self._elevated_process_handle:
+                if not self._elevated_process_running():
+                    return True
+            elif pid is not None:
                 if not self._pid_is_running(pid):
                     return True
             elif not self._is_healthy():
                 return True
             time.sleep(0.2)
+        if self._elevated_process_handle:
+            return not self._elevated_process_running()
         return pid is not None and not self._pid_is_running(pid)
 
     def status(self) -> dict[str, Any]:
@@ -229,11 +257,30 @@ class LolHexExtensionManager:
                 executable = command[0]
                 parameters = subprocess.list2cmdline(command[1:])
                 self.logger.info("请求以 Windows 管理员权限启动 LOL Hex：%s", executable)
-                shell_execute = ctypes.windll.shell32.ShellExecuteW
-                shell_execute.restype = ctypes.c_void_p
-                result = shell_execute(None, "runas", executable, parameters, str(self.extension_dir), 0)
-                if not result or result <= 32:
-                    error_code = int(result or 0)
+                class ShellExecuteInfo(ctypes.Structure):
+                    _fields_ = [
+                        ("cbSize", ctypes.c_ulong), ("fMask", ctypes.c_ulong),
+                        ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
+                        ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
+                        ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int),
+                        ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
+                        ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
+                        ("dwHotKey", ctypes.c_ulong), ("hIcon", ctypes.c_void_p),
+                        ("hProcess", ctypes.c_void_p),
+                    ]
+                info = ShellExecuteInfo()
+                info.cbSize = ctypes.sizeof(ShellExecuteInfo)
+                info.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
+                info.lpVerb = "runas"
+                info.lpFile = executable
+                info.lpParameters = parameters
+                info.lpDirectory = str(self.extension_dir)
+                info.nShow = 0
+                shell_execute = ctypes.windll.shell32.ShellExecuteExW
+                shell_execute.argtypes = [ctypes.POINTER(ShellExecuteInfo)]
+                shell_execute.restype = ctypes.c_bool
+                if not shell_execute(ctypes.byref(info)) or not info.hProcess:
+                    error_code = ctypes.get_last_error()
                     self._last_error = (
                         "LOL Hex 管理员权限启动失败（用户取消 UAC 或 Windows 拒绝启动，"
                         f"错误码：{error_code}）。"
@@ -244,6 +291,11 @@ class LolHexExtensionManager:
                         "owned": False, "external": False, "port": self.port,
                         "base_url": self.base_url, "error": self._last_error,
                     }
+                self._elevated_process_handle = int(info.hProcess)
+                get_process_id = ctypes.windll.kernel32.GetProcessId
+                get_process_id.argtypes = [ctypes.c_void_p]
+                get_process_id.restype = ctypes.c_ulong
+                self._elevated_pid = int(get_process_id(self._elevated_process_handle)) or None
                 self._elevated_managed = True
             else:
                 env = os.environ.copy()
@@ -270,8 +322,23 @@ class LolHexExtensionManager:
                 time.sleep(0.25)
 
             self._last_error = "等待 LOL Hex Web 服务启动超时，请检查 UAC 是否完成以及 Hex 日志。"
-            self._clear_stale_elevated_process()
             process = self._process
+            if self._elevated_process_handle:
+                # 只向本次 ShellExecuteEx 返回的确切进程请求退出，避免 PID 文件尚未生成时留下孤儿进程。
+                if self._is_healthy():
+                    try:
+                        self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
+                    except Exception as exc:
+                        self.logger.warning("启动超时后发送 Hex 有序退出请求失败：%s", exc)
+                if not self._wait_for_process_exit(self._elevated_pid, 3.0):
+                    try:
+                        ctypes.windll.kernel32.TerminateProcess(self._elevated_process_handle, 1)
+                    except Exception:
+                        self.logger.exception("启动超时后终止本次 LOL Hex 进程失败。")
+                    self._wait_for_process_exit(self._elevated_pid, 3.0)
+                self._clear_stale_elevated_process()
+            else:
+                self._clear_stale_elevated_process()
             self._process = None
             self._owned = False
             if process is not None and process.poll() is None:
@@ -285,14 +352,14 @@ class LolHexExtensionManager:
     def stop(self) -> dict[str, Any]:
         with self._lock:
             process = self._process
-            pid = self._read_pid()
+            pid = self._read_pid() or self._elevated_pid
             if process is not None and process.poll() is not None:
                 self._process = None
                 self._owned = False
                 process = None
             if process is not None and not self._owned:
                 raise RuntimeError("当前 LOL Hex 进程不由主项目启动，无法从这里关闭。")
-            if pid is None and not self._is_healthy() and process is None:
+            if pid is None and not self._is_healthy() and process is None and not self._elevated_process_handle:
                 self._elevated_managed = False
                 self._owned = False
                 return self.status()
@@ -311,6 +378,8 @@ class LolHexExtensionManager:
                         pass
                 self._process = None
                 self._owned = False
+                self._close_elevated_process_handle()
+                self._elevated_pid = None
                 self._elevated_managed = False
                 self.logger.info("已确认 LOL Hex 进程退出，PID：%s", pid or "未知")
                 return self.status()
