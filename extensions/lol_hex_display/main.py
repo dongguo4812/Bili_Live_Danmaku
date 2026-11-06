@@ -1297,12 +1297,47 @@ _shutdown_lock = threading.Lock()
 _shutdown_started = False
 
 
+def _current_process_creation_time():
+    """读取 Windows 内核记录的进程创建时间，用于识别 PID 是否被复用。"""
+    if os.name != 'nt':
+        return None
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [('dwLowDateTime', ctypes.c_ulong), ('dwHighDateTime', ctypes.c_ulong)]
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.GetProcessTimes.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+            ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME),
+        ]
+        kernel32.GetProcessTimes.restype = ctypes.c_bool
+        creation = FILETIME()
+        exit_time = FILETIME()
+        kernel_time = FILETIME()
+        user_time = FILETIME()
+        if not kernel32.GetProcessTimes(
+            kernel32.GetCurrentProcess(), ctypes.byref(creation), ctypes.byref(exit_time),
+            ctypes.byref(kernel_time), ctypes.byref(user_time),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+    except Exception:
+        log.exception('读取 Hex 进程创建时间失败，PID 文件将无法用于跨进程身份核验')
+        return None
+
+
 def write_pid_file():
-    """记录当前管理员 Hex 进程 PID，供主程序退出时精确核验。"""
+    """记录 PID 和内核进程创建时间，防止 PID 复用导致误认其他进程。"""
+    record = {
+        'pid': os.getpid(),
+        'creation_time': _current_process_creation_time(),
+    }
     temp_path = PID_FILE.with_suffix('.pid.tmp')
-    temp_path.write_text(str(os.getpid()), encoding='ascii')
+    temp_path.write_text(json.dumps(record, separators=(',', ':')), encoding='utf-8')
     os.replace(temp_path, PID_FILE)
-    log.debug('Hex 进程 PID 已记录：%s', os.getpid())
+    log.debug('Hex 进程 PID 和身份信息已记录：%s', os.getpid())
 
 
 def remove_pid_file():
