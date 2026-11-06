@@ -1545,26 +1545,30 @@ class ScreenshotSelector:
         """F1：未截图则开始；截图中则取消。"""
 
         with self._lock:
-            # 如果 active 状态残留，但线程已经退出，自动修复。
-            if self.active:
-                if self.thread is None or not self.thread.is_alive():
+            # 只有确认旧线程已经退出，才允许释放线程引用并启动新任务。
+            if self.thread is not None and not self.thread.is_alive():
+                if self.active:
                     log.debug(
                         '[截图调试] 检测到截图状态残留，自动重置'
                     )
-                    self.active = False
-                    self.root = None
-                    self.tkimg = None
-                    self.canvas = None
-                    self.rect = None
-                    self.size_text = None
-                    self.start = None
-                    self.image = None
-                    self.thread = None
-                    self.cancel_requested.clear()
-                else:
+                self.active = False
+                self.root = None
+                self.tkimg = None
+                self.canvas = None
+                self.rect = None
+                self.size_text = None
+                self.start = None
+                self.image = None
+                self.thread = None
+                self.cancel_requested.clear()
+
+            if self.thread is not None and self.thread.is_alive():
+                if self.active:
                     self.cancel_requested.set()
                     log.debug("F1 已触发：取消截图任务")
-                    return
+                else:
+                    log.debug("截图任务正在完成收尾，暂不启动新任务")
+                return
 
             # 启动新截图任务
             self.active = True
@@ -1884,7 +1888,7 @@ class ScreenshotSelector:
             self.image = None
 
             self.active = False
-            self.thread = None
+            # 保留线程引用，直到下一次 F1 确认该线程已真正退出。
             self.cancel_requested.clear()
 
         if root is not None:
