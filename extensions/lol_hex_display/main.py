@@ -1132,7 +1132,7 @@ def match_asset(text, is_mutated=False):
     norm = norm_name(text)
     # 完全匹配
     exact = [
-        a for a in items
+        a for a in items.values()
         if norm_name(a['name']) == norm
     ]
 
@@ -1147,7 +1147,7 @@ def match_asset(text, is_mutated=False):
 
     # 安全的包含匹配
     candidates = [
-        a for a in items
+        a for a in items.values()
         if len(norm_name(a['name'])) >= 3
         and (
             norm_name(a['name']) in norm
