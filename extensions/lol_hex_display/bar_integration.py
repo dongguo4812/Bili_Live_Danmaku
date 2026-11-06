@@ -18,7 +18,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 log = logging.getLogger(__name__)
 
 # 后台自动刷新间隔（秒）
-AUTO_REFRESH_INTERVAL = 30
+# 普通空闲轮询、对局结束追赶窗口及追赶周期（秒）
+IDLE_REFRESH_INTERVAL = 30
+POST_GAME_CHASE_WINDOW = 5 * 60
+POST_GAME_REFRESH_INTERVAL = 5
+NEW_MATCH_TAIL_WINDOW = 30
 
 # 每个账号最多保留的本地对局数量
 CACHE_MATCH_LIMIT = 100
@@ -78,6 +82,12 @@ def register_bar_routes(
     lock = threading.RLock()
     status = {"busy": False, "message": ""}
     stop_event = threading.Event()
+    game_end_event = threading.Event()
+
+    def notify_game_ended():
+        """由主程序的唯一 gameflow 监控线程通知：已检测到离开对局。"""
+        game_end_event.set()
+        log.info("[战绩条] 已收到对局结束事件；准备立即刷新并启动追赶窗口")
 
     # 用于避免网页频繁轮询时反复输出相同的完整诊断日志。
     last_snapshot_diag_signature = None
@@ -320,7 +330,7 @@ def register_bar_routes(
             return False, message
         with lock:
             if status["busy"]:
-                return False, "战绩刷新正在进行，请稍后再试"
+                return False, "战绩刷新正在进行，请稍后再试", False
 
             status["busy"] = True
             status["message"] = "正在刷新战绩……"
@@ -537,7 +547,7 @@ def register_bar_routes(
                 )
 
             log.info("[战绩条] %s", message)
-            return True, message
+            return True, message, bool(newly_seen_ids)
 
         except Exception as exc:
             message = f"战绩刷新失败：{exc}"
@@ -546,7 +556,7 @@ def register_bar_routes(
             with lock:
                 status["message"] = message
 
-            return False, message
+            return False, message, False
 
         finally:
             with lock:
@@ -554,24 +564,89 @@ def register_bar_routes(
 
     def auto_refresh_worker():
         """
-        后台自动刷新线程。
-
-        启动后先刷新一次，之后每隔 AUTO_REFRESH_INTERVAL 秒刷新。
-        刷新失败不会终止线程，下一轮继续尝试。
+        战绩自动刷新调度：
+        - 启动时先刷新一次，之后空闲状态每30秒刷新；
+        - 收到主程序的对局结束事件后立即刷新，开启5分钟追赶窗口；
+        - 追赶期间每5秒刷新，确认新增 gameId 后继续追踪完整30秒；
+        - 追赶/尾随结束后恢复30秒空闲轮询。
         """
         log.info(
-            "[战绩条] 后台自动刷新线程已启动，间隔 %s 秒",
-            AUTO_REFRESH_INTERVAL,
+            "[战绩条] 自动刷新线程启动：空闲%s秒；对局结束追赶%s分钟，"
+            "追赶间隔%s秒；新增记录后尾随%s秒",
+            IDLE_REFRESH_INTERVAL,
+            POST_GAME_CHASE_WINDOW // 60,
+            POST_GAME_REFRESH_INTERVAL,
+            NEW_MATCH_TAIL_WINDOW,
         )
 
-        while not stop_event.is_set():
-            try:
-                refresh_matches()
-            except Exception:
-                log.exception("[战绩条] 后台自动刷新出现未处理异常")
+        chase_deadline = None
+        tail_deadline = None
+        first_refresh = True
 
-            if stop_event.wait(AUTO_REFRESH_INTERVAL):
-                break
+        while not stop_event.is_set():
+            # 结束事件可打断空闲等待；若刷新进行中收到事件，则在本轮结束后立即处理。
+            if game_end_event.is_set():
+                game_end_event.clear()
+                chase_deadline = time.monotonic() + POST_GAME_CHASE_WINDOW
+                tail_deadline = None
+                first_refresh = True
+                log.info(
+                    "[战绩条] 检测到离开对局：立即刷新，开启%d秒追赶窗口",
+                    POST_GAME_CHASE_WINDOW,
+                )
+
+            now = time.monotonic()
+            chasing = (
+                chase_deadline is not None
+                and now < chase_deadline
+            )
+            tailing = (
+                tail_deadline is not None
+                and now < tail_deadline
+            )
+
+            should_refresh = first_refresh or chasing or tailing
+            if should_refresh:
+                try:
+                    ok, message, has_new_matches = refresh_matches()
+                    if ok and has_new_matches and (chasing or tailing):
+                        tail_deadline = (
+                            time.monotonic() + NEW_MATCH_TAIL_WINDOW
+                        )
+                        log.info(
+                            "[战绩条] 已确认新增 gameId；继续追踪%d秒",
+                            NEW_MATCH_TAIL_WINDOW,
+                        )
+                except Exception:
+                    log.exception("[战绩条] 自动刷新出现未处理异常")
+                first_refresh = False
+
+            # 追赶窗口结束后，如果已确认新增记录，仍完整执行30秒尾随；
+            # 没有新增或尾随结束则恢复普通空闲轮询。
+            now = time.monotonic()
+            chasing = (
+                chase_deadline is not None
+                and now < chase_deadline
+            )
+            tailing = (
+                tail_deadline is not None
+                and now < tail_deadline
+            )
+
+            if chase_deadline is not None and not chasing and not tailing:
+                log.info("[战绩条] 对局结束追赶完成，恢复%d秒空闲轮询", IDLE_REFRESH_INTERVAL)
+                chase_deadline = None
+                tail_deadline = None
+
+            interval = (
+                POST_GAME_REFRESH_INTERVAL
+                if chase_deadline is not None
+                else IDLE_REFRESH_INTERVAL
+            )
+
+            # 等待期间可被新的对局结束事件立即唤醒。
+            if game_end_event.wait(interval):
+                continue
 
         log.info("[战绩条] 后台自动刷新线程已退出")
 
@@ -955,7 +1030,7 @@ def register_bar_routes(
         action = str(body.get("action") or "")
 
         if action == "refresh":
-            ok, message = refresh_matches()
+            ok, message, _ = refresh_matches()
 
             return jsonify({
                 "ok": ok,
@@ -1034,3 +1109,4 @@ def register_bar_routes(
         "/api/bar-config、/api/bar-action；账号缓存目录=%s",
         accounts_dir,
     )
+    return notify_game_ended
