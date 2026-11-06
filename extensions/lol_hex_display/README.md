@@ -38,8 +38,7 @@ When launched standalone, the application accepts `--config <path>`; without tha
 The extension creates these directories as needed:
 
 - `data/`: OCR/augment metadata cache and runtime state.
-- `screenshots/inbox/`: newly captured screenshots awaiting processing.
-- `screenshots/processed/`: screenshots already processed.
+- `screenshots/inbox/` (default): captured screenshots and their source files; the configured screenshot directory is used at runtime.
 - `logs/`: application logs and periodic thread diagnostics.
 - `lol_hex_display.pid`: current process ID used by the host manager.
 
