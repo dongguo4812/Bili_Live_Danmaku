@@ -101,6 +101,8 @@ def initialize_runtime_resources():
         state['updated_at'] = time.time()
         atomic_json(STATE_PATH, state)
     icon_sources = read_json(ICON_SOURCE_PATH, {})
+    if not isinstance(icon_sources, dict):
+        icon_sources = {}
 
 def cleanup_old_logs():
     """按主项目的 retention_days 规则清理日期日志；0 表示不自动清理。"""
@@ -461,6 +463,8 @@ def _update_assets_impl(force=False):
             log.debug('海克斯索引无变化：%d 条', len(new))
         # 先使用局部副本；持久化成功后再更新全局来源记录。
         new_icon_sources=read_json(ICON_SOURCE_PATH,{})
+        if not isinstance(new_icon_sources, dict):
+            new_icon_sources = {}
         icon_sources_changed = False
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
