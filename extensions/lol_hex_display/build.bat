@@ -11,7 +11,7 @@ echo.
 REM 1. 检查必要文件
 echo [1/6] 检查必要文件...
 
-if not exist "main.py" (
+if not exist "launcher.py" (\n    echo [错误] 找不到 launcher.py\n    goto failed\n)\n\nif not exist "main.py" (
     echo [错误] 找不到 main.py
     goto failed
 )
