@@ -264,6 +264,14 @@ function sameConfig(a, b) {
 
 function renderBar(data, games) {
     const root = document.getElementById('bar');
+    const lobbyTitles = {
+        1: '独闯天涯',
+        2: '双剑合璧',
+        3: '桃园三杰',
+        4: '四大天王',
+        5: '五子登科'
+    };
+    const lobbyTitle = lobbyTitles[Number(data.lobby_member_count)] || '';
 
     if (games.length === 0) {
         root.replaceChildren();
@@ -277,11 +285,11 @@ function renderBar(data, games) {
                     <div class="account-name">
                         ${escapeHtml(data.account)}
                     </div>
-                    ${data.lobby_member_count == null ? '' : `
+                    ${lobbyTitle ? `
                     <div class="lobby-count">
-                        车队人数 ${escapeHtml(data.lobby_member_count)}/5
+                        ${lobbyTitle}
                     </div>
-                    `}
+                    ` : ''}
                 </div>
 
                 <div class="record">
