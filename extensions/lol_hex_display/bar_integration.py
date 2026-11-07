@@ -740,6 +740,8 @@ def register_bar_routes(
 
         # 串行化快照生成：并发请求等待首个请求完成，随后复用其计算结果。
         with snapshot_cache_lock:
+        # 串行化快照生成：并发请求等待首个请求完成，随后复用其计算结果。
+        with snapshot_cache_lock:
             cfg = get_config()
 
             # 与缓存写入串行化，避免读取对局和读取文件元数据之间发生竞态。
@@ -786,324 +788,324 @@ def register_bar_routes(
                     )
                     return result
 
-        matches = [
-            item for item in raw_matches
-            if isinstance(item, dict)
-        ]
-
-        raw_count = len(matches)
-        account = str(
-            (saved.get("account") if isinstance(saved, dict) else "")
-            or active.get("account")
-            or ""
-        )
-        platform = str(
-            (saved.get("platform") if isinstance(saved, dict) else "")
-            or active.get("platform")
-            or ""
-        )
-        puuid = str(active.get("puuid") or "")
-        boundary = safe_int(
-            saved.get("manual_boundary_ms")
-            if isinstance(saved, dict) else 0
-        )
-
-        # 统计筛选前的模式分布。
-        mode_stats = {}
-
-        for m in matches:
-            mode = str(m.get("gameMode") or "(空)")
-            mode_stats[mode] = mode_stats.get(mode, 0) + 1
-
-        # 第一步：先按模式筛选。
-        if cfg["mode_filter"] == 1:
-            mode_rule = "gameMode 以 KIWI 开头"
             matches = [
-                m for m in matches
-                if str(m.get("gameMode") or "").startswith("KIWI")
-            ]
-        else:
-            mode_rule = "gameType 等于 MATCHED_GAME"
-            matches = [
-                m for m in matches
-                if m.get("gameType") == "MATCHED_GAME"
+                item for item in raw_matches
+                if isinstance(item, dict)
             ]
 
-        mode_filtered_count = len(matches)
-
-        # 第二步：应用该账号自己的手动边界。
-        before_boundary_count = len(matches)
-
-        if boundary > 0:
-            matches = [
-                m for m in matches
-                if safe_int(m.get("startMs")) >= boundary
-            ]
-
-        after_boundary_count = len(matches)
-        boundary_filtered_count = (
-            before_boundary_count - after_boundary_count
-        )
-
-        # 第三步：排序。
-        matches.sort(
-            key=lambda m: (
-                safe_int(m.get("startMs")),
-                safe_int(m.get("gameId")),
+            raw_count = len(matches)
+            account = str(
+                (saved.get("account") if isinstance(saved, dict) else "")
+                or active.get("account")
+                or ""
             )
-        )
-
-        # 第四步：按相邻对局间隔划分批次。
-        gap_ms = cfg["batch_gap_min"] * 60 * 1000
-        batches = []
-        i = 0
-
-        while i < len(matches):
-            j = i + 1
-
-            while j < len(matches):
-                gap = (
-                    safe_int(matches[j].get("startMs"))
-                    - safe_int(matches[j - 1].get("endMs"))
-                )
-
-                if gap > gap_ms:
-                    break
-
-                j += 1
-
-            batches.append((i, j))
-            i = j
-
-        current_batch = len(batches) - 1 if batches else -1
-
-        shown = []
-        wins = 0
-        losses = 0
-        remake_count = 0
-        current_batch_count = 0
-
-        if current_batch >= 0:
-            begin, end = batches[current_batch]
-            batch = matches[begin:end]
-            current_batch_count = len(batch)
-
-            remake_count = sum(
-                1 for m in batch if m.get("remake")
+            platform = str(
+                (saved.get("platform") if isinstance(saved, dict) else "")
+                or active.get("platform")
+                or ""
+            )
+            puuid = str(active.get("puuid") or "")
+            boundary = safe_int(
+                saved.get("manual_boundary_ms")
+                if isinstance(saved, dict) else 0
             )
 
-            valid = [
-                m for m in batch
-                if not m.get("remake")
-            ]
+            # 统计筛选前的模式分布。
+            mode_stats = {}
 
-            shown = valid[-cfg["max_games"]:]
+            for m in matches:
+                mode = str(m.get("gameMode") or "(空)")
+                mode_stats[mode] = mode_stats.get(mode, 0) + 1
 
-            wins = sum(1 for m in shown if m.get("win"))
-            losses = sum(1 for m in shown if not m.get("win"))
+            # 第一步：先按模式筛选。
+            if cfg["mode_filter"] == 1:
+                mode_rule = "gameMode 以 KIWI 开头"
+                matches = [
+                    m for m in matches
+                    if str(m.get("gameMode") or "").startswith("KIWI")
+                ]
+            else:
+                mode_rule = "gameType 等于 MATCHED_GAME"
+                matches = [
+                    m for m in matches
+                    if m.get("gameType") == "MATCHED_GAME"
+                ]
 
-        has_games = bool(shown)
-        region = REGION_NAMES.get(platform, platform) if platform else ""
+            mode_filtered_count = len(matches)
 
-        result_games = []
+            # 第二步：应用该账号自己的手动边界。
+            before_boundary_count = len(matches)
 
-        for m in shown:
-            result_games.append({
-                "win": bool(m.get("win")),
-                "champion_id": safe_int(m.get("championId")),
-                "k": safe_int(m.get("kills")),
-                "d": safe_int(m.get("deaths")),
-                "a": safe_int(m.get("assists")),
-                "gameId": str(m.get("gameId") or ""),
-            })
+            if boundary > 0:
+                matches = [
+                    m for m in matches
+                    if safe_int(m.get("startMs")) >= boundary
+                ]
 
-        with lock:
-            message = status["message"]
-            busy = status["busy"]
+            after_boundary_count = len(matches)
+            boundary_filtered_count = (
+                before_boundary_count - after_boundary_count
+            )
 
-        # 仅当关键快照数据变化时，输出完整诊断日志。
-        signature = (
-            puuid,
-            account,
-            platform,
-            cfg["mode_filter"],
-            cfg["max_games"],
-            cfg["batch_gap_min"],
-            raw_count,
-            tuple(
-                (
-                    str(m.get("gameId") or ""),
+            # 第三步：排序。
+            matches.sort(
+                key=lambda m: (
                     safe_int(m.get("startMs")),
-                    str(m.get("gameMode") or ""),
-                    str(m.get("gameType") or ""),
-                    bool(m.get("remake")),
+                    safe_int(m.get("gameId")),
                 )
-                for m in matches
-            ),
-            boundary,
-            tuple(m["gameId"] for m in result_games),
-            current_batch,
-        )
+            )
 
-        if signature != last_snapshot_diag_signature:
-            last_snapshot_diag_signature = signature
+            # 第四步：按相邻对局间隔划分批次。
+            gap_ms = cfg["batch_gap_min"] * 60 * 1000
+            batches = []
+            i = 0
 
-            log.info(
-                "[战绩条诊断] 快照开始：file=%s，puuid=%s，"
-                "缓存记录=%s，有效字典记录=%s，账号=%r，平台=%r，"
-                "mode_filter=%s，max_games=%s，batch_gap_min=%s",
-                matches_path,
+            while i < len(matches):
+                j = i + 1
+
+                while j < len(matches):
+                    gap = (
+                        safe_int(matches[j].get("startMs"))
+                        - safe_int(matches[j - 1].get("endMs"))
+                    )
+
+                    if gap > gap_ms:
+                        break
+
+                    j += 1
+
+                batches.append((i, j))
+                i = j
+
+            current_batch = len(batches) - 1 if batches else -1
+
+            shown = []
+            wins = 0
+            losses = 0
+            remake_count = 0
+            current_batch_count = 0
+
+            if current_batch >= 0:
+                begin, end = batches[current_batch]
+                batch = matches[begin:end]
+                current_batch_count = len(batch)
+
+                remake_count = sum(
+                    1 for m in batch if m.get("remake")
+                )
+
+                valid = [
+                    m for m in batch
+                    if not m.get("remake")
+                ]
+
+                shown = valid[-cfg["max_games"]:]
+
+                wins = sum(1 for m in shown if m.get("win"))
+                losses = sum(1 for m in shown if not m.get("win"))
+
+            has_games = bool(shown)
+            region = REGION_NAMES.get(platform, platform) if platform else ""
+
+            result_games = []
+
+            for m in shown:
+                result_games.append({
+                    "win": bool(m.get("win")),
+                    "champion_id": safe_int(m.get("championId")),
+                    "k": safe_int(m.get("kills")),
+                    "d": safe_int(m.get("deaths")),
+                    "a": safe_int(m.get("assists")),
+                    "gameId": str(m.get("gameId") or ""),
+                })
+
+            with lock:
+                message = status["message"]
+                busy = status["busy"]
+
+            # 仅当关键快照数据变化时，输出完整诊断日志。
+            signature = (
                 puuid,
-                len(raw_matches),
-                raw_count,
                 account,
                 platform,
                 cfg["mode_filter"],
                 cfg["max_games"],
                 cfg["batch_gap_min"],
-            )
-
-            log.info(
-                "[战绩条诊断] 筛选前 gameMode 统计：%s",
-                mode_stats,
-            )
-
-            log.info(
-                "[战绩条诊断] 模式筛选完成：规则=%s，"
-                "筛选前=%s，筛选后=%s，过滤掉=%s",
-                mode_rule,
                 raw_count,
-                mode_filtered_count,
-                raw_count - mode_filtered_count,
-            )
-
-            log.info(
-                "[战绩条诊断] 手动边界检查：boundary_ms=%s，"
-                "boundary_time=%s",
+                tuple(
+                    (
+                        str(m.get("gameId") or ""),
+                        safe_int(m.get("startMs")),
+                        str(m.get("gameMode") or ""),
+                        str(m.get("gameType") or ""),
+                        bool(m.get("remake")),
+                    )
+                    for m in matches
+                ),
                 boundary,
-                format_timestamp(boundary) if boundary else "未设置",
-            )
-
-            if boundary > 0:
-                log.info(
-                    "[战绩条诊断] 边界筛选完成：筛选前=%s，"
-                    "边界后保留=%s，边界前过滤=%s",                    before_boundary_count,
-                    after_boundary_count,
-                    boundary_filtered_count,
-                )
-            else:
-                log.info(
-                    "[战绩条诊断] 未设置有效手动边界，"
-                    "未执行边界过滤；当前候选对局=%s",
-                    after_boundary_count,
-                )
-
-            if matches:
-                first = matches[0]
-                latest = matches[-1]
-
-                log.info(
-                    "[战绩条诊断] 排序完成：最早对局 ID=%s，时间=%s；"
-                    "最新对局 ID=%s，时间=%s",
-                    first.get("gameId"),
-                    format_timestamp(first.get("startMs")),
-                    latest.get("gameId"),
-                    format_timestamp(latest.get("startMs")),
-                )
-            else:
-                log.info(
-                    "[战绩条诊断] 当前没有符合模式及手动边界条件的对局"
-                )
-
-            log.info(
-                "[战绩条诊断] 批次划分完成：筛选后对局=%s，"
-                "批次数=%s，阈值=%s 分钟",
-                len(matches),
-                len(batches),
-                cfg["batch_gap_min"],
-            )
-
-            for batch_index, (begin, end) in enumerate(batches, start=1):
-                batch = matches[begin:end]
-
-                log.info(
-                    "[战绩条诊断] 批次 #%s：局数=%s，"
-                    "首局 ID=%s（%s），末局 ID=%s（%s）",
-                    batch_index,
-                    len(batch),
-                    batch[0].get("gameId"),
-                    format_timestamp(batch[0].get("startMs")),
-                    batch[-1].get("gameId"),
-                    format_timestamp(batch[-1].get("startMs")),
-                )
-
-            log.info(
-                "[战绩条诊断] 当前批次选择：current_batch=%s，"
-                "批次数=%s，当前批次局数=%s",
+                tuple(m["gameId"] for m in result_games),
                 current_batch,
-                len(batches),
-                current_batch_count,
             )
 
-            log.info(
-                "[战绩条诊断] 最终结果：当前批次局数=%s，"
-                "remake 数=%s，展示局数=%s，胜=%s，负=%s，"
-                "展示 gameId=%s",
-                current_batch_count,
-                remake_count,
-                len(result_games),
-                wins,
-                losses,
-                [m["gameId"] for m in result_games],
-            )
+            if signature != last_snapshot_diag_signature:
+                last_snapshot_diag_signature = signature
 
-            if not result_games:
-                log.warning(
-                    "[战绩条诊断] 最终结果为空！缓存记录=%s，"
-                    "模式筛选后=%s，边界后=%s，批次数=%s，"
-                    "手动边界=%s，当前批次=%s，"
-                    "当前批次局数=%s，remake 数=%s，最终展示=0",
+                log.info(
+                    "[战绩条诊断] 快照开始：file=%s，puuid=%s，"
+                    "缓存记录=%s，有效字典记录=%s，账号=%r，平台=%r，"
+                    "mode_filter=%s，max_games=%s，batch_gap_min=%s",
+                    matches_path,
+                    puuid,
+                    len(raw_matches),
+                    raw_count,
+                    account,
+                    platform,
+                    cfg["mode_filter"],
+                    cfg["max_games"],
+                    cfg["batch_gap_min"],
+                )
+
+                log.info(
+                    "[战绩条诊断] 筛选前 gameMode 统计：%s",
+                    mode_stats,
+                )
+
+                log.info(
+                    "[战绩条诊断] 模式筛选完成：规则=%s，"
+                    "筛选前=%s，筛选后=%s，过滤掉=%s",
+                    mode_rule,
                     raw_count,
                     mode_filtered_count,
-                    after_boundary_count,
-                    len(batches),
-                    (
-                        format_timestamp(boundary)
-                        if boundary else "未设置"
-                    ),
-                    current_batch,
-                    current_batch_count,
-                    remake_count,
+                    raw_count - mode_filtered_count,
                 )
 
-        result = {
-            "games": result_games if has_games else [],
-            "account": account if has_games else "",
-            "region": region if has_games else "",
-            "lobby_member_count": (
-                get_lobby_member_count()
-                if (
-                    cfg["show_lobby_member_count"]
-                    and callable(get_lobby_member_count)
-                ) else None
-            ),
-            "wins": wins if has_games else "",
-            "losses": losses if has_games else "",
-            "config": cfg,
-            "status": message,
-            "busy": busy,
-            "fetched_at": (
-                saved.get("fetched_at", 0)
-                if isinstance(saved, dict) else 0
-            ),
-        }
+                log.info(
+                    "[战绩条诊断] 手动边界检查：boundary_ms=%s，"
+                    "boundary_time=%s",
+                    boundary,
+                    format_timestamp(boundary) if boundary else "未设置",
+                )
 
-        # 只缓存静态统计结果；运行状态和组队人数在每次请求时实时更新。
-        with snapshot_cache_lock:
-            snapshot_cache_key = cache_key
-            snapshot_cache_result = dict(result)
+                if boundary > 0:
+                    log.info(
+                        "[战绩条诊断] 边界筛选完成：筛选前=%s，"
+                        "边界后保留=%s，边界前过滤=%s",                    before_boundary_count,
+                        after_boundary_count,
+                        boundary_filtered_count,
+                    )
+                else:
+                    log.info(
+                        "[战绩条诊断] 未设置有效手动边界，"
+                        "未执行边界过滤；当前候选对局=%s",
+                        after_boundary_count,
+                    )
 
-        return result
+                if matches:
+                    first = matches[0]
+                    latest = matches[-1]
+
+                    log.info(
+                        "[战绩条诊断] 排序完成：最早对局 ID=%s，时间=%s；"
+                        "最新对局 ID=%s，时间=%s",
+                        first.get("gameId"),
+                        format_timestamp(first.get("startMs")),
+                        latest.get("gameId"),
+                        format_timestamp(latest.get("startMs")),
+                    )
+                else:
+                    log.info(
+                        "[战绩条诊断] 当前没有符合模式及手动边界条件的对局"
+                    )
+
+                log.info(
+                    "[战绩条诊断] 批次划分完成：筛选后对局=%s，"
+                    "批次数=%s，阈值=%s 分钟",
+                    len(matches),
+                    len(batches),
+                    cfg["batch_gap_min"],
+                )
+
+                for batch_index, (begin, end) in enumerate(batches, start=1):
+                    batch = matches[begin:end]
+
+                    log.info(
+                        "[战绩条诊断] 批次 #%s：局数=%s，"
+                        "首局 ID=%s（%s），末局 ID=%s（%s）",
+                        batch_index,
+                        len(batch),
+                        batch[0].get("gameId"),
+                        format_timestamp(batch[0].get("startMs")),
+                        batch[-1].get("gameId"),
+                        format_timestamp(batch[-1].get("startMs")),
+                    )
+
+                log.info(
+                    "[战绩条诊断] 当前批次选择：current_batch=%s，"
+                    "批次数=%s，当前批次局数=%s",
+                    current_batch,
+                    len(batches),
+                    current_batch_count,
+                )
+
+                log.info(
+                    "[战绩条诊断] 最终结果：当前批次局数=%s，"
+                    "remake 数=%s，展示局数=%s，胜=%s，负=%s，"
+                    "展示 gameId=%s",
+                    current_batch_count,
+                    remake_count,
+                    len(result_games),
+                    wins,
+                    losses,
+                    [m["gameId"] for m in result_games],
+                )
+
+                if not result_games:
+                    log.warning(
+                        "[战绩条诊断] 最终结果为空！缓存记录=%s，"
+                        "模式筛选后=%s，边界后=%s，批次数=%s，"
+                        "手动边界=%s，当前批次=%s，"
+                        "当前批次局数=%s，remake 数=%s，最终展示=0",
+                        raw_count,
+                        mode_filtered_count,
+                        after_boundary_count,
+                        len(batches),
+                        (
+                            format_timestamp(boundary)
+                            if boundary else "未设置"
+                        ),
+                        current_batch,
+                        current_batch_count,
+                        remake_count,
+                    )
+
+            result = {
+                "games": result_games if has_games else [],
+                "account": account if has_games else "",
+                "region": region if has_games else "",
+                "lobby_member_count": (
+                    get_lobby_member_count()
+                    if (
+                        cfg["show_lobby_member_count"]
+                        and callable(get_lobby_member_count)
+                    ) else None
+                ),
+                "wins": wins if has_games else "",
+                "losses": losses if has_games else "",
+                "config": cfg,
+                "status": message,
+                "busy": busy,
+                "fetched_at": (
+                    saved.get("fetched_at", 0)
+                    if isinstance(saved, dict) else 0
+                ),
+            }
+
+            # 只缓存静态统计结果；运行状态和组队人数在每次请求时实时更新。
+            with snapshot_cache_lock:
+                snapshot_cache_key = cache_key
+                snapshot_cache_result = dict(result)
+
+            return result
 
     @bp.get("/bar")
     def bar_page():
