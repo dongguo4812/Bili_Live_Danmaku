@@ -1262,6 +1262,10 @@ def process_screenshot(path):
         if stable>=2: break
         old=size; time.sleep(.5)
 
+    if stable < 2:
+        log.debug('截图文件在等待期限内未稳定，稍后重试：%s', path.name)
+        return False
+
     text, err = ocr_text(path)
     item, match_err = match_asset(text)
 
