@@ -2383,6 +2383,7 @@ def start_hotkey():
 
 
 def main():
+    global HTTP_SERVER, F1_HOTKEY_HANDLE, F1_HOTKEY_REGISTERED
     # 必须在任何运行期文件操作、日志线程、后台任务、F1 和 HTTP 端口之前取得锁。
     if not acquire_single_instance_mutex():
         return EXIT_ALREADY_RUNNING
@@ -2453,7 +2454,6 @@ def main():
             except Exception:
                 log.exception('注销 F1 全局热键失败')
             finally:
-                global F1_HOTKEY_HANDLE, F1_HOTKEY_REGISTERED
                 F1_HOTKEY_HANDLE = None
                 F1_HOTKEY_REGISTERED = False
 
