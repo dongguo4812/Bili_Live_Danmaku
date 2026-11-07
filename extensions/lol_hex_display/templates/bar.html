@@ -242,6 +242,8 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({
 let previousGameIds = null;
 let previousGameCount = null;
 let previousLobbyMemberCount = undefined;
+let previousAccount = null;
+let previousRegion = null;
 let previousConfig = null;
 
 function getGameIds(games) {
@@ -372,6 +374,8 @@ async function loadBar() {
             previousGameIds = gameIds;
             previousGameCount = gameCount;
             previousLobbyMemberCount = data.lobby_member_count ?? null;
+            previousAccount = data.account ?? '';
+            previousRegion = data.region ?? '';
             previousConfig = { ...config };
             return;
         }
@@ -387,18 +391,22 @@ async function loadBar() {
         // 对局数量变化：例如配置改变后显示局数增减。
         const countChanged = gameCount !== previousGameCount;
         const lobbyCountChanged = (data.lobby_member_count ?? null) !== previousLobbyMemberCount;
+        const accountChanged = (data.account ?? '') !== previousAccount;
+        const regionChanged = (data.region ?? '') !== previousRegion;
 
         // 对局列表发生变化：兼容旧对局被替换或移除。
         const gameListChanged = !sameArray(previousGameIds, gameIds);
 
-        // 仅在有新增对局、对局列表变化或配置变化时重新渲染。
-        if (hasNewGame || countChanged || gameListChanged || configChanged || lobbyCountChanged) {
+        // 仅在显示内容发生变化时重新渲染。
+        if (hasNewGame || countChanged || gameListChanged || configChanged || lobbyCountChanged || accountChanged || regionChanged) {
             renderBar(data, games);
         }
 
         previousGameIds = gameIds;
         previousGameCount = gameCount;
         previousLobbyMemberCount = data.lobby_member_count ?? null;
+        previousAccount = data.account ?? '';
+        previousRegion = data.region ?? '';
         previousConfig = { ...config };
 
     } catch (error) {
