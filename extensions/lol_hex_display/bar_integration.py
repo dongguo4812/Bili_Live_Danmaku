@@ -55,6 +55,7 @@ def register_bar_routes(
     client_is_recognized: Callable[[], bool] | None = None,
     lcu_is_available: Callable[[], bool] | None = None,
     get_lobby_member_count: Callable[[], int | None] | None = None,
+    on_lcu_recognized: Callable[[], None] | None = None,
 ):
     """
     接入现有 Flask app。
@@ -91,6 +92,8 @@ def register_bar_routes(
     snapshot_cache_lock = threading.RLock()
     stop_event = threading.Event()
     game_end_event = threading.Event()
+    # LCU 首次识别/重新识别时唤醒刷新线程，不改变对局结束追赶状态。
+    refresh_wakeup_event = threading.Event()
 
     worker = None
     worker_lock = threading.Lock()
@@ -136,6 +139,7 @@ def register_bar_routes(
         """通知自动刷新线程退出，并在有限时间内等待其完成收尾。"""
         stop_event.set()
         game_end_event.set()
+        refresh_wakeup_event.set()
 
         current_worker = worker
         if (
@@ -158,6 +162,7 @@ def register_bar_routes(
     def notify_game_ended():
         """由主程序的唯一 gameflow 监控线程通知：已检测到离开对局。"""
         game_end_event.set()
+        refresh_wakeup_event.set()
         log.info("[战绩条] 已收到离开对局事件；准备立即刷新并启动追赶窗口")
 
     # 用于避免网页频繁轮询时反复输出相同的完整诊断日志。
@@ -662,6 +667,9 @@ def register_bar_routes(
         chase_deadline = None
 
         while not stop_event.is_set():
+            # 本轮刷新会立即处理此前的唤醒；刷新期间新到的唤醒保留到等待阶段。
+            refresh_wakeup_event.clear()
+
             # 结束事件可打断空闲等待；若刷新进行中收到事件，
             # 事件会保留到本轮结束后，再立即启动新一轮追赶。
             if game_end_event.is_set():
@@ -710,9 +718,8 @@ def register_bar_routes(
                 else IDLE_REFRESH_INTERVAL
             )
 
-            # 等待期间可被新的离开对局事件立即唤醒。
-            if game_end_event.wait(interval):
-                continue
+            # 等待期间可被 LCU 识别成功或离开对局事件立即唤醒。
+            refresh_wakeup_event.wait(interval)
 
         log.info("[战绩条] 后台自动刷新线程已退出")
 
@@ -1260,4 +1267,9 @@ def register_bar_routes(
         "/api/bar-config、/api/bar-action；账号缓存目录=%s",
         accounts_dir,
     )
-    return notify_game_ended, start_worker, stop_worker, notify_lobby_member_count_changed
+    return (
+        notify_game_ended,
+        start_worker,
+        stop_worker,
+        notify_lobby_member_count_changed,
+    )
