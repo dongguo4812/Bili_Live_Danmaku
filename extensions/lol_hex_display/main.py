@@ -1846,7 +1846,15 @@ def api_update_assets():
             _asset_update_mutex.release()
         with update_status_lock:
             update_status.update({'running':False,'message':message,'updated_at':time.time(),'ok':ok})
-    threading.Thread(target=worker,daemon=True,name='ManualAssetUpdater').start()
+    try:
+        threading.Thread(target=worker, daemon=True, name='ManualAssetUpdater').start()
+    except Exception as exc:
+        _asset_update_mutex.release()
+        message = f'无法启动海克斯数据更新线程：{type(exc).__name__}: {exc}'
+        log.exception('启动手动海克斯数据更新线程失败')
+        with update_status_lock:
+            update_status.update({'running': False, 'message': message, 'updated_at': time.time(), 'ok': False})
+        return jsonify({'ok': False, 'running': False, 'message': message}), 500
     return jsonify({'ok':True,'running':True,'message':'已开始检查海克斯数据接口'})
 
 @app.post('/api/reset-update-assets')
@@ -1911,11 +1919,24 @@ def api_reset_update_assets():
                     'ok': ok
                 })
 
-    threading.Thread(
-        target=worker,
-        daemon=True,
-        name='ResetAssetUpdater'
-    ).start()
+    try:
+        threading.Thread(
+            target=worker,
+            daemon=True,
+            name='ResetAssetUpdater'
+        ).start()
+    except Exception as exc:
+        _asset_update_mutex.release()
+        message = f'无法启动海克斯索引重建线程：{type(exc).__name__}: {exc}'
+        log.exception('启动海克斯索引重建线程失败')
+        with update_status_lock:
+            update_status.update({
+                'running': False,
+                'message': message,
+                'updated_at': time.time(),
+                'ok': False
+            })
+        return jsonify({'ok': False, 'running': False, 'message': message}), 500
     return jsonify({
         'ok': True,
         'running': True,
