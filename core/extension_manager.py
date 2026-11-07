@@ -552,7 +552,7 @@ class LolHexExtensionManager:
                             self._last_error = "LOL Hex 启动进程已退出，但工作进程记录无效或无法读取；已保留托管状态。"
                             raise RuntimeError(self._last_error)
 
-                    self._last_error = f"LOL Hex 启动失败，启动进程退出码：{exit_code if exit_code is not None else \"未知\"}。"
+                    self._last_error = f"LOL Hex 启动失败，启动进程退出码：{exit_code if exit_code is not None else '未知'}。"
                     self._clear_stale_elevated_process()
                     raise RuntimeError(self._last_error)
 
