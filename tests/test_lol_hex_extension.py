@@ -152,6 +152,12 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn("EXIT_ALREADY_RUNNING = 17", hex_main)
         self.assertIn("return EXIT_ALREADY_RUNNING", hex_main)
         self.assertIn("sys.exit(main())", hex_main)
+        launcher = (root / "extensions" / "lol_hex_display" / "launcher.py").read_text(encoding="utf-8")
+        self.assertIn('self.extension_dir / "launcher.py"', manager)
+        self.assertIn("import main as hex_main", launcher)
+        self.assertIn("traceback.format_exc()", launcher)
+        self.assertIn('root / "logs" / "startup-error.log"', launcher)
+        self.assertIn("code not in (None, 0, 17)", launcher)
         self.assertIn("GetExitCodeProcess", manager)
         self.assertIn("self._launcher_process_state() == \"exited\"", manager)
         self.assertIn("if os.name == 'nt' and not start_hotkey():", hex_main)
@@ -206,6 +212,7 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('"extensions\\lol_hex_display\\data"', build)
         hex_build = (extension / "build.bat").read_text(encoding="utf-8")
         self.assertIn("--noconsole", hex_build)
+        self.assertIn('"launcher.py"', hex_build)
         self.assertNotIn("--console", hex_build)
 
 
