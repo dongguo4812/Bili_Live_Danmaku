@@ -412,18 +412,18 @@ async function loadBar() {
     }
 }
 
-// 首次加载后由服务器主动推送人数变化；断线重连时重新同步快照。
-loadBar();
+// 首次快照完成后建立服务器推送连接，避免初次加载请求相互覆盖。
+loadBar().finally(() => {
+    if (typeof EventSource === 'undefined') {
+        return;
+    }
 
-if (typeof EventSource !== 'undefined') {
     const lobbyEvents = new EventSource('/api/lobby-events');
     lobbyEvents.addEventListener('lobby-change', () => {
         loadBar();
     });
-    lobbyEvents.onerror = () => {
-        // EventSource 会自动重连；重连后服务端会发送一次同步事件。
-    };
-}
+    // EventSource 会自动重连；重连后服务端会发送一次同步事件。
+});
 </script>
 </body>
 </html>
