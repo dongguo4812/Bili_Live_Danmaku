@@ -101,23 +101,35 @@ class LolHexExtensionManager:
         except (TypeError, ValueError):
             return 8767
 
-    def _read_pid_record(self) -> dict[str, int | None] | None:
-        """读取带进程创建时间的 PID 记录；旧版纯 PID 文件不再用于进程归属判断。"""
+    def _read_pid_record_state(self) -> tuple[str, dict[str, int | None] | None]:
+        """区分 PID 文件缺失、有效、内容无效和暂时无法读取。"""
         try:
-            payload = json.loads(self.pid_file.read_text(encoding="utf-8"))
+            raw = self.pid_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return "missing", None
+        except OSError:
+            return "unknown", None
+
+        try:
+            payload = json.loads(raw)
             if not isinstance(payload, dict):
-                return None
+                return "invalid", None
             pid = payload.get("pid")
             creation_time = payload.get("creation_time")
             if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
-                return None
+                return "invalid", None
             if os.name == "nt" and (not isinstance(creation_time, int) or creation_time <= 0):
-                return None
+                return "invalid", None
             if creation_time is not None and (not isinstance(creation_time, int) or creation_time <= 0):
-                return None
-            return {"pid": pid, "creation_time": creation_time}
-        except (OSError, ValueError, TypeError):
-            return None
+                return "invalid", None
+            return "valid", {"pid": pid, "creation_time": creation_time}
+        except (ValueError, TypeError, UnicodeError):
+            return "invalid", None
+
+    def _read_pid_record(self) -> dict[str, int | None] | None:
+        """读取有效的进程身份记录；无效或无法读取时返回 None。"""
+        state, record = self._read_pid_record_state()
+        return record if state == "valid" else None
 
     def _read_pid(self) -> int | None:
         record = self._read_pid_record()
@@ -256,27 +268,49 @@ class LolHexExtensionManager:
                 self.logger.debug("关闭 LOL Hex 进程句柄失败。", exc_info=True)
 
     def _clear_stale_elevated_process(self) -> None:
-        """只有实际服务进程和本次启动进程均确认退出后，才清理托管状态。"""
+        """仅在进程退出得到确认、且 PID 文件状态可解释时清理托管状态。"""
         if not self._elevated_managed:
             return
+
+        pid_file_state, record = self._read_pid_record_state()
+        if pid_file_state not in {"missing", "valid"}:
+            # 文件存在但内容无效，或文件暂时无法读取，都不能当作“尚未生成”。
+            return
+
         self._capture_worker_identity()
         worker_state = (
             self._process_identity_state(self._worker_pid, self._worker_creation_time)
             if self._worker_pid is not None else "unknown"
         )
         launcher_state = self._launcher_process_state()
-        if worker_state != "exited" or launcher_state != "exited":
-            return
+
+        if pid_file_state == "missing" and self._worker_pid is None:
+            # 服务尚未写出 PID 文件时，ShellExecuteEx 句柄是本次启动目标的
+            # 唯一可靠身份；只有句柄明确 signaled（已退出）才可回收。
+            if launcher_state != "exited":
+                return
+        else:
+            # 已捕获过工作进程，或 PID 文件当前有记录时，必须同时核实两边退出。
+            if worker_state != "exited" or launcher_state != "exited":
+                return
+            if pid_file_state == "valid" and (
+                self._worker_pid is None
+                or record["pid"] != self._worker_pid
+                or record["creation_time"] != self._worker_creation_time
+            ):
+                return
+
         self._close_elevated_process_handle()
-        record = self._read_pid_record()
         if (
-            record is not None
+            pid_file_state == "valid"
+            and record is not None
             and self._worker_pid is not None
             and record["pid"] == self._worker_pid
             and record["creation_time"] == self._worker_creation_time
         ):
             try:
-                if self._read_pid_record() == record:
+                current_state, current_record = self._read_pid_record_state()
+                if current_state == "valid" and current_record == record:
                     self.pid_file.unlink(missing_ok=True)
             except OSError:
                 self.logger.warning("清理已退出 LOL Hex 的 PID 文件失败。", exc_info=True)
@@ -285,7 +319,7 @@ class LolHexExtensionManager:
         self._worker_pid = None
         self._worker_creation_time = None
         self._elevated_managed = False
-        self.logger.warning("检测到 LOL Hex 启动进程与实际服务进程均已退出，已清理托管状态。")
+        self.logger.warning("已确认 LOL Hex 本次托管进程退出，已清理托管状态。")
 
     def _request(self, path: str, payload: dict[str, Any] | None = None, timeout: float = 1.0) -> dict[str, Any]:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -303,22 +337,31 @@ class LolHexExtensionManager:
             return False
 
     def _wait_for_process_exit(self, pid: int | None, timeout: float) -> bool:
-        """等待真实服务进程退出；PID 文件消失或查询失败都不构成退出证明。"""
+        """等待工作进程退出；无 PID 文件时仅接受启动句柄明确退出作为证明。"""
         deadline = time.monotonic() + timeout
         while True:
             self._capture_worker_identity()
+            pid_file_state, record = self._read_pid_record_state()
             if self._worker_pid is None and pid is not None and not self._elevated_managed:
-                record = self._read_pid_record()
-                if record is not None and record["pid"] == pid:
+                if pid_file_state == "valid" and record is not None and record["pid"] == pid:
                     self._worker_pid = record["pid"]
                     self._worker_creation_time = record["creation_time"]
-            worker_state = (
-                self._process_identity_state(self._worker_pid, self._worker_creation_time)
-                if self._worker_pid is not None else "unknown"
-            )
+
             launcher_state = self._launcher_process_state() if self._elevated_managed else "exited"
-            if worker_state == "exited" and launcher_state == "exited":
+            if self._worker_pid is not None:
+                worker_state = self._process_identity_state(
+                    self._worker_pid, self._worker_creation_time
+                )
+                if worker_state == "exited" and launcher_state == "exited":
+                    return True
+            elif self._elevated_managed and pid_file_state == "missing":
+                # PID 文件从未写出时，不存在可核验的 worker 身份；
+                # 只有本次启动句柄明确退出，才能确认该启动目标已经结束。
+                if launcher_state == "exited":
+                    return True
+            elif not self._elevated_managed:
                 return True
+
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.2)
