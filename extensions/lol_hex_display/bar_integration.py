@@ -1068,8 +1068,8 @@ def register_bar_routes(
                         and callable(get_lobby_member_count)
                     ) else None
                 ),
-                "wins": wins if has_games else "",
-                "losses": losses if has_games else "",
+                "wins": wins,
+                "losses": losses,
                 "config": cfg,
                 "status": message,
                 "busy": busy,
