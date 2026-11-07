@@ -808,13 +808,6 @@ def register_bar_routes(
                 if isinstance(saved, dict) else 0
             )
 
-            # 统计筛选前的模式分布。
-            mode_stats = {}
-
-            for m in matches:
-                mode = str(m.get("gameMode") or "(空)")
-                mode_stats[mode] = mode_stats.get(mode, 0) + 1
-
             # 第一步：先按模式筛选。
             if cfg["mode_filter"] == 1:
                 mode_rule = "gameMode 以 KIWI 开头"
@@ -947,6 +940,12 @@ def register_bar_routes(
 
             if signature != last_snapshot_diag_signature:
                 last_snapshot_diag_signature = signature
+
+                # 仅在需要输出诊断日志时统计筛选前的模式分布。
+                mode_stats = {}
+                for m in matches:
+                    mode = str(m.get("gameMode") or "(空)")
+                    mode_stats[mode] = mode_stats.get(mode, 0) + 1
 
                 log.info(
                     "[战绩条诊断] 快照开始：file=%s，puuid=%s，"
