@@ -1510,8 +1510,60 @@ app = Flask(
 # 由 Hex 自身记录 PID，并持有 Werkzeug 服务对象以便执行有序关闭。
 PID_FILE = Path(BASE_DIR) / 'lol_hex_display.pid'
 HTTP_SERVER = None
+INSTANCE_MUTEX_HANDLE = None
 _shutdown_lock = threading.Lock()
 _shutdown_started = False
+
+
+def release_single_instance_mutex():
+    """关闭本进程持有的单实例互斥锁句柄；进程异常退出时由 Windows 自动回收。"""
+    global INSTANCE_MUTEX_HANDLE
+    handle = INSTANCE_MUTEX_HANDLE
+    INSTANCE_MUTEX_HANDLE = None
+    if handle:
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            kernel32.CloseHandle.restype = ctypes.c_bool
+            if not kernel32.CloseHandle(handle):
+                log.warning("关闭 LOL Hex 单实例互斥锁句柄失败，错误码：%s", ctypes.get_last_error())
+        except Exception:
+            log.exception("关闭 LOL Hex 单实例互斥锁句柄时发生异常")
+
+
+def acquire_single_instance_mutex():
+    """同一安装目录、同一 Windows 会话只允许一个 LOL Hex 进程进入运行阶段。"""
+    global INSTANCE_MUTEX_HANDLE
+    if os.name != "nt":
+        return True
+    if INSTANCE_MUTEX_HANDLE:
+        return True
+
+    # 按安装目录区分互斥锁，避免不同目录下的独立安装互相阻止启动。
+    install_id = hashlib.sha256(str(Path(ROOT).resolve()).casefold().encode("utf-8")).hexdigest()[:16]
+    mutex_name = f"Local\\BiliLiveDanmaku.LOLHexDisplay.{install_id}"
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_bool
+
+    # 避免把之前 API 遗留的 LastError 误认为互斥锁已存在。
+    kernel32.SetLastError(0)
+    handle = kernel32.CreateMutexW(None, False, mutex_name)
+    if not handle:
+        error_code = ctypes.get_last_error()
+        raise ctypes.WinError(error_code)
+
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(handle)
+        log.warning("检测到同一安装目录的 LOL Hex 已在运行，本次重复启动将直接退出。")
+        return False
+
+    INSTANCE_MUTEX_HANDLE = int(handle)
+    atexit.register(release_single_instance_mutex)
+    log.debug("已取得 LOL Hex 单实例互斥锁。")
+    return True
 
 
 def _current_process_creation_time():
@@ -2232,6 +2284,10 @@ def start_hotkey():
 
 
 def main():
+    # 必须在启动任何后台任务、注册 F1 或绑定 HTTP 端口之前完成单实例检查。
+    if not acquire_single_instance_mutex():
+        return
+
         # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
     if os.name == 'nt':
         try:
