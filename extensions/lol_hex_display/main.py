@@ -16,7 +16,6 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; LOG_DIR = ROOT / 'logs'
-for p in (DATA, ICON_DIR, SHOTS, LOG_DIR): p.mkdir(parents=True, exist_ok=True)
 _config_parser = argparse.ArgumentParser(add_help=False)
 _config_parser.add_argument("--config", type=Path)
 _config_args, _ = _config_parser.parse_known_args()
@@ -29,8 +28,6 @@ CDRAGON_AUGMENTS_URL = ('https://raw.communitydragon.org/latest/plugins/rcp-be-l
 def _load_logging_settings():
     settings = {"retention_days": 7, "debug": False}
     try:
-        # 主项目通过 --config config/local/lol_hex_display.json 启动 Hex。
-        # 独立启动时若目录结构不同，则使用与主项目相同的默认值。
         project_root = CONFIG_PATH.parent.parent.parent
         default_path = project_root / "config" / "default" / "logging.json"
         local_path = project_root / "config" / "local" / "logging.json"
@@ -45,13 +42,65 @@ def _load_logging_settings():
 
 
 log = logging.getLogger("lol_hex_display")
-_logging_settings = _load_logging_settings()
-# 日常固定为 INFO；仅通过 debug 开关额外启用 DEBUG。
-LOG_LEVEL = logging.DEBUG if _logging_settings.get("debug") is True else logging.INFO
-try:
-    LOG_RETENTION_DAYS = max(0, int(_logging_settings.get("retention_days", 7)))
-except (TypeError, ValueError):
-    LOG_RETENTION_DAYS = 7
+LOG_LEVEL = logging.INFO
+LOG_RETENTION_DAYS = 7
+log_listener = None
+file_handler = None
+
+
+def initialize_runtime_resources():
+    """单实例锁取得后再创建目录、配置日志并加载/迁移本地数据。"""
+    global LOG_LEVEL, LOG_RETENTION_DAYS, log_listener, file_handler
+    global assets, state, icon_sources
+
+    for path in (DATA, ICON_DIR, SHOTS, LOG_DIR):
+        path.mkdir(parents=True, exist_ok=True)
+
+    settings = _load_logging_settings()
+    LOG_LEVEL = logging.DEBUG if settings.get("debug") is True else logging.INFO
+    try:
+        LOG_RETENTION_DAYS = max(0, int(settings.get("retention_days", 7)))
+    except (TypeError, ValueError):
+        LOG_RETENTION_DAYS = 7
+
+    cleanup_old_logs()
+    log_queue = queue.SimpleQueue()
+    file_handler = DailyFileHandler(LOG_DIR)
+    file_handler.setLevel(LOG_LEVEL)
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+    log_listener = QueueListener(log_queue, file_handler, respect_handler_level=True)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(LOG_LEVEL)
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+
+    queue_handler = QueueHandler(log_queue)
+    queue_handler.setLevel(LOG_LEVEL)
+    queue_handler.addFilter(SecretRedactionFilter())
+    root_logger.addHandler(queue_handler)
+    log_listener.start()
+
+    assets = read_json(ASSET_CACHE, {})
+    if not isinstance(assets, dict):
+        assets = {}
+    state = read_json(STATE_PATH, {'cards': [], 'updated_at': 0})
+    if not isinstance(state, dict) or not isinstance(state.get('cards'), list):
+        state = {'cards': [], 'updated_at': 0}
+    if state.get('display_order_version') != 2:
+        state['cards'].reverse()
+        state['display_order_version'] = 2
+        state['updated_at'] = time.time()
+        atomic_json(STATE_PATH, state)
+    icon_sources = read_json(ICON_SOURCE_PATH, {})
 
 def cleanup_old_logs():
     """按主项目的 retention_days 规则清理日期日志；0 表示不自动清理。"""
@@ -147,43 +196,10 @@ class SecretRedactionFilter(logging.Filter):
         return True
 
 
-# Hex 是独立进程，使用独立文件，避免与主项目同时写入同一个日志文件；
-# 文件命名、格式、级别和保留策略遵循主项目规范。
-cleanup_old_logs()
-log_queue = queue.SimpleQueue()
-file_handler = DailyFileHandler(LOG_DIR)
-file_handler.setLevel(LOG_LEVEL)
-formatter = logging.Formatter(
-    "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-file_handler.setFormatter(formatter)
-
-log_listener = QueueListener(
-    log_queue,
-    file_handler,
-    respect_handler_level=True,
-)
-
-root_logger = logging.getLogger()
-root_logger.setLevel(LOG_LEVEL)
-for handler in root_logger.handlers[:]:
-    root_logger.removeHandler(handler)
-    try:
-        handler.close()
-    except Exception:
-        pass
-
-queue_handler = QueueHandler(log_queue)
-queue_handler.setLevel(LOG_LEVEL)
-queue_handler.addFilter(SecretRedactionFilter())
-root_logger.addHandler(queue_handler)
-log_listener.start()
-
-# 程序退出时停止日志监听线程
+# 程序退出时停止日志监听线程；重复启动实例不会创建该线程。
 def stop_async_logging():
     try:
-        if log_listener:
+        if log_listener is not None:
             log_listener.stop()
     except Exception:
         pass
@@ -406,18 +422,9 @@ def merge_cdragon_assets(tencent_assets,payload):
             added+=1
     return added
 
-assets_lock=threading.RLock(); assets=read_json(ASSET_CACHE,{})
-if not isinstance(assets,dict): assets={}
-state_lock=threading.RLock(); state=read_json(STATE_PATH,{'cards':[],'updated_at':0})
-if not isinstance(state,dict) or not isinstance(state.get('cards'),list): state={'cards':[],'updated_at':0}
-# One-time migration: previous versions stored newest cards first. Convert to oldest-first
-# so newly captured cards can be appended at the end without changing the existing order again.
-if state.get('display_order_version') != 2:
-    state['cards'].reverse()
-    state['display_order_version'] = 2
-    state['updated_at'] = time.time()
-    atomic_json(STATE_PATH, state)
-icon_sources=read_json(ICON_SOURCE_PATH,{})
+assets_lock=threading.RLock(); assets={}
+state_lock=threading.RLock(); state={'cards':[],'updated_at':0}
+icon_sources={}
 
 
 def _update_assets_impl(force=False):
@@ -2284,11 +2291,13 @@ def start_hotkey():
 
 
 def main():
-    # 必须在启动任何后台任务、注册 F1 或绑定 HTTP 端口之前完成单实例检查。
+    # 必须在任何运行期文件操作、日志线程、后台任务、F1 和 HTTP 端口之前取得锁。
     if not acquire_single_instance_mutex():
         return
 
-        # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
+    initialize_runtime_resources()
+
+    # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
     if os.name == 'nt':
         try:
             kernel32 = ctypes.windll.kernel32
