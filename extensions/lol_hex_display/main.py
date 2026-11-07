@@ -461,13 +461,34 @@ def _update_assets_impl(force=False):
             # 若图标损坏，可删除对应文件（或清空本地图标目录）后手动更新，缺失文件会自动重新下载。
             if dest.exists() and icon_sources.get(aid)==url:
                 continue
-            try:
-                ir=requests.get(url,timeout=15,headers={'User-Agent':'Mozilla/5.0'}); ir.raise_for_status()
-                with Image.open(io.BytesIO(ir.content)) as im:
-                    im.convert('RGBA').save(dest,format='PNG')
-                icon_sources[aid]=url
-                icon_sources_changed = True
-            except Exception as e: log.warning('图标下载失败 id=%s：%s',aid,e)
+            # 图片请求采用 10 秒超时；仅对临时网络错误有限重试，避免单张图片长期阻塞更新。
+            for attempt in range(3):
+                try:
+                    ir=requests.get(url,timeout=10,headers={'User-Agent':'Mozilla/5.0'})
+                    ir.raise_for_status()
+                    with Image.open(io.BytesIO(ir.content)) as im:
+                        im.convert('RGBA').save(dest,format='PNG')
+                    icon_sources[aid]=url
+                    icon_sources_changed = True
+                    break
+                except (
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                ) as e:
+                    if attempt < 2:
+                        delay = attempt + 1
+                        log.info(
+                            '图标下载暂时失败 id=%s，%d/2 次重试，%d 秒后重试：%s',
+                            aid, attempt + 1, delay, e
+                        )
+                        time.sleep(delay)
+                        continue
+                    log.warning('图标下载失败 id=%s，已重试 2 次：%s',aid,e)
+                except Exception as e:
+                    # HTTP 状态错误、图片格式错误等非临时网络问题不重试。
+                    log.warning('图标下载失败 id=%s：%s',aid,e)
+                    break
         if icon_sources_changed:
             atomic_json(ICON_SOURCE_PATH,icon_sources)
         return True
