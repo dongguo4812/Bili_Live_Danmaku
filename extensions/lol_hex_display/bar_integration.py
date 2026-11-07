@@ -377,7 +377,7 @@ def register_bar_routes(
 
         return fresh, path
 
-    def lcu_get(path, timeout=(1.5, 3.0)):
+    def lcu_get(path, timeout=(1.5, 3.0), credentials=None):
         # 在真正发起网络请求前再次检查，封住停止信号与请求启动之间的竞态窗口。
         if stop_event.is_set():
             raise RuntimeError("程序正在关闭，已取消新的 LCU 请求")
@@ -386,7 +386,8 @@ def register_bar_routes(
             raise RuntimeError("英雄联盟客户端尚未识别，已跳过 LCU 请求")
         if lcu_is_available is not None and not lcu_is_available():
             raise RuntimeError("LCU 凭据尚未验证通过，已跳过请求")
-        credentials = get_lcu_credentials()
+        if credentials is None:
+            credentials = get_lcu_credentials()
 
         if not credentials:
             raise RuntimeError("未发现正在运行的英雄联盟客户端")
@@ -427,7 +428,17 @@ def register_bar_routes(
             status["message"] = "正在刷新战绩……"
 
         try:
-            summoner = lcu_get("/lol-summoner/v1/current-summoner")
+            # 固定本轮刷新使用的凭据，避免账号切换后两次顺序请求串用不同账号。
+            refresh_credentials = get_lcu_credentials()
+            if not refresh_credentials:
+                raise RuntimeError("未发现正在运行的英雄联盟客户端")
+
+            summoner = lcu_get(
+                "/lol-summoner/v1/current-summoner",
+                credentials=refresh_credentials,
+            )
+            if get_lcu_credentials() != refresh_credentials:
+                raise RuntimeError("刷新期间 LCU 凭据已变化，已丢弃本轮结果")
             if stop_event.is_set():
                 return False, "程序正在关闭，已取消战绩刷新", False
 
@@ -458,8 +469,11 @@ def register_bar_routes(
 
             history = lcu_get(
                 f"/lol-match-history/v1/products/lol/{puuid}"
-                f"/matches?begIndex=0&endIndex={end_index - 1}"
+                f"/matches?begIndex=0&endIndex={end_index - 1}",
+                credentials=refresh_credentials,
             )
+            if get_lcu_credentials() != refresh_credentials:
+                raise RuntimeError("刷新期间 LCU 凭据已变化，已丢弃本轮结果")
             if stop_event.is_set():
                 return False, "程序正在关闭，已取消战绩刷新", False
 
@@ -477,9 +491,11 @@ def register_bar_routes(
             )
 
             with cache_lock:
-                # 关闭信号可能在 LCU 请求或响应解析期间到达；进入提交区后再次确认。
+                # 关闭信号或账号切换可能在请求、解析期间发生；提交前再次确认。
                 if stop_event.is_set():
                     return False, "程序正在关闭，已取消战绩刷新", False
+                if get_lcu_credentials() != refresh_credentials:
+                    raise RuntimeError("刷新期间 LCU 凭据已变化，已丢弃本轮结果")
 
                 old, matches_path = load_account_cache(
                     puuid, account, platform
