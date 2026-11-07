@@ -6,6 +6,7 @@ from logging.handlers import QueueHandler, QueueListener
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any
 from bar_integration import register_bar_routes
 
@@ -354,6 +355,21 @@ def normalize_assets(payload):
     return out
 
 
+def cdragon_asset_url(asset_path):
+    """将 CommunityDragon JSON 中的 LCU 资源路径转换为 raw CDN URL。"""
+    path=str(asset_path or '').strip().replace('\\\\','/')
+    prefix='/lol-game-data/assets/'
+    if not path.startswith(prefix):
+        return ''
+    relative=path[len(prefix):].strip('/')
+    if not relative or any(part in ('.','..') for part in relative.split('/')):
+        return ''
+    return (
+        'https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/'
+        'global/default/' + quote(relative.lower(), safe='/')
+    )
+
+
 def normalize_cdragon_assets(payload):
     """解析 CommunityDragon 大乱斗海克斯；保留历史条目，不按当前启用状态过滤。"""
     if not isinstance(payload,list):
@@ -372,7 +388,7 @@ def normalize_cdragon_assets(payload):
         out[aid]={
             'id':aid,
             'name':name,
-            'icon_url':'',
+            'icon_url':cdragon_asset_url(icon_path),
             'level':rarity,
             'source':'cdragon',
         }
