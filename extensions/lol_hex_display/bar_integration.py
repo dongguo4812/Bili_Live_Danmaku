@@ -579,21 +579,8 @@ def register_bar_routes(
                     })
                     write_json(matches_path, old)
                 else:
-                    # 无新增时只用于状态反馈，不排序、不截断、不改写对局缓存。
+                    # 无新增时只用于状态反馈，不排序、不截断、不修改或写入对局缓存。
                     cached_matches = list(indexed.values())
-                    # 保留手动批次边界，并清除旧缓存中的无用字段。
-                    old.pop("manual_pins", None)
-                    old.update({
-                        "puuid": puuid,
-                        "account": account,
-                        "platform": platform,
-                        "matches": cached_matches,
-                        "manual_boundary_ms": safe_int(
-                            old.get("manual_boundary_ms")
-                        ),
-                        "fetched_at": time.time(),
-                    })
-                    write_json(matches_path, old)
 
                 # 活动账号指针只在账号信息发生变化时写入。
                 save_active_account(puuid, account, platform)
