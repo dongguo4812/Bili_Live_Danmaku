@@ -1271,16 +1271,18 @@ def asset_worker():
     interval = max(60, int(cfg.get('asset_check_interval', '3600') or 3600))
     version_interval = max(10, int(cfg.get('version_check_interval', '3600') or 3600))
     last = 0
-    last_version_check = 0
+    next_version_check = 0
     version = ''
     retry_delay = 60
 
     while not stop_event.is_set():
         now = time.time()
 
-        if now - last_version_check >= version_interval:
-            last_version_check = now
+        if now >= next_version_check:
             current = find_game_version()
+            # 读取成功后按配置间隔检查；LCU 未启动或暂时不可用时，
+            # 60 秒后重试，避免启动阶段失败后等待完整的版本检查周期。
+            next_version_check = now + (version_interval if current else 60)
 
             if current and version and current != version:
                 log.info(
@@ -1311,7 +1313,6 @@ def asset_worker():
                 last = time.time() - interval
 
         # 配置仅在启动时读取；直接等待下一项任务到期，不做配置轮询。
-        next_version_check = last_version_check + version_interval
         next_asset_check = last + interval
         wait_seconds = max(
             0,
