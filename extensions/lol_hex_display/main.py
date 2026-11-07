@@ -1097,10 +1097,14 @@ def cleanup_match_data(reason):
     global cleanup_generation
     with cleanup_lock:
         with state_lock:
+            # 先持久化候选状态；写入失败时保留原内存状态和截图文件。
+            new_state = dict(state)
+            new_state['cards'] = []
+            new_state['updated_at'] = time.time()
+            atomic_json(STATE_PATH, new_state)
+            state.clear()
+            state.update(new_state)
             cleanup_generation += 1
-            state['cards'] = []
-            state['updated_at'] = time.time()
-            atomic_json(STATE_PATH, state)
 
         deleted = 0
         failures = 0
