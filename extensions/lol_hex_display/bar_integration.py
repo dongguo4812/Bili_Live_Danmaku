@@ -135,8 +135,11 @@ def register_bar_routes(
             worker.start()
 
     def stop_worker():
-        """通知自动刷新线程退出，并在有限时间内等待其完成收尾。"""
-        stop_event.set()
+        """先阻止缓存提交，再通知自动刷新线程退出并有限等待。"""
+        # 与战绩缓存提交共用 cache_lock：
+        # 已进入提交区的操作先完成；之后拿到锁的刷新会看到停止信号并退出。
+        with cache_lock:
+            stop_event.set()
         game_end_event.set()
         refresh_wakeup_event.set()
 
@@ -389,6 +392,9 @@ def register_bar_routes(
 
     def refresh_matches():
         """从 LoL 客户端获取战绩，并更新当前账号自己的缓存。"""
+        if stop_event.is_set():
+            return False, "程序正在关闭，已取消战绩刷新", False
+
         if client_is_recognized is not None and not client_is_recognized():
             message = "英雄联盟客户端尚未识别，暂不刷新战绩；现有缓存保持不变"
             with lock:
@@ -408,6 +414,8 @@ def register_bar_routes(
 
         try:
             summoner = lcu_get("/lol-summoner/v1/current-summoner")
+            if stop_event.is_set():
+                return False, "程序正在关闭，已取消战绩刷新", False
 
             puuid = str(summoner.get("puuid") or "").strip()
             game_name = str(
@@ -438,6 +446,8 @@ def register_bar_routes(
                 f"/lol-match-history/v1/products/lol/{puuid}"
                 f"/matches?begIndex=0&endIndex={end_index - 1}"
             )
+            if stop_event.is_set():
+                return False, "程序正在关闭，已取消战绩刷新", False
 
             platform = str(history.get("platformId") or "")
             games = history.get("games", {}).get("games", [])
@@ -453,6 +463,10 @@ def register_bar_routes(
             )
 
             with cache_lock:
+                # 关闭信号可能在 LCU 请求或响应解析期间到达；进入提交区后再次确认。
+                if stop_event.is_set():
+                    return False, "程序正在关闭，已取消战绩刷新", False
+
                 old, matches_path = load_account_cache(
                     puuid, account, platform
                 )
