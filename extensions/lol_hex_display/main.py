@@ -1295,12 +1295,17 @@ def match_asset(text, is_mutated=False):
         )
         return asset, ''
 
-    # 原有规范化精确匹配及兼容匹配规则保持不变。
+    # 每个资源名称只规范化一次，供完全匹配和后续包含匹配共同复用。
     norm = norm_name(text)
-    # 完全匹配
+    normalized_items = [
+        (a, norm_name(a['name']))
+        for a in items.values()
+    ]
+
+    # 规范化后的完全匹配
     exact = [
-        a for a in items.values()
-        if norm_name(a['name']) == norm
+        a for a, normalized_name in normalized_items
+        if normalized_name == norm
     ]
 
     if exact:
@@ -1313,13 +1318,13 @@ def match_asset(text, is_mutated=False):
         )
         return asset, ''
 
-    # 安全的包含匹配
+    # 安全的包含匹配；复用上面已计算的规范化名称。
     candidates = [
-        a for a in items.values()
-        if len(norm_name(a['name'])) >= 3
+        a for a, normalized_name in normalized_items
+        if len(normalized_name) >= 3
         and (
-            norm_name(a['name']) in norm
-            or norm in norm_name(a['name'])
+            normalized_name in norm
+            or norm in normalized_name
         )
     ]
 
