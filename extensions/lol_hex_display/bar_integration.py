@@ -345,22 +345,6 @@ def register_bar_routes(
 
         return fresh, path
 
-    def load_active_matches():
-        """根据活动账号指针读取对应账号的独立缓存。"""
-        active = get_active_account()
-        puuid = str(active.get("puuid") or "")
-
-        if not puuid:
-            return {}, None, active
-
-        path = account_cache_path(puuid)
-        saved = read_json(path, {})
-
-        if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
-            saved = {}
-
-        return saved, path, active
-
     def lcu_get(path, timeout=(1.5, 3.0)):
         if client_is_recognized is not None and not client_is_recognized():
             raise RuntimeError("英雄联盟客户端尚未识别，已跳过 LCU 请求")
