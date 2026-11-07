@@ -831,7 +831,7 @@ def _scan_lcu_credentials(configured_path=None):
         valid, account_data = _validate_lcu_credentials(*credentials)
         if valid:
             log.debug("[LCU调试] %s 候选凭据 HTTP 验证成功，端口=%s", source, credentials[0])
-            return credentials, source, account_data
+            return credentials, source, account_data, False
         log.debug(
             "[LCU调试] %s 候选凭据 HTTP 验证失败，端口=%s；继续尝试下一来源",
             source, credentials[0],
