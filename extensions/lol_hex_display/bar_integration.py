@@ -607,15 +607,16 @@ def register_bar_routes(
                         "fetched_at": time.time(),
                     })
                     write_json(matches_path, old)
+                    cached_match_count = len(cached_matches)
                 else:
-                    # 无新增时只用于状态反馈，不排序、不截断、不修改或写入对局缓存。
-                    cached_matches = list(indexed.values())
+                    # 无新增时直接读取索引数量，不创建额外列表。
+                    cached_match_count = len(indexed)
 
                 # 活动账号指针只在账号信息发生变化时写入。
                 save_active_account(puuid, account, platform)
 
             message = (
-                f"战绩刷新完成，账号 {account}，缓存 {len(cached_matches)} 局，"
+                f"战绩刷新完成，账号 {account}，缓存 {cached_match_count} 局，"
                 f"新增 {len(newly_seen_ids)} 局，清理最旧 {evicted_count} 局"
             )
 
@@ -632,7 +633,7 @@ def register_bar_routes(
                 len(games),
                 parsed_count,
                 unable_to_locate_count,
-                len(cached_matches),
+                cached_match_count,
                 len(newly_seen_ids),
                 safe_int(old.get("manual_boundary_ms")),
             )
