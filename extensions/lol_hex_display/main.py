@@ -1538,6 +1538,9 @@ def release_single_instance_mutex():
             log.exception("关闭 LOL Hex 单实例互斥锁句柄时发生异常")
 
 
+EXIT_ALREADY_RUNNING = 17
+
+
 def acquire_single_instance_mutex():
     """同一安装目录、同一 Windows 会话只允许一个 LOL Hex 进程进入运行阶段。"""
     global INSTANCE_MUTEX_HANDLE
@@ -2293,7 +2296,7 @@ def start_hotkey():
 def main():
     # 必须在任何运行期文件操作、日志线程、后台任务、F1 和 HTTP 端口之前取得锁。
     if not acquire_single_instance_mutex():
-        return
+        return EXIT_ALREADY_RUNNING
 
     initialize_runtime_resources()
     # 战绩条自动刷新线程必须在取得单实例锁并完成运行期初始化后启动。
@@ -2363,7 +2366,7 @@ def main():
 
 if __name__ == "__main__":
     if check_admin_privileges():
-        main()
+        sys.exit(main())
     else:
         # 提权成功时由新的管理员进程接管；失败或用户拒绝时不继续运行。
         sys.exit(0)
