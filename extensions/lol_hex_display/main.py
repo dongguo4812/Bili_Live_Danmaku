@@ -1020,11 +1020,11 @@ _gameflow_last_error = None
 
 
 def get_gameflow_phase():
-    """读取 LCU 当前对局阶段；记录失败原因，避免断连时误判对局结束。"""
+    """读取 LCU 当前对局阶段；丢弃账号切换期间旧凭据返回的结果。"""
     global _gameflow_last_error
     credentials = get_lcu_credentials()
     if not credentials:
-        return None
+        return None, None
 
     port, token = credentials
     url = f'https://127.0.0.1:{port}/lol-gameflow/v1/gameflow-phase'
@@ -1038,6 +1038,11 @@ def get_gameflow_phase():
             headers={'Accept': 'application/json'}
         )
 
+        # 请求期间可能发生客户端断开或账号切换；旧凭据的响应不得更新阶段。
+        with _lcu_lock:
+            if _lcu_credentials != credentials:
+                return None, credentials
+
         # 正常轮询每10/30秒都会经过这里；完整响应仅保留在 DEBUG，
         # 避免持续写入重复的成功诊断日志。
         response.raise_for_status()
@@ -1050,20 +1055,20 @@ def get_gameflow_phase():
                     log.info("LCU 对局阶段接口已恢复")
                     _gameflow_last_error = None
                 # LCU 返回字符串 "None" 表示当前没有对局流程，是有效状态。
-                return 'None' if phase.lower() == 'none' else phase
+                return ('None' if phase.lower() == 'none' else phase), credentials
 
         error = f"无效阶段响应：{type(phase).__name__}"
         if error != _gameflow_last_error:
             log.warning("LCU 对局阶段读取异常：%s", error)
         _gameflow_last_error = error
-        return None
+        return None, credentials
 
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         if error != _gameflow_last_error:
             log.warning("LCU 对局阶段读取失败：%s", error)
         _gameflow_last_error = error
-        return None
+        return None, credentials
 
 
 cleanup_lock = threading.Lock()
@@ -1175,14 +1180,20 @@ def gameflow_worker():
 
     while not stop_event.is_set():
         try:
-            phase = get_gameflow_phase()
+            phase, phase_credentials = get_gameflow_phase()
 
             if phase is None:
-                # 读取失败不改变阶段、监控状态或清理标记。
+                # 读取失败或凭据已切换时，不改变阶段、监控状态或清理标记。
                 pass
             else:
                 with _lcu_lock:
-                    _gameflow_phase = phase
+                    # 再次在提交阶段状态的临界区核对凭据，封住请求返回后的切换窗口。
+                    if _lcu_credentials != phase_credentials:
+                        phase = None
+                    else:
+                        _gameflow_phase = phase
+
+            if phase is not None:
                 if phase != last_phase:
                     log.info(
                         '[对局阶段] %s -> %s',
