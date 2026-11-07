@@ -103,7 +103,7 @@ python -m PyInstaller ^
     --hidden-import keyboard ^
     --hidden-import mss ^
     --hidden-import tkinter ^
-    "main.py"
+    "launcher.py"
 
 if errorlevel 1 goto failed
 
