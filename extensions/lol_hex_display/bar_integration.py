@@ -667,7 +667,6 @@ def register_bar_routes(
             if game_end_event.is_set():
                 game_end_event.clear()
                 chase_deadline = time.monotonic() + POST_GAME_CHASE_WINDOW
-                first_refresh = True
                 log.info(
                     "[战绩条] 检测到离开对局：立即刷新，开启%d秒追赶窗口",
                     POST_GAME_CHASE_WINDOW,
