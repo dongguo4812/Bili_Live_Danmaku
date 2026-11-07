@@ -329,7 +329,7 @@ async function shutdownProgram() {
 }
 
 function esc(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -486,14 +486,6 @@ async function loadBarAdmin() {
       lastBarPreviewSignature = previewSignature;
       return;
     }
-
-    const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[c]));
 
     preview.innerHTML = `
       <style>
