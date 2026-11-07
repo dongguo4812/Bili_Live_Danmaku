@@ -378,6 +378,10 @@ def register_bar_routes(
         return fresh, path
 
     def lcu_get(path, timeout=(1.5, 3.0)):
+        # 在真正发起网络请求前再次检查，封住停止信号与请求启动之间的竞态窗口。
+        if stop_event.is_set():
+            raise RuntimeError("程序正在关闭，已取消新的 LCU 请求")
+
         if client_is_recognized is not None and not client_is_recognized():
             raise RuntimeError("英雄联盟客户端尚未识别，已跳过 LCU 请求")
         if lcu_is_available is not None and not lcu_is_available():
