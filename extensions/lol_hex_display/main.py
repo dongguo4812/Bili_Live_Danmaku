@@ -808,9 +808,9 @@ def _scan_lcu_process_wmi(client_path):
 
 
 def _scan_lcu_credentials(configured_path=None):
-    """按 Lockfile、原生 WMI、客户端日志顺序查找凭据，并标记是否确认客户端已退出。"""
+    """按 Lockfile、原生 WMI、客户端日志顺序查找并验证 LCU 凭据。"""
     if os.name != "nt":
-        return None, "", None, False
+        return None, "", None
 
     if configured_path is None:
         config = read_config()
@@ -818,7 +818,7 @@ def _scan_lcu_credentials(configured_path=None):
     configured_path = str(configured_path).strip().strip('"')
     if not configured_path:
         log.debug("[LCU调试] 未配置 lol_client_path")
-        return None, "", None, False
+        return None, "", None
 
     client_path = os.path.normcase(
         os.path.abspath(os.path.expandvars(os.path.expanduser(configured_path)))
@@ -831,7 +831,7 @@ def _scan_lcu_credentials(configured_path=None):
         valid, account_data = _validate_lcu_credentials(*credentials)
         if valid:
             log.debug("[LCU调试] %s 候选凭据 HTTP 验证成功，端口=%s", source, credentials[0])
-            return credentials, source, account_data, False
+            return credentials, source, account_data
         log.debug(
             "[LCU调试] %s 候选凭据 HTTP 验证失败，端口=%s；继续尝试下一来源",
             source, credentials[0],
@@ -849,7 +849,7 @@ def _scan_lcu_credentials(configured_path=None):
 
     if wmi_query_succeeded and not process_found:
         log.debug("[LCU调试] 当前未运行英雄联盟客户端，跳过历史客户端日志扫描")
-        return None, "", None, True
+        return None, "", None
 
     max_log_candidates = 3
     latest_log_files = []
@@ -905,7 +905,7 @@ def _scan_lcu_credentials(configured_path=None):
             log.debug("[LCU调试] 读取客户端日志失败 %s：%s", log_file, exc)
 
     log.debug("[LCU调试] 当前可用凭据均未通过验证，或日志回退未找到有效凭据")
-    return None, "", None, False
+    return None, "", None
 
 
 def get_lcu_credentials():
@@ -947,10 +947,9 @@ def lcu_recognition_worker():
             valid, account_data = _validate_lcu_credentials(*credentials)
 
         # 首次识别，或缓存凭据已失效时，才按 Lockfile、WMI、日志顺序重新发现凭据。
-        client_confirmed_absent = False
         if not valid:
-            credentials, source, account_data, client_confirmed_absent = (
-                _scan_lcu_credentials(configured_client_path)
+            credentials, source, account_data = _scan_lcu_credentials(
+                configured_client_path
             )
             valid = credentials is not None
 
@@ -980,10 +979,8 @@ def lcu_recognition_worker():
         else:
             with _lcu_lock:
                 _gameflow_phase = None
-            # 只有 WMI 成功确认安装目录下不存在客户端进程时才清除人数；
-            # 凭据暂时无法验证或扫描失败时，保留上次有效人数。
-            if client_confirmed_absent:
-                _set_lobby_member_count(None)
+            # LCU 凭据不可用时，不显示组队人数。
+            _set_lobby_member_count(None)
 
         current_status = (bool(valid), source if valid else "", account)
         if current_status != last_logged_status:
