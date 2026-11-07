@@ -739,30 +739,35 @@ def register_bar_routes(
         nonlocal last_snapshot_diag_signature, snapshot_cache_key, snapshot_cache_result
 
         cfg = get_config()
-        saved, matches_path, active = load_active_matches()
 
-        raw_matches = saved.get("matches", []) if isinstance(saved, dict) else []
+        # 与缓存写入串行化，避免读取对局和读取文件元数据之间发生竞态。
+        with cache_lock:
+            saved, matches_path, active = load_active_matches()
+            raw_matches = (
+                saved.get("matches", [])
+                if isinstance(saved, dict) else []
+            )
 
-        if not isinstance(raw_matches, list):
-            raw_matches = []
+            if not isinstance(raw_matches, list):
+                raw_matches = []
 
-        # 文件元数据可检测对局缓存、手动边界及旧版迁移缓存的变化。
-        def file_state(path):
-            try:
-                stat = path.stat() if path else None
-                return (stat.st_mtime_ns, stat.st_size) if stat else None
-            except OSError:
-                return None
+            # 文件元数据可检测对局缓存、手动边界及旧版迁移缓存的变化。
+            def file_state(path):
+                try:
+                    stat = path.stat() if path else None
+                    return (stat.st_mtime_ns, stat.st_size) if stat else None
+                except OSError:
+                    return None
 
-        cache_key = (
-            str(matches_path or ""),
-            file_state(matches_path),
-            file_state(legacy_matches_path),
-            str(active.get("puuid") or ""),
-            str(active.get("account") or ""),
-            str(active.get("platform") or ""),
-            tuple(sorted((str(k), repr(v)) for k, v in cfg.items())),
-        )
+            cache_key = (
+                str(matches_path or ""),
+                file_state(matches_path),
+                file_state(legacy_matches_path),
+                str(active.get("puuid") or ""),
+                str(active.get("account") or ""),
+                str(active.get("platform") or ""),
+                tuple(sorted((str(k), repr(v)) for k, v in cfg.items())),
+            )
 
         with snapshot_cache_lock:
             if cache_key == snapshot_cache_key and snapshot_cache_result is not None:
