@@ -792,6 +792,8 @@ def register_bar_routes(
             ]
 
             raw_count = len(matches)
+            # 保留筛选前的有效对局列表，供诊断日志按需统计。
+            unfiltered_matches = matches
             account = str(
                 (saved.get("account") if isinstance(saved, dict) else "")
                 or active.get("account")
@@ -943,7 +945,7 @@ def register_bar_routes(
 
                 # 仅在需要输出诊断日志时统计筛选前的模式分布。
                 mode_stats = {}
-                for m in matches:
+                for m in unfiltered_matches:
                     mode = str(m.get("gameMode") or "(空)")
                     mode_stats[mode] = mode_stats.get(mode, 0) + 1
 
