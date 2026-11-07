@@ -84,6 +84,25 @@ def register_bar_routes(
     stop_event = threading.Event()
     game_end_event = threading.Event()
 
+    worker = None
+    worker_lock = threading.Lock()
+
+    def start_worker():
+        """由主程序在取得单实例锁并完成初始化后启动自动刷新线程。"""
+        nonlocal worker
+        with worker_lock:
+            if worker is not None:
+                return
+            if stop_event.is_set():
+                log.warning("[战绩条] 停止信号已设置，跳过后台线程启动")
+                return
+            worker = threading.Thread(
+                target=auto_refresh_worker,
+                name="lol-match-bar-auto-refresh",
+                daemon=True,
+            )
+            worker.start()
+
     def stop_worker():
         """通知自动刷新线程退出，并唤醒可能正在等待的线程。"""
         stop_event.set()
@@ -1106,17 +1125,10 @@ def register_bar_routes(
 
     app.register_blueprint(bp)
 
-    # 启动后台自动刷新线程。线程为 daemon，不阻止程序退出。
-    worker = threading.Thread(
-        target=auto_refresh_worker,
-        name="lol-match-bar-auto-refresh",
-        daemon=True,
-    )
-    worker.start()
-
+    # 这里只注册路由和准备启动入口；后台线程由主程序取得单实例锁后启动。
     log.info(
         "[战绩条] 已注册路由：/bar、/api/snapshot、"
         "/api/bar-config、/api/bar-action；账号缓存目录=%s",
         accounts_dir,
     )
-    return notify_game_ended, stop_worker
+    return notify_game_ended, start_worker, stop_worker
