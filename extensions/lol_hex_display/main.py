@@ -1805,7 +1805,6 @@ def api_action():
     data=request.get_json(silent=True) or {}; action=data.get('action'); key=str(data.get('key',''))
     removed=[]
     with state_lock:
-        cards=state['cards']
         if action == 'shutdown':
             log.info('收到主程序关闭请求，Hex 管理员进程开始执行有序退出')
             request_server_shutdown()
@@ -1813,20 +1812,30 @@ def api_action():
         if action=='clear':
             # cleanup_match_data() 统一清空状态并持久化，避免重复写入。
             pass
-        elif action=='delete':
-            target=next((c for c in cards if str(c.get('key'))==key),None)
-            if target is None: return jsonify({'ok':False,'error':'找不到要删除的卡片记录'}),404
-            state['cards']=[c for c in cards if str(c.get('key'))!=key]
-            filename=Path(str(target.get('filename',''))).name
-            if filename and filename==str(target.get('filename','')):
-                removed.append(screenshot_dir()/filename)
-        elif action in ('up','down'):
-            idx=next((i for i,c in enumerate(cards) if str(c.get('key'))==key),-1)
-            j=idx+(-1 if action=='up' else 1)
-            if idx>=0 and 0<=j<len(cards): cards[idx],cards[j]=cards[j],cards[idx]
-        else: return jsonify({'ok':False,'error':'未知操作'}),400
-        if action != 'clear':
-            state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
+        elif action in ('delete', 'up', 'down'):
+            # 先在副本中修改并持久化，成功后再提交到内存状态。
+            new_state = dict(state)
+            new_cards = list(state['cards'])
+            if action=='delete':
+                target=next((c for c in new_cards if str(c.get('key'))==key),None)
+                if target is None: return jsonify({'ok':False,'error':'找不到要删除的卡片记录'}),404
+                new_cards=[c for c in new_cards if str(c.get('key'))!=key]
+                filename=Path(str(target.get('filename',''))).name
+                if filename and filename==str(target.get('filename','')):
+                    removed.append(screenshot_dir()/filename)
+            else:
+                idx=next((i for i,c in enumerate(new_cards) if str(c.get('key'))==key),-1)
+                j=idx+(-1 if action=='up' else 1)
+                if idx>=0 and 0<=j<len(new_cards):
+                    new_cards[idx],new_cards[j]=new_cards[j],new_cards[idx]
+
+            new_state['cards'] = new_cards
+            new_state['updated_at'] = time.time()
+            atomic_json(STATE_PATH, new_state)
+            state.clear()
+            state.update(new_state)
+        else:
+            return jsonify({'ok':False,'error':'未知操作'}),400
     deleted=[]; failures=[]
     if action=='clear':
         cleanup_match_data('用户在管理页手动清空')
