@@ -1648,7 +1648,7 @@ def request_server_shutdown():
         threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
 
 atexit.register(remove_pid_file)
-notify_bar_game_ended, stop_bar_worker = register_bar_routes(
+notify_bar_game_ended, start_bar_worker, stop_bar_worker = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
@@ -2296,6 +2296,8 @@ def main():
         return
 
     initialize_runtime_resources()
+    # 战绩条自动刷新线程必须在取得单实例锁并完成运行期初始化后启动。
+    start_bar_worker()
 
     # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
     if os.name == 'nt':
