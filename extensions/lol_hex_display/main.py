@@ -808,7 +808,7 @@ def _scan_lcu_process_wmi(client_path):
 
 
 def _scan_lcu_credentials(configured_path=None):
-    """按 Lockfile、原生 WMI、客户端日志顺序查找并验证 LCU 凭据。"""
+    """按 Lockfile、原生 WMI、客户端日志顺序查找凭据，并标记是否确认客户端已退出。"""
     if os.name != "nt":
         return None, "", None, False
 
