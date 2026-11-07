@@ -1278,7 +1278,8 @@ def match_asset(text, is_mutated=False):
         if str(a['name']).strip() == text
     ]
 
-    if len(exact_raw) == 1:
+    if exact_raw:
+        # 完全匹配即使对应多个 ID，也按资源索引顺序使用第一个结果。
         asset = dict(exact_raw[0])
         asset['display_name'] = (
             f"已质变：{asset['name']}"
@@ -1295,7 +1296,8 @@ def match_asset(text, is_mutated=False):
         if norm_name(a['name']) == norm
     ]
 
-    if len(exact) == 1:
+    if exact:
+        # 规范化后的完全匹配同样优先取第一个结果。
         asset = dict(exact[0])
         asset['display_name'] = (
             f"已质变：{asset['name']}"
