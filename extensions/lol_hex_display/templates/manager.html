@@ -154,10 +154,14 @@
       <span>游戏中按 F1 冻结画面并框选；再次按 F1 或按 ESC 取消。</span>
     </div>
 
-    <div class="toolbar-actions">
-      <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯数据</button>
-      <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯数据</button>
-      <button class="danger" onclick="act('clear')">清空卡片和截图</button>
+    <div class="toolbar-button-groups">
+      <div id="assetDataActions">
+        <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯数据</button>
+        <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯数据</button>
+      </div>
+      <div id="cardScreenshotActions">
+        <button class="danger" onclick="act('clear')">清空卡片和截图</button>
+      </div>
     </div>
   </section>
 
