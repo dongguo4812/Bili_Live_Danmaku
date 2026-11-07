@@ -1727,10 +1727,19 @@ def request_server_shutdown():
     with _shutdown_lock:
         if _shutdown_started:
             return
+        server = HTTP_SERVER
+        if server is None:
+            return
         _shutdown_started = True
-    server = HTTP_SERVER
-    if server is not None:
-        threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
+        try:
+            threading.Thread(
+                target=server.shutdown,
+                daemon=True,
+                name='HexHttpShutdown'
+            ).start()
+        except Exception:
+            _shutdown_started = False
+            log.exception('启动 Hex HTTP 关闭线程失败')
 
 atexit.register(remove_pid_file)
 (
