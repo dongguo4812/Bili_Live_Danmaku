@@ -273,11 +273,6 @@ function renderBar(data, games) {
     };
     const lobbyTitle = lobbyTitles[Number(data.lobby_member_count)] || '';
 
-    if (games.length === 0) {
-        root.replaceChildren();
-        return;
-    }
-
     let html = `
         <div class="bar-inner">
             <div class="left-info">
