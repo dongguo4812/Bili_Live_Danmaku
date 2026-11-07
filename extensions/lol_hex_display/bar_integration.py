@@ -461,6 +461,7 @@ def register_bar_routes(
                 }
 
                 newly_seen_ids = set()
+                seen_game_ids = set(indexed.keys())
                 parsed_count = 0
                 unable_to_locate_count = 0
 
@@ -468,8 +469,11 @@ def register_bar_routes(
                     try:
                         game_id = str(game.get("gameId") or "")
 
-                        if not game_id or game_id in indexed:
+                        if not game_id or game_id in seen_game_ids:
                             continue
+
+                        # 即使本局后续无法定位玩家，也不重复处理响应中的同一 gameId。
+                        seen_game_ids.add(game_id)
 
                         participants = game.get("participants") or []
                         identities = game.get("participantIdentities") or []
