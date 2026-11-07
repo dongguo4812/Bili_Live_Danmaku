@@ -44,6 +44,6 @@ python "%~dp0main.py"
 
 if errorlevel 1 (
     echo.
-    echo 程序退出或启动失败，请查看 logs\app.log。
+    echo 程序退出或启动失败，请检查 logs 目录下按日期命名的日志文件。
     pause
 )
