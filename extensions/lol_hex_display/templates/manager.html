@@ -156,8 +156,8 @@
 
     <div class="toolbar-button-groups">
       <div id="assetDataActions">
-        <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯数据</button>
-        <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯数据</button>
+        <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯索引</button>
+        <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯索引</button>
       </div>
       <div id="cardScreenshotActions">
         <button class="danger" onclick="act('clear')">清空卡片和截图</button>
@@ -227,7 +227,7 @@ async function updateAssets() {
 
 async function resetAndUpdateAssets() {
   const confirmed = confirm(
-    '确定重置海克斯数据吗？\n\n' +
+    '确定重置海克斯索引吗？\n\n' +
     '将删除内存索引和本地 hex_assets.json。\n' +
     '图标缓存、截图和卡片记录不会删除。\n\n' +
     '如果数据源请求失败，索引会保持为空，需要稍后重新更新。'
@@ -254,7 +254,7 @@ async function resetAndUpdateAssets() {
       result.message || '已开始清空并重新建立海克斯索引';
     pollUpdate();
   } catch (error) {
-    alert('重置海克斯数据失败：' + error.message);
+    alert('重置海克斯索引失败：' + error.message);
     buttons.forEach(button => button.disabled = false);
   }
 }
