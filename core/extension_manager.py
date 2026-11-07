@@ -50,6 +50,8 @@ class LolHexExtensionManager:
         # UAC 二次提权时，实际服务进程可能不同于 ShellExecuteEx 启动进程。
         self._worker_pid: int | None = None
         self._worker_creation_time: int | None = None
+        # 重复实例启动尝试已退出，但互斥锁持有者可能仍在启动；不得认领或清理它。
+        self._duplicate_instance_conflict = False
         self._last_error = ""
         self.host = self._read_host()
         self.port = self._read_port()
@@ -249,6 +251,32 @@ class LolHexExtensionManager:
             return self._process_identity_state(self._elevated_pid, self._elevated_creation_time)
         return "unknown"
 
+    def _launcher_exit_code(self) -> int | None:
+        """读取 ShellExecuteEx 启动目标的退出码；调用前应已确认句柄 signaled。"""
+        if not self._elevated_process_handle:
+            return None
+        try:
+            exit_code = ctypes.c_ulong()
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+            kernel32.GetExitCodeProcess.restype = ctypes.c_bool
+            if not kernel32.GetExitCodeProcess(self._elevated_process_handle, ctypes.byref(exit_code)):
+                return None
+            return int(exit_code.value)
+        except Exception:
+            self.logger.debug("读取 LOL Hex 启动进程退出码失败。", exc_info=True)
+            return None
+
+    def _release_duplicate_instance_attempt(self) -> None:
+        """释放已确认只是重复启动尝试的句柄，不触碰已有实例及其 PID 文件。"""
+        self._close_elevated_process_handle()
+        self._elevated_pid = None
+        self._elevated_creation_time = None
+        self._worker_pid = None
+        self._worker_creation_time = None
+        self._elevated_managed = False
+        self._duplicate_instance_conflict = False
+
     def _elevated_process_running(self) -> bool:
         self._capture_worker_identity()
         if self._worker_pid is not None:
@@ -269,7 +297,7 @@ class LolHexExtensionManager:
 
     def _clear_stale_elevated_process(self) -> None:
         """仅在进程退出得到确认、且 PID 文件状态可解释时清理托管状态。"""
-        if not self._elevated_managed:
+        if not self._elevated_managed or self._duplicate_instance_conflict:
             return
 
         pid_file_state, record = self._read_pid_record_state()
@@ -382,6 +410,9 @@ class LolHexExtensionManager:
             was_elevated_managed = self._elevated_managed
             self._clear_stale_elevated_process()
             healthy = self._is_healthy()
+            if healthy and self._duplicate_instance_conflict:
+                # 健康服务是 mutex 的现有持有者，不是本次已退出的启动尝试。
+                self._release_duplicate_instance_attempt()
             if not healthy and was_elevated_managed and not self._elevated_managed and not self._last_error:
                 self._last_error = "LOL Hex 管理员进程已退出。"
             if healthy:
@@ -394,7 +425,7 @@ class LolHexExtensionManager:
             if (self._process is not None and self._process.poll() is None) or self._elevated_managed:
                 return {
                     "ok": True, "state": "starting", "running": False,
-                    "owned": bool(self._owned or self._elevated_managed), "external": False,
+                    "owned": bool(self._owned or (self._elevated_managed and not self._duplicate_instance_conflict)), "external": False,
                     "port": self.port, "base_url": self.base_url, "error": self._last_error,
                 }
             return {
@@ -487,8 +518,44 @@ class LolHexExtensionManager:
             deadline = time.monotonic() + 30.0
             while time.monotonic() < deadline:
                 if self._is_healthy():
+                    if self._duplicate_instance_conflict:
+                        self._release_duplicate_instance_attempt()
                     self.logger.info("LOL Hex 扩展已启动，地址：%s，PID：%s", self.base_url, self._read_pid())
                     return self.status()
+
+                if self._elevated_managed and self._launcher_process_state() == "exited":
+                    exit_code = self._launcher_exit_code()
+                    self._capture_worker_identity()
+                    if exit_code == 17:  # LOL Hex EXIT_ALREADY_RUNNING
+                        # 先再次检查服务健康；若尚未就绪，保留冲突状态，避免误启动第二份。
+                        if self._is_healthy():
+                            self._release_duplicate_instance_attempt()
+                            return self.status()
+                        self._duplicate_instance_conflict = True
+                        self._last_error = "检测到已有 LOL Hex 实例持有单实例锁，但服务暂不可用；为避免重复启动，已保留冲突状态。"
+                        raise RuntimeError(self._last_error)
+
+                    if self._worker_pid is not None:
+                        worker_state = self._process_identity_state(
+                            self._worker_pid, self._worker_creation_time
+                        )
+                        if worker_state == "running":
+                            # 启动器与实际服务进程可能分离；继续等待服务健康，不回收身份。
+                            time.sleep(0.25)
+                            continue
+                        if worker_state == "unknown":
+                            self._last_error = "LOL Hex 启动进程已退出，但实际工作进程身份无法确认；已保留托管状态。"
+                            raise RuntimeError(self._last_error)
+                    else:
+                        pid_state, _ = self._read_pid_record_state()
+                        if pid_state != "missing":
+                            self._last_error = "LOL Hex 启动进程已退出，但工作进程记录无效或无法读取；已保留托管状态。"
+                            raise RuntimeError(self._last_error)
+
+                    self._last_error = f"LOL Hex 启动失败，启动进程退出码：{exit_code if exit_code is not None else \"未知\"}。"
+                    self._clear_stale_elevated_process()
+                    raise RuntimeError(self._last_error)
+
                 if self._process is not None and self._process.poll() is not None:
                     code = self._process.returncode
                     self._process = None
