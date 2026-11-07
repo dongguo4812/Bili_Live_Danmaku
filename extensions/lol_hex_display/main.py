@@ -1506,9 +1506,12 @@ def _process_screenshot_locked(path):
 
 
 def process_screenshot(path):
-    """串行化截图识别与对局清理，避免清理期间重新写入旧卡片。"""
+    """串行化截图识别、处理标记与对局清理，避免清理后写回旧标记。"""
     with cleanup_lock:
-        return _process_screenshot_locked(path)
+        processed = _process_screenshot_locked(path)
+        if processed:
+            _mark_processed_file(path.name)
+        return processed
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def _mark_processed_file(name):
@@ -1563,9 +1566,7 @@ def screenshot_watcher():
                 files.sort(key=lambda p: p.stat().st_mtime)
                 retry_pending = False
                 for p in files:
-                    if process_screenshot(p):
-                        _mark_processed_file(p.name)
-                    else:
+                    if not process_screenshot(p):
                         retry_pending = True
                 # 保留现有扫描频率；下一轮重新枚举未完成文件，避免目录指纹不变时漏掉重试。
                 if retry_pending:
@@ -1587,9 +1588,7 @@ def screenshot_watcher():
                 files.sort(key=lambda p: p.stat().st_mtime)
                 retry_pending = False
                 for p in files:
-                    if process_screenshot(p):
-                        _mark_processed_file(p.name)
-                    else:
+                    if not process_screenshot(p):
                         retry_pending = True
                 if retry_pending:
                     directory_signature = None
