@@ -68,9 +68,10 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
             manager._elevated_managed = True
             manager._is_healthy = lambda: False
-            manager._pid_is_running = lambda pid: False
+            manager._launcher_process_state = lambda: "exited"
+            manager._process_identity_state = lambda pid, creation_time=None: "exited"
             manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
-            manager.pid_file.write_text("987654321", encoding="ascii")
+            manager.pid_file.write_text(json.dumps({"pid": 987654321, "creation_time": 123}), encoding="utf-8")
 
             state = manager.status()
 
@@ -93,6 +94,21 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertFalse(state["owned"])
             self.assertFalse(manager._elevated_managed)
             self.assertEqual(state["error"], "")
+
+    def test_duplicate_instance_conflict_is_not_cleared_as_a_stale_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
+            manager._elevated_managed = True
+            manager._duplicate_instance_conflict = True
+            manager._launcher_process_state = lambda: "exited"
+            manager._is_healthy = lambda: False
+
+            state = manager.status()
+
+            self.assertEqual(state["state"], "starting")
+            self.assertFalse(state["owned"])
+            self.assertTrue(manager._elevated_managed)
+            self.assertTrue(manager._duplicate_instance_conflict)
 
     def test_detects_an_independently_running_extension_without_claiming_ownership(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,6 +148,11 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('href="/extensions/lol-hex/logs"', page)
         hex_main = (root / "extensions" / "lol_hex_display" / "main.py").read_text(encoding="utf-8")
         self.assertIn("F1_HOTKEY_REGISTERED = False", hex_main)
+        self.assertIn("EXIT_ALREADY_RUNNING = 17", hex_main)
+        self.assertIn("return EXIT_ALREADY_RUNNING", hex_main)
+        self.assertIn("sys.exit(main())", hex_main)
+        self.assertIn("GetExitCodeProcess", manager)
+        self.assertIn("self._launcher_process_state() == \"exited\"", manager)
         self.assertIn("if os.name == 'nt' and not start_hotkey():", hex_main)
         self.assertIn("str(ROOT), 0", hex_main)
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
