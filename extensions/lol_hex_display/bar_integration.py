@@ -586,6 +586,16 @@ def register_bar_routes(
                     # 无新增时直接读取索引数量，不创建额外列表。
                     cached_match_count = len(indexed)
 
+                    # 即使没有新增对局，也同步账号显示信息；仅变化时写盘。
+                    metadata_changed = (
+                        str(old.get("account") or "") != account
+                        or str(old.get("platform") or "") != platform
+                    )
+                    if metadata_changed:
+                        old["account"] = account
+                        old["platform"] = platform
+                        write_json(matches_path, old)
+
                 # 活动账号指针只在账号信息发生变化时写入。
                 save_active_account(puuid, account, platform)
 
@@ -633,45 +643,10 @@ def register_bar_routes(
             with lock:
                 status["busy"] = False
 
-    def check_active_account():
-        """轻量检查当前 LCU 账号；只有账号变化时才完整刷新战绩。"""
-        try:
-            summoner = lcu_get("/lol-summoner/v1/current-summoner")
-            puuid = str(summoner.get("puuid") or "").strip()
-            game_name = str(
-                summoner.get("gameName")
-                or summoner.get("displayName")
-                or ""
-            )
-            tag_line = str(summoner.get("tagLine") or "")
-            account = game_name + (f"#{tag_line}" if tag_line else "")
-
-            if not puuid:
-                return
-
-            active = get_active_account()
-            if (
-                str(active.get("puuid") or "").strip() == puuid
-                and str(active.get("account") or "") == account
-            ):
-                return
-
-            log.info(
-                "[战绩条] 检测到当前账号变化：旧账号=%s，新账号=%s；立即刷新战绩",
-                active.get("account") or "未知",
-                account or "未知",
-            )
-            # 完整刷新会同时更新账号专属缓存、活动账号指针和区服信息。
-            refresh_matches()
-        except Exception as exc:
-            # 空闲账号检查失败不影响现有显示，下一轮继续检查。
-            log.debug("[战绩条] 空闲账号检查失败：%s", exc)
-
     def auto_refresh_worker():
         """
         战绩自动刷新调度：
-        - 启动时先刷新一次；空闲状态每30秒轻量检查当前账号；
-        - 发现账号变化时立即完整刷新战绩；
+        - 启动时立即刷新；空闲状态每30秒完整刷新战绩并同步账号信息；
         - 收到主程序的离开对局事件后立即刷新，开启5分钟追赶窗口；
         - 追赶期间每5秒刷新；一旦发现新增 gameId，立即结束追赶；
         - 追赶窗口到期或发现新对局后，恢复30秒空闲轮询。
@@ -685,7 +660,6 @@ def register_bar_routes(
         )
 
         chase_deadline = None
-        first_refresh = True
 
         while not stop_event.is_set():
             # 结束事件可打断空闲等待；若刷新进行中收到事件，
@@ -705,22 +679,18 @@ def register_bar_routes(
                 and now < chase_deadline
             )
 
-            # 追赶期和首次刷新已会读取当前账号；仅在普通空闲轮询时额外轻量检查。
-            if not first_refresh and not chasing:
-                check_active_account()
-
-            if first_refresh or chasing:
-                try:
-                    ok, message, has_new_matches = refresh_matches()
-                    if ok and has_new_matches and chasing:
-                        chase_deadline = None
-                        log.info(
-                            "[战绩条] 已发现新增对局，结束追赶，恢复%d秒空闲轮询",
-                            IDLE_REFRESH_INTERVAL,
-                        )
-                except Exception:
-                    log.exception("[战绩条] 自动刷新出现未处理异常")
-                first_refresh = False
+            # 每轮都执行完整战绩刷新：空闲时检查新对局并同步账号信息，
+            # 追赶期间则按5秒间隔持续检查。
+            try:
+                ok, message, has_new_matches = refresh_matches()
+                if ok and has_new_matches and chasing:
+                    chase_deadline = None
+                    log.info(
+                        "[战绩条] 已发现新增对局，结束追赶，恢复%d秒空闲轮询",
+                        IDLE_REFRESH_INTERVAL,
+                    )
+            except Exception:
+                log.exception("[战绩条] 自动刷新出现未处理异常")
 
             now = time.monotonic()
             chasing = (
