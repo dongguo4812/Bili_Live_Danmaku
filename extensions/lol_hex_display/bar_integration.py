@@ -45,6 +45,7 @@ DEFAULTS = {
     "max_games": 5,
     "mode_filter": 1,
     "batch_gap_min": 100000,
+    "show_lobby_member_count": True,
 }
 
 
@@ -217,6 +218,10 @@ def register_bar_routes(
             )
         except (TypeError, ValueError):
             cfg["batch_gap_min"] = DEFAULTS["batch_gap_min"]
+
+        cfg["show_lobby_member_count"] = (
+            cfg.get("show_lobby_member_count") is not False
+        )
 
         return cfg
 
@@ -1014,7 +1019,10 @@ def register_bar_routes(
             "region": region if has_games else "",
             "lobby_member_count": (
                 get_lobby_member_count()
-                if callable(get_lobby_member_count) else None
+                if (
+                    cfg["show_lobby_member_count"]
+                    and callable(get_lobby_member_count)
+                ) else None
             ),
             "wins": wins if has_games else "",
             "losses": losses if has_games else "",
@@ -1055,6 +1063,9 @@ def register_bar_routes(
                 "batch_gap_min": body.get(
                     "batch_gap_min", DEFAULTS["batch_gap_min"]
                 ),
+                "show_lobby_member_count": (
+                    body.get("show_lobby_member_count", True) is True
+                ),
             })
 
             cfg["max_games"] = max(
@@ -1071,10 +1082,12 @@ def register_bar_routes(
 
             log.info(
                 "[战绩条诊断] 配置已保存：max_games=%s，"
-                "mode_filter=%s，batch_gap_min=%s",
+                "mode_filter=%s，batch_gap_min=%s，"
+                "show_lobby_member_count=%s",
                 cfg["max_games"],
                 cfg["mode_filter"],
                 cfg["batch_gap_min"],
+                cfg["show_lobby_member_count"],
             )
 
             return jsonify({"ok": True, "config": cfg})
