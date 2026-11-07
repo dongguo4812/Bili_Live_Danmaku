@@ -359,8 +359,11 @@ class LolHexExtensionManager:
                 # 只有本次启动句柄明确退出，才能确认该启动目标已经结束。
                 if launcher_state == "exited":
                     return True
-            elif not self._elevated_managed:
-                return True
+            elif not self._elevated_managed and self._process is not None:
+                # 非提权托管模式下，Popen 句柄是直接启动的工作进程身份；
+                # 只有 poll() 确认退出后才可结束等待。
+                if self._process.poll() is not None:
+                    return True
 
             if time.monotonic() >= deadline:
                 return False
