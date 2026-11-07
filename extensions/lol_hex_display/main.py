@@ -482,13 +482,16 @@ def _update_assets_impl(force=False):
             # 若图标损坏，可删除对应文件（或清空本地图标目录）后手动更新，缺失文件会自动重新下载。
             if dest.exists() and new_icon_sources.get(aid)==url:
                 continue
-            # 图片请求采用 10 秒超时；仅对临时网络错误有限重试，避免单张图片长期阻塞更新。
+            # 先写入同目录临时文件，完整解码并保存后再原子替换，避免中断留下损坏的正式 PNG。
+            temp_dest = dest.with_name(f".{dest.name}.tmp")
+            # 图片请求在独立资源线程中执行，10 秒超时；仅对临时网络错误有限重试。
             for attempt in range(3):
                 try:
                     ir=requests.get(url,timeout=10,headers={'User-Agent':'Mozilla/5.0'})
                     ir.raise_for_status()
                     with Image.open(io.BytesIO(ir.content)) as im:
-                        im.convert('RGBA').save(dest,format='PNG')
+                        im.convert('RGBA').save(temp_dest,format='PNG')
+                    os.replace(temp_dest, dest)
                     new_icon_sources[aid]=url
                     icon_sources_changed = True
                     break
@@ -497,6 +500,10 @@ def _update_assets_impl(force=False):
                     requests.exceptions.ConnectionError,
                     requests.exceptions.ChunkedEncodingError,
                 ) as e:
+                    try:
+                        temp_dest.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     if attempt < 2:
                         delay = attempt + 1
                         log.info(
@@ -508,6 +515,10 @@ def _update_assets_impl(force=False):
                     log.warning('图标下载失败 id=%s，已重试 2 次：%s',aid,e)
                 except Exception as e:
                     # HTTP 状态错误、图片格式错误等非临时网络问题不重试。
+                    try:
+                        temp_dest.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     log.warning('图标下载失败 id=%s：%s',aid,e)
                     break
         if icon_sources_changed:
