@@ -1433,8 +1433,8 @@ def match_asset(text, is_mutated=False):
 def save_state():
     with state_lock: state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
 
-def process_screenshot(path):
-    """处理截图；True 表示已完成（包括重复记录），False 表示应保留重试机会。"""
+def _process_screenshot_locked(path):
+    """在 cleanup_lock 保护下处理截图；True 表示已完成，False 表示应重试。"""
     # 若清理发生在 OCR 期间，丢弃旧任务结果，避免上一局卡片重新出现。
     with state_lock: generation_at_start = cleanup_generation
     # Wait until file size stabilizes to avoid reading a partial PNG.
@@ -1503,6 +1503,12 @@ def process_screenshot(path):
         card['reason'],
     )
     return True
+
+
+def process_screenshot(path):
+    """串行化截图识别与对局清理，避免清理期间重新写入旧卡片。"""
+    with cleanup_lock:
+        return _process_screenshot_locked(path)
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def _mark_processed_file(name):
