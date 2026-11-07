@@ -2387,39 +2387,45 @@ def main():
     if not acquire_single_instance_mutex():
         return EXIT_ALREADY_RUNNING
 
-    initialize_runtime_resources()
-    # 战绩条自动刷新线程必须在取得单实例锁并完成运行期初始化后启动。
-    start_bar_worker()
-
-    # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
-    if os.name == 'nt':
-        try:
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.GetStdHandle(-11)
-
-            mode = ctypes.c_uint()
-            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
-                new_mode = mode.value & ~0x0040  # 关闭 QuickEdit
-                new_mode |= 0x0080  # 启用扩展控制台标志
-                if not kernel32.SetConsoleMode(handle, new_mode):
-                    error_code = kernel32.GetLastError()
-                    log.debug('设置控制台模式失败，Windows 错误码：%s', error_code)
-        except Exception as e:
-            log.debug('设置控制台模式失败：%s', e)
-    screenshot_folder = screenshot_dir()
-    cleanup_legacy_processed_directory()
-    log.info('lol_hex_display 启动；截图目录：%s', screenshot_folder)
-    threading.Thread(target=screenshot_watcher,daemon=True,name='ScreenshotWatcher').start()
-    threading.Thread(target=asset_worker,daemon=True,name='AssetUpdater').start()
-    threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
-    threading.Thread(target=gameflow_worker,daemon=True,name='GameflowWatcher').start()
-    if os.name == 'nt' and not start_hotkey():
-        log.critical('F1 截图热键未能注册，LOL Hex 不会以不完整状态启动：%s', F1_HOTKEY_ERROR)
-        raise RuntimeError('F1 截图热键注册失败：' + F1_HOTKEY_ERROR)
-    cfg=read_config(); host=cfg.get('host','127.0.0.1'); port=int(cfg.get('port','8767'))
-    log.info('管理页：http://%s:%d/ | OBS 展示页：http://%s:%d/display',host,port,host,port)
     global HTTP_SERVER
     try:
+        initialize_runtime_resources()
+        # 战绩条自动刷新线程必须在取得单实例锁并完成运行期初始化后启动。
+        start_bar_worker()
+
+        # Windows 控制台：关闭 QuickEdit，避免误操作导致日志输出暂停
+        if os.name == 'nt':
+            try:
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.GetStdHandle(-11)
+
+                mode = ctypes.c_uint()
+                if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                    new_mode = mode.value & ~0x0040  # 关闭 QuickEdit
+                    new_mode |= 0x0080  # 启用扩展控制台标志
+                    if not kernel32.SetConsoleMode(handle, new_mode):
+                        error_code = kernel32.GetLastError()
+                        log.debug('设置控制台模式失败，Windows 错误码：%s', error_code)
+            except Exception as e:
+                log.debug('设置控制台模式失败：%s', e)
+
+        screenshot_folder = screenshot_dir()
+        cleanup_legacy_processed_directory()
+        log.info('lol_hex_display 启动；截图目录：%s', screenshot_folder)
+        threading.Thread(target=screenshot_watcher, daemon=True, name='ScreenshotWatcher').start()
+        threading.Thread(target=asset_worker, daemon=True, name='AssetUpdater').start()
+        threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
+        threading.Thread(target=gameflow_worker, daemon=True, name='GameflowWatcher').start()
+
+        if os.name == 'nt' and not start_hotkey():
+            log.critical('F1 截图热键未能注册，LOL Hex 不会以不完整状态启动：%s', F1_HOTKEY_ERROR)
+            raise RuntimeError('F1 截图热键注册失败：' + F1_HOTKEY_ERROR)
+
+        cfg = read_config()
+        host = cfg.get('host', '127.0.0.1')
+        port = int(cfg.get('port', '8767'))
+        log.info('管理页：http://%s:%d/ | OBS 展示页：http://%s:%d/display', host, port, host, port)
+
         from werkzeug.serving import make_server
         # 先确认 HTTP 服务成功绑定端口，再公布本进程身份，避免主项目捕获到
         # 尚未成功启动服务的 PID。
@@ -2427,12 +2433,18 @@ def main():
         write_pid_file()
         HTTP_SERVER.serve_forever()
     finally:
-        stop_bar_worker()
+        # 无论初始化、热键注册、端口绑定还是服务运行阶段发生异常，都统一回收已启动资源。
+        try:
+            stop_bar_worker()
+        except Exception:
+            log.exception('停止战绩条后台线程失败')
+
         stop_event.set()
         try:
             selector.cancel()
         except Exception:
-            pass
+            log.exception('取消截图选择器失败')
+
         if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
             try:
                 import keyboard
@@ -2440,18 +2452,27 @@ def main():
                 log.debug('F1 全局热键已注销')
             except Exception:
                 log.exception('注销 F1 全局热键失败')
+            finally:
+                global F1_HOTKEY_HANDLE, F1_HOTKEY_REGISTERED
+                F1_HOTKEY_HANDLE = None
+                F1_HOTKEY_REGISTERED = False
+
         try:
             if HTTP_SERVER is not None:
                 HTTP_SERVER.server_close()
         except Exception:
             log.exception('关闭 Hex HTTP 服务失败')
         HTTP_SERVER = None
+
         remove_pid_file()
         log.info('Hex 管理员进程退出清理完成')
-        try:
-            log_listener.stop()
-        except Exception:
-            pass
+
+        # 初始化过程可能在 QueueListener.start() 之前失败，因此先确认监听线程已启动。
+        if log_listener is not None and getattr(log_listener, '_thread', None) is not None:
+            try:
+                log_listener.stop()
+            except Exception:
+                log.exception('停止日志监听线程失败')
 
 if __name__ == "__main__":
     if check_admin_privileges():
