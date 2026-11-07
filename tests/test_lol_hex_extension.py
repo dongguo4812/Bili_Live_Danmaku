@@ -85,6 +85,7 @@ class LolHexExtensionManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
             manager._elevated_managed = True
+            manager._launcher_process_state = lambda: "exited"
             manager._is_healthy = lambda: True
 
             state = manager.status()
