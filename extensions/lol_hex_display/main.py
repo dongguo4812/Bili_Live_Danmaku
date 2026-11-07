@@ -1826,12 +1826,21 @@ def api_action():
         cleanup_match_data('用户在管理页手动清空')
     else:
         for candidate in removed:
+            forget_processed = False
             try:
                 # Only unlink a direct child of the configured screenshot directory.
-                if candidate.parent.resolve()==screenshot_dir().resolve() and candidate.is_file():
-                    candidate.unlink(); deleted.append(str(candidate))
-            except OSError as e: failures.append(f'{candidate}: {e}')
-        if removed: _forget_processed_file(removed[0].name)
+                if candidate.parent.resolve()==screenshot_dir().resolve():
+                    if candidate.is_file():
+                        candidate.unlink()
+                        deleted.append(str(candidate))
+                        forget_processed = True
+                    elif not candidate.exists():
+                        # 文件已不存在，后续目录扫描也不可能再次处理它。
+                        forget_processed = True
+            except OSError as e:
+                failures.append(f'{candidate}: {e}')
+            if forget_processed:
+                _forget_processed_file(candidate.name)
     return jsonify({'ok':True,'deleted_count':len(deleted),'delete_failures':failures})
 
 @app.post('/api/update-assets')
