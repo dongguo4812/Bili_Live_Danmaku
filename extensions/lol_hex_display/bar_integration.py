@@ -721,16 +721,11 @@ def register_bar_routes(
         with snapshot_cache_lock:
             cfg = get_config()
 
-            # 与缓存写入串行化，避免读取对局和读取文件元数据之间发生竞态。
+            # 先检查活动账号和文件元数据；快照命中时不读取、解析战绩 JSON。
             with cache_lock:
-                saved, matches_path, active = load_active_matches()
-                raw_matches = (
-                    saved.get("matches", [])
-                    if isinstance(saved, dict) else []
-                )
-
-                if not isinstance(raw_matches, list):
-                    raw_matches = []
+                active = get_active_account()
+                puuid = str(active.get("puuid") or "").strip()
+                matches_path = account_cache_path(puuid) if puuid else None
 
                 # 文件元数据可检测对局缓存和手动边界的变化。
                 def file_state(path):
@@ -749,7 +744,27 @@ def register_bar_routes(
                     tuple(sorted((str(k), repr(v)) for k, v in cfg.items())),
                 )
 
-            if cache_key == snapshot_cache_key and snapshot_cache_result is not None:
+                cache_hit = (
+                    cache_key == snapshot_cache_key
+                    and snapshot_cache_result is not None
+                )
+
+                if not cache_hit:
+                    saved = (
+                        read_json(matches_path, {})
+                        if matches_path is not None else {}
+                    )
+                    if (
+                        not isinstance(saved, dict)
+                        or str(saved.get("puuid") or "") != puuid
+                    ):
+                        saved = {}
+
+                    raw_matches = saved.get("matches", [])
+                    if not isinstance(raw_matches, list):
+                        raw_matches = []
+
+            if cache_hit:
                 result = dict(snapshot_cache_result)
                 with lock:
                     result["status"] = status["message"]
