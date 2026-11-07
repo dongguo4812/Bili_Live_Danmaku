@@ -188,6 +188,14 @@ def register_bar_routes(
         except (OSError, ValueError, TypeError):
             return default
 
+    def file_state(path):
+        """读取文件元数据，用于判断快照缓存是否仍然有效。"""
+        try:
+            stat = path.stat() if path else None
+            return (stat.st_mtime_ns, stat.st_size) if stat else None
+        except OSError:
+            return None
+
     def write_json(path, obj):
         """原子写入 JSON，避免程序中断时留下半截配置文件。"""
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -712,13 +720,6 @@ def register_bar_routes(
                 matches_path = account_cache_path(puuid) if puuid else None
 
                 # 文件元数据可检测对局缓存和手动边界的变化。
-                def file_state(path):
-                    try:
-                        stat = path.stat() if path else None
-                        return (stat.st_mtime_ns, stat.st_size) if stat else None
-                    except OSError:
-                        return None
-
                 cache_key = (
                     str(matches_path or ""),
                     file_state(matches_path),
