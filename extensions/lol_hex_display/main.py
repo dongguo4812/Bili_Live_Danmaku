@@ -904,7 +904,7 @@ def lcu_is_available():
 
 def lcu_recognition_worker():
     """优先验证缓存凭据；凭据失效或尚未识别时才扫描客户端进程/日志。"""
-    global _lcu_credentials
+    global _lcu_credentials, _lobby_member_count, _gameflow_phase
     # 安装路径没有运行时编辑入口，进程启动后固定使用首次读取的配置。
     lcu_config = read_config()
     configured_client_path = lcu_config.get("lol_client_path", "")
@@ -956,7 +956,6 @@ def lcu_recognition_worker():
             with _lcu_lock:
                 _lobby_member_count = None
                 # 客户端断开后不沿用上次阶段，避免继续显示过期人数。
-                global _gameflow_phase
                 _gameflow_phase = None
 
         current_status = (bool(valid), source if valid else "", account)
@@ -1121,6 +1120,7 @@ def cleanup_legacy_processed_directory():
 
 def gameflow_worker():
     """状态1每10秒检查并清理一次，清理成功后本轮不再重复；状态2每30秒仅检查阶段。"""
+    global _gameflow_phase
 
     state1_phases = {'Matchmaking', 'ReadyCheck', 'ChampSelect'}
     gaming_phases = {
@@ -1145,7 +1145,6 @@ def gameflow_worker():
                 pass
             else:
                 with _lcu_lock:
-                    global _gameflow_phase
                     _gameflow_phase = phase
                 if phase != last_phase:
                     log.info(
