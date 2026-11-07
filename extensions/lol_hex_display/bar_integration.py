@@ -749,20 +749,19 @@ def register_bar_routes(
                     tuple(sorted((str(k), repr(v)) for k, v in cfg.items())),
                 )
 
-            with snapshot_cache_lock:
-                if cache_key == snapshot_cache_key and snapshot_cache_result is not None:
-                    result = dict(snapshot_cache_result)
-                    with lock:
-                        result["status"] = status["message"]
-                        result["busy"] = status["busy"]
-                    result["lobby_member_count"] = (
-                        get_lobby_member_count()
-                        if (
-                            cfg["show_lobby_member_count"]
-                            and callable(get_lobby_member_count)
-                        ) else None
-                    )
-                    return result
+            if cache_key == snapshot_cache_key and snapshot_cache_result is not None:
+                result = dict(snapshot_cache_result)
+                with lock:
+                    result["status"] = status["message"]
+                    result["busy"] = status["busy"]
+                result["lobby_member_count"] = (
+                    get_lobby_member_count()
+                    if (
+                        cfg["show_lobby_member_count"]
+                        and callable(get_lobby_member_count)
+                    ) else None
+                )
+                return result
 
             matches = [
                 item for item in raw_matches
@@ -1078,9 +1077,8 @@ def register_bar_routes(
             }
 
             # 只缓存静态统计结果；运行状态和组队人数在每次请求时实时更新。
-            with snapshot_cache_lock:
-                snapshot_cache_key = cache_key
-                snapshot_cache_result = dict(result)
+            snapshot_cache_key = cache_key
+            snapshot_cache_result = dict(result)
 
             return result
 
