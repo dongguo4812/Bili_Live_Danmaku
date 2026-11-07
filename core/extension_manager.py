@@ -440,10 +440,11 @@ class LolHexExtensionManager:
             if not executable.is_file():
                 raise FileNotFoundError("未找到打包后的 LOL Hex 程序，请重新运行主项目 build.bat。")
             return [str(executable), "--config", str(self.config_path)]
-        script = self.extension_dir / "main.py"
+        script = self.extension_dir / "launcher.py"
         if not script.is_file():
-            raise FileNotFoundError("未找到 LOL Hex 扩展源码，请检查 extensions/lol_hex_display 目录。")
-        # 源码模式下，扩展必须复用主程序当前解释器，避免混用 venv 与系统 Python。
+            raise FileNotFoundError("未找到 LOL Hex 启动入口，请检查 extensions/lol_hex_display 目录。")
+        # 由轻量启动入口捕获 main.py 导入阶段和运行阶段的异常。
+        # 源码模式下仍复用主程序当前解释器，避免混用 venv 与系统 Python。
         return [sys.executable, str(script), "--config", str(self.config_path)]
 
     def start(self) -> dict[str, Any]:
