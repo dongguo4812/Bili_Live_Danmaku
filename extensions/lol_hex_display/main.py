@@ -1659,6 +1659,80 @@ def api_update_assets():
     threading.Thread(target=worker,daemon=True,name='ManualAssetUpdater').start()
     return jsonify({'ok':True,'running':True,'message':'已开始检查海克斯数据接口'})
 
+@app.post('/api/reset-update-assets')
+def api_reset_update_assets():
+    # 与自动更新、普通手动更新共用同一把锁，避免清空与更新并发。
+    if not _asset_update_mutex.acquire(blocking=False):
+        return jsonify({
+            'ok': False,
+            'running': True,
+            'message': '当前已有海克斯数据更新任务，请结束后再清空'
+        }), 409
+
+    with update_status_lock:
+        if update_status['running']:
+            _asset_update_mutex.release()
+            return jsonify({
+                'ok': False,
+                'running': True,
+                'message': '海克斯数据更新任务正在执行，请稍候'
+            }), 409
+        update_status.update({
+            'running': True,
+            'message': '正在清空本地海克斯索引…',
+            'updated_at': time.time(),
+            'ok': None
+        })
+
+    def worker():
+        global assets
+        try:
+            # 先删除持久化索引；删除失败时不改变内存索引，避免状态不一致。
+            if ASSET_CACHE.exists():
+                ASSET_CACHE.unlink()
+            with assets_lock:
+                assets = {}
+
+            with update_status_lock:
+                update_status.update({
+                    'running': True,
+                    'message': '本地索引已清空，正在重新获取腾讯与 CommunityDragon 数据…',
+                    'updated_at': time.time()
+                })
+
+            ok = _update_assets_impl(False)
+            if ok:
+                with assets_lock:
+                    count = len(assets)
+                message = f'海克斯索引已清空并重新建立，共 {count} 条。'
+            else:
+                message = '本地索引已清空，但数据源请求或校验失败；索引保持为空，请检查网络后重试。'
+        except Exception as exc:
+            log.exception('清空并重建海克斯索引失败')
+            ok = False
+            message = f'清空或重建索引失败：{type(exc).__name__}: {exc}'
+        finally:
+            _asset_update_mutex.release()
+            with update_status_lock:
+                update_status.update({
+                    'running': False,
+                    'message': message,
+                    'updated_at': time.time(),
+                    'ok': ok
+                })
+
+    threading.Thread(
+        target=worker,
+        daemon=True,
+        name='ResetAssetUpdater'
+    ).start()
+    return jsonify({
+        'ok': True,
+        'running': True,
+        'message': '已开始清空并重新建立海克斯索引'
+    })
+
+
 @app.get('/api/update-status')
 def api_update_status():
     with update_status_lock: result=dict(update_status)
