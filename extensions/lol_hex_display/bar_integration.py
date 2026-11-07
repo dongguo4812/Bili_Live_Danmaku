@@ -55,7 +55,6 @@ def register_bar_routes(
     client_is_recognized: Callable[[], bool] | None = None,
     lcu_is_available: Callable[[], bool] | None = None,
     get_lobby_member_count: Callable[[], int | None] | None = None,
-    on_lcu_recognized: Callable[[], None] | None = None,
 ):
     """
     接入现有 Flask app。
@@ -164,6 +163,10 @@ def register_bar_routes(
         game_end_event.set()
         refresh_wakeup_event.set()
         log.info("[战绩条] 已收到离开对局事件；准备立即刷新并启动追赶窗口")
+
+    def notify_lcu_recognized():
+        """由 LCU 识别线程通知：凭据首次识别或重新识别成功。"""
+        refresh_wakeup_event.set()
 
     # 用于避免网页频繁轮询时反复输出相同的完整诊断日志。
     last_snapshot_diag_signature = None
@@ -1272,4 +1275,5 @@ def register_bar_routes(
         start_worker,
         stop_worker,
         notify_lobby_member_count_changed,
+        notify_lcu_recognized,
     )
