@@ -374,6 +374,10 @@ class LolHexExtensionManager:
             if self._is_healthy():
                 return self.status()
             self._clear_stale_elevated_process()
+            # Windows 管理员启动由 ShellExecuteEx 管理；即使 HTTP 健康检查尚未就绪，
+            # 只要旧启动/工作进程尚未确认退出，就不能再次拉起一个实例。
+            if self._elevated_managed:
+                return self.status()
             if self._process is not None and self._process.poll() is None:
                 return self.status()
             command = self._command()
