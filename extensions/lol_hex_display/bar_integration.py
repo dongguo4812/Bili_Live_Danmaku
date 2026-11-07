@@ -80,6 +80,10 @@ def register_bar_routes(
     lock = threading.RLock()
     # 串行化账号缓存的读取-修改-写入，避免自动刷新覆盖手动批次边界。
     cache_lock = threading.RLock()
+    # 配置文件通常只在保存设置时变化；缓存其解析结果，避免请求时重复读盘。
+    config_lock = threading.RLock()
+    config_cache_state = object()
+    config_cache_value = None
     status = {"busy": False, "message": ""}
     # snapshot 的静态战绩统计缓存；文件或相关配置变化时才重新计算。
     snapshot_cache_key = None
@@ -214,36 +218,69 @@ def register_bar_routes(
         return accounts_dir / f"{safe_name}.json"
 
     def get_config():
-        cfg = dict(DEFAULTS)
-        saved = read_json(config_path, {})
+        nonlocal config_cache_state, config_cache_value
 
-        if isinstance(saved, dict):
-            cfg.update(saved)
+        with config_lock:
+            try:
+                stat = config_path.stat()
+                file_state = (stat.st_mtime_ns, stat.st_size)
+            except FileNotFoundError:
+                file_state = None
+            except OSError:
+                # 文件状态暂时不可读时，不复用缓存，保持原有读取兜底行为。
+                file_state = object()
 
-        try:
-            cfg["max_games"] = max(1, min(100, int(cfg["max_games"])))
-        except (TypeError, ValueError):
-            cfg["max_games"] = DEFAULTS["max_games"]
+            if (
+                config_cache_value is not None
+                and file_state == config_cache_state
+            ):
+                return dict(config_cache_value)
 
-        try:
-            cfg["mode_filter"] = (
-                1 if int(cfg["mode_filter"]) == 1 else 2
+            cfg = dict(DEFAULTS)
+            cacheable = True
+
+            try:
+                with config_path.open("r", encoding="utf-8") as f:
+                    saved = json.load(f)
+            except FileNotFoundError:
+                saved = {}
+            except (OSError, ValueError, TypeError):
+                saved = {}
+                # 读取失败时不缓存兜底结果，下一次请求仍可重试。
+                cacheable = False
+
+            if isinstance(saved, dict):
+                cfg.update(saved)
+
+            try:
+                cfg["max_games"] = max(1, min(100, int(cfg["max_games"])))
+            except (TypeError, ValueError):
+                cfg["max_games"] = DEFAULTS["max_games"]
+
+            try:
+                cfg["mode_filter"] = (
+                    1 if int(cfg["mode_filter"]) == 1 else 2
+                )
+            except (TypeError, ValueError):
+                cfg["mode_filter"] = 1
+
+            try:
+                cfg["batch_gap_min"] = max(
+                    1, min(100000, int(cfg["batch_gap_min"]))
+                )
+            except (TypeError, ValueError):
+                cfg["batch_gap_min"] = DEFAULTS["batch_gap_min"]
+
+            cfg["show_lobby_member_count"] = (
+                cfg.get("show_lobby_member_count") is not False
             )
-        except (TypeError, ValueError):
-            cfg["mode_filter"] = 1
 
-        try:
-            cfg["batch_gap_min"] = max(
-                1, min(100000, int(cfg["batch_gap_min"]))
-            )
-        except (TypeError, ValueError):
-            cfg["batch_gap_min"] = DEFAULTS["batch_gap_min"]
+            if cacheable:
+                # 缺少配置文件时缓存默认值；文件创建后状态会从 None 变更。
+                config_cache_state = file_state
+                config_cache_value = dict(cfg)
 
-        cfg["show_lobby_member_count"] = (
-            cfg.get("show_lobby_member_count") is not False
-        )
-
-        return cfg
+            return cfg
 
     def save_active_account(puuid, account, platform):
         """仅在活动账号信息变化时更新指针文件。"""
