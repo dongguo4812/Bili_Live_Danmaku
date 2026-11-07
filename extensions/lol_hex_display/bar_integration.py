@@ -1059,8 +1059,8 @@ def register_bar_routes(
 
             result = {
                 "games": result_games if has_games else [],
-                "account": account if has_games else "",
-                "region": region if has_games else "",
+                "account": account,
+                "region": region,
                 "lobby_member_count": (
                     get_lobby_member_count()
                     if (
