@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
@@ -12,7 +13,7 @@ from typing import Callable
 
 import requests
 import urllib3
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 log = logging.getLogger(__name__)
@@ -88,6 +89,24 @@ def register_bar_routes(
 
     worker = None
     worker_lock = threading.Lock()
+
+    # SSE 订阅者只在人数变化时收到通知，不进行浏览器定时轮询。
+    lobby_event_lock = threading.Lock()
+    lobby_event_subscribers = set()
+
+    def notify_lobby_member_count_changed(count):
+        payload = json.dumps({"lobby_member_count": count}, ensure_ascii=False)
+        with lobby_event_lock:
+            subscribers = list(lobby_event_subscribers)
+        for subscriber in subscribers:
+            try:
+                if subscriber.full():
+                    subscriber.get_nowait()
+                subscriber.put_nowait(payload)
+            except queue.Empty:
+                pass
+            except Exception:
+                log.debug("[战绩条] 推送组队人数变更失败", exc_info=True)
 
     def start_worker():
         """由主程序在取得单实例锁并完成初始化后启动自动刷新线程。"""
@@ -1043,6 +1062,39 @@ def register_bar_routes(
     def bar_snapshot_api():
         return jsonify(snapshot())
 
+    @bp.get("/api/lobby-events")
+    def bar_lobby_events():
+        subscriber = queue.Queue(maxsize=1)
+
+        @stream_with_context
+        def event_stream():
+            with lobby_event_lock:
+                lobby_event_subscribers.add(subscriber)
+            try:
+                # 连接建立后先同步一次，避免页面断线期间错过最后一次变更。
+                yield "event: lobby-change\\ndata: {}\\n\\n"
+                while True:
+                    try:
+                        payload = subscriber.get(timeout=15)
+                        yield f"event: lobby-change\\ndata: {payload}\\n\\n"
+                    except queue.Empty:
+                        yield ": keep-alive\\n\\n"
+            except GeneratorExit:
+                raise
+            finally:
+                with lobby_event_lock:
+                    lobby_event_subscribers.discard(subscriber)
+
+        return Response(
+            event_stream(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     @bp.get("/api/bar-config")
     def bar_config_api():
         return jsonify(get_config())
@@ -1165,8 +1217,8 @@ def register_bar_routes(
 
     # 这里只注册路由和准备启动入口；后台线程由主程序取得单实例锁后启动。
     log.info(
-        "[战绩条] 已注册路由：/bar、/api/snapshot、"
+        "[战绩条] 已注册路由：/bar、/api/snapshot、/api/lobby-events、"
         "/api/bar-config、/api/bar-action；账号缓存目录=%s",
         accounts_dir,
     )
-    return notify_game_ended, start_worker, stop_worker
+    return notify_game_ended, start_worker, stop_worker, notify_lobby_member_count_changed
