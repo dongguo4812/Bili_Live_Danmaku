@@ -424,6 +424,9 @@ loadBar().finally(() => {
     });
     // EventSource 会自动重连；重连后服务端会发送一次同步事件。
 });
+
+// 定时刷新作为兜底；组队人数变化仍由 SSE 即时触发。
+setInterval(loadBar, 10000);
 </script>
 </body>
 </html>
