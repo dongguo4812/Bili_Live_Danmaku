@@ -1072,13 +1072,13 @@ def register_bar_routes(
                 lobby_event_subscribers.add(subscriber)
             try:
                 # 连接建立后先同步一次，避免页面断线期间错过最后一次变更。
-                yield "event: lobby-change\\ndata: {}\\n\\n"
+                yield "event: lobby-change\ndata: {}\n\n"
                 while True:
                     try:
                         payload = subscriber.get(timeout=15)
-                        yield f"event: lobby-change\\ndata: {payload}\\n\\n"
+                        yield f"event: lobby-change\ndata: {payload}\n\n"
                     except queue.Empty:
-                        yield ": keep-alive\\n\\n"
+                        yield ": keep-alive\n\n"
             except GeneratorExit:
                 raise
             finally:
