@@ -7,12 +7,11 @@ from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote
-from typing import Any
 from bar_integration import register_bar_routes
 
 import requests
 from flask import Flask, jsonify, render_template, request, send_from_directory
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageTk
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 DATA = ROOT / 'data'; ICON_DIR = DATA / 'hex_icons'; SHOTS = ROOT / 'screenshots'; LOG_DIR = ROOT / 'logs'
@@ -1489,9 +1488,6 @@ def match_asset(text, is_mutated=False):
         return None, '名称匹配存在歧义，未自动猜测'
 
     return None, 'OCR 文本未匹配到海克斯名称'
-
-def save_state():
-    with state_lock: state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
 
 def _process_screenshot_locked(path):
     """在 cleanup_lock 保护下处理截图；True 表示已完成，False 表示应重试。"""
