@@ -548,6 +548,41 @@ _lcu_status = {
 }
 _lcu_scan_interval_unrecognized = 5
 _lcu_scan_interval_recognized = 10
+_gameflow_phase = None
+_lobby_member_count = None
+
+
+def _refresh_lobby_member_count(port, token):
+    """复用 LCU 识别线程的10秒周期读取组队房间成员数；不创建额外轮询。"""
+    global _lobby_member_count
+    count = None
+    try:
+        response = requests.get(
+            f"https://127.0.0.1:{int(port)}/lol-lobby/v2/lobby",
+            auth=("riot", str(token)),
+            verify=False,
+            timeout=3,
+            headers={"Accept": "application/json"},
+        )
+        if response.status_code == 200:
+            payload = response.json()
+            members = payload.get("members") if isinstance(payload, dict) else None
+            if isinstance(members, list) and members:
+                count = len(members)
+    except Exception as exc:
+        log.debug("[组队人数] 读取 LCU 房间成员失败：%s", exc)
+
+    # 读取不到房间或成员时清空旧值，避免离开房间后继续显示上次人数。
+    with _lcu_lock:
+        _lobby_member_count = count
+
+
+def get_bar_lobby_member_count():
+    """空闲或阶段未知时隐藏人数；其他有效阶段返回最近一次 LCU 房间人数。"""
+    with _lcu_lock:
+        if _gameflow_phase in (None, "None"):
+            return None
+        return _lobby_member_count
 
 
 def _validate_lcu_credentials(port, token):
@@ -915,6 +950,15 @@ def lcu_recognition_worker():
                     "checked_at": time.time(), "account": "",
                 })
 
+        if valid:
+            _refresh_lobby_member_count(*credentials)
+        else:
+            with _lcu_lock:
+                _lobby_member_count = None
+                # 客户端断开后不沿用上次阶段，避免继续显示过期人数。
+                global _gameflow_phase
+                _gameflow_phase = None
+
         current_status = (bool(valid), source if valid else "", account)
         if current_status != last_logged_status:
             if valid:
@@ -1100,6 +1144,9 @@ def gameflow_worker():
                 # 读取失败不改变阶段、监控状态或清理标记。
                 pass
             else:
+                with _lcu_lock:
+                    global _gameflow_phase
+                    _gameflow_phase = phase
                 if phase != last_phase:
                     log.info(
                         '[对局阶段] %s -> %s',
@@ -1660,6 +1707,7 @@ notify_bar_game_ended, start_bar_worker, stop_bar_worker = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
+    get_lobby_member_count=get_bar_lobby_member_count,
 )
 # 关闭 Flask/Werkzeug 的 HTTP 请求访问日志
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
