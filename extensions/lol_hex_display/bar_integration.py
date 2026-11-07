@@ -52,6 +52,7 @@ def register_bar_routes(
     app, get_lcu_credentials: Callable, base_dir,
     client_is_recognized: Callable[[], bool] | None = None,
     lcu_is_available: Callable[[], bool] | None = None,
+    get_lobby_member_count: Callable[[], int | None] | None = None,
 ):
     """
     接入现有 Flask app。
@@ -1011,6 +1012,10 @@ def register_bar_routes(
             "games": result_games if has_games else [],
             "account": account if has_games else "",
             "region": region if has_games else "",
+            "lobby_member_count": (
+                get_lobby_member_count()
+                if callable(get_lobby_member_count) else None
+            ),
             "wins": wins if has_games else "",
             "losses": losses if has_games else "",
             "config": cfg,
