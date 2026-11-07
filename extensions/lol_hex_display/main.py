@@ -357,7 +357,7 @@ def normalize_assets(payload):
 
 def cdragon_asset_url(asset_path):
     """将 CommunityDragon JSON 中的 LCU 资源路径转换为 raw CDN URL。"""
-    path=str(asset_path or '').strip().replace('\\\\','/')
+    path=str(asset_path or '').strip()
     prefix='/lol-game-data/assets/'
     if not path.startswith(prefix):
         return ''
