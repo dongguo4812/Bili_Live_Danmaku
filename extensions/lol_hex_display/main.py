@@ -511,7 +511,7 @@ def update_assets(force=False):
         return _update_assets_impl(force)
 
 def find_game_version():
-    """使用配置目录对应的 LCU 连接信息读取游戏版本。"""
+    """使用已缓存的 LCU 凭据读取游戏版本，并丢弃账号切换期间的旧响应。"""
     credentials = get_lcu_credentials()
     if not credentials:
         return ''
@@ -525,6 +525,11 @@ def find_game_version():
             verify=False,
             timeout=3
         )
+
+        # 请求期间可能发生客户端断开或账号切换；旧凭据的响应不得作为当前版本。
+        with _lcu_lock:
+            if _lcu_credentials != credentials:
+                return ''
 
         if response.ok:
             return str(response.json())
