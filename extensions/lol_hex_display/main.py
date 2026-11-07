@@ -542,6 +542,7 @@ def find_game_version():
 # LCU 凭据缓存：只有识别线程负责扫描进程/日志，其他模块只读取缓存。
 _lcu_lock = threading.RLock()
 _lcu_credentials = None
+_lcu_account_data = None
 _lcu_status = {
     "recognized": False, "available": False, "source": "",
     "message": "正在识别英雄联盟客户端", "checked_at": 0, "account": "",
@@ -924,9 +925,15 @@ def lcu_is_available():
         return bool(_lcu_status.get("recognized") and _lcu_status.get("available") and _lcu_credentials)
 
 
+def get_lcu_account_data():
+    """返回最近一次成功验证账号接口取得的完整账号信息副本。"""
+    with _lcu_lock:
+        return dict(_lcu_account_data) if isinstance(_lcu_account_data, dict) else None
+
+
 def lcu_recognition_worker():
     """优先验证缓存凭据；凭据失效或尚未识别时才扫描客户端进程/日志。"""
-    global _lcu_credentials, _lobby_member_count, _gameflow_phase
+    global _lcu_credentials, _lcu_account_data, _lobby_member_count, _gameflow_phase
     # 安装路径没有运行时编辑入口，进程启动后固定使用首次读取的配置。
     lcu_config = read_config()
     configured_client_path = lcu_config.get("lol_client_path", "")
@@ -956,7 +963,11 @@ def lcu_recognition_worker():
         with _lcu_lock:
             if valid:
                 _lcu_credentials = credentials
-                data = account_data or {}
+                # 保存账号接口的完整响应，供战绩刷新复用，避免再次请求相同接口。
+                _lcu_account_data = (
+                    dict(account_data) if isinstance(account_data, dict) else {}
+                )
+                data = _lcu_account_data
                 game_name = str(data.get("gameName") or data.get("displayName") or "")
                 tag_line = str(data.get("tagLine") or "")
                 account = game_name + (f"#{tag_line}" if tag_line else "")
@@ -967,6 +978,7 @@ def lcu_recognition_worker():
                 })
             else:
                 _lcu_credentials = None
+                _lcu_account_data = None
                 account = ""
                 _lcu_status.update({
                     "recognized": False, "available": False, "source": "",
@@ -1756,6 +1768,7 @@ atexit.register(remove_pid_file)
     notify_bar_lcu_recognized,
 ) = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
+    get_lcu_account_data=get_lcu_account_data,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
     get_lobby_member_count=get_bar_lobby_member_count,
