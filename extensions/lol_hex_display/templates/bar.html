@@ -63,7 +63,7 @@ body {
     align-self: flex-start;
 }
 
-/* 第一栏：账号名、区服 */
+/* 第一栏：账号名、组队人数 */
 .account {
     flex: 0 0 auto;
     min-width: 190px;
@@ -86,28 +86,44 @@ body {
     overflow-wrap: anywhere;
 }
 
-/* 区服名称 */
-.region {
+/* 组队人数 */
+.lobby-count {
     margin-top: 5px;
-    font-size: 17px;
+    font-size: 16px;
     line-height: 1.4;
+    font-weight: 700;
+    color: #60a5fa;
+    overflow-wrap: anywhere;
+}
+
+/* 第二栏：区服名称与胜负统计 */
+.record {
+    flex: 0 0 auto;
+    min-height: 78px;
+    padding: 7px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    white-space: nowrap;
+    border-right: 1px solid rgba(190, 205, 225, 0.38);
+}
+
+.region {
+    font-size: 15px;
+    line-height: 1.3;
     font-weight: 700;
     color: #4ade80;
     overflow-wrap: anywhere;
 }
 
-/* 第二栏：胜负统计 */
-.record {
-    flex: 0 0 auto;
-    min-height: 78px;
-    padding: 8px 16px;
+.record-values {
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
     gap: 12px;
-    white-space: nowrap;
-    border-right: 1px solid rgba(190, 205, 225, 0.38);
 }
 
 .record-value {
@@ -225,6 +241,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({
 
 let previousGameIds = null;
 let previousGameCount = null;
+let previousLobbyMemberCount = undefined;
 let previousConfig = null;
 
 function getGameIds(games) {
@@ -260,17 +277,22 @@ function renderBar(data, games) {
                     <div class="account-name">
                         ${escapeHtml(data.account)}
                     </div>
-                    <div class="region">
-                        ${escapeHtml(data.region)}
+                    <div class="lobby-count">
+                        ${data.lobby_member_count == null ? '' : '组队人数：' + escapeHtml(data.lobby_member_count) + '人'}
                     </div>
                 </div>
 
                 <div class="record">
-                    <div class="record-value wins">
-                        胜${escapeHtml(data.wins)}
+                    <div class="region">
+                        ${escapeHtml(data.region)}
                     </div>
-                    <div class="record-value losses">
-                        负${escapeHtml(data.losses)}
+                    <div class="record-values">
+                        <div class="record-value wins">
+                            胜${escapeHtml(data.wins)}
+                        </div>
+                        <div class="record-value losses">
+                            负${escapeHtml(data.losses)}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -344,6 +366,7 @@ async function loadBar() {
             renderBar(data, games);
             previousGameIds = gameIds;
             previousGameCount = gameCount;
+            previousLobbyMemberCount = data.lobby_member_count ?? null;
             previousConfig = { ...config };
             return;
         }
@@ -358,17 +381,19 @@ async function loadBar() {
 
         // 对局数量变化：例如配置改变后显示局数增减。
         const countChanged = gameCount !== previousGameCount;
+        const lobbyCountChanged = (data.lobby_member_count ?? null) !== previousLobbyMemberCount;
 
         // 对局列表发生变化：兼容旧对局被替换或移除。
         const gameListChanged = !sameArray(previousGameIds, gameIds);
 
         // 仅在有新增对局、对局列表变化或配置变化时重新渲染。
-        if (hasNewGame || countChanged || gameListChanged || configChanged) {
+        if (hasNewGame || countChanged || gameListChanged || configChanged || lobbyCountChanged) {
             renderBar(data, games);
         }
 
         previousGameIds = gameIds;
         previousGameCount = gameCount;
+        previousLobbyMemberCount = data.lobby_member_count ?? null;
         previousConfig = { ...config };
 
     } catch (error) {
