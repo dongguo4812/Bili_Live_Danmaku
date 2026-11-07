@@ -1266,6 +1266,15 @@ def process_screenshot(path):
         log.debug('截图文件在等待期限内未稳定，稍后重试：%s', path.name)
         return False
 
+    # 程序重启后，遗留截图可能再次被扫描；已有卡片则无需重复执行 OCR。
+    with state_lock:
+        if any(
+            str(existing.get('filename', '')) == path.name
+            for existing in state['cards']
+        ):
+            log.debug('截图已存在于卡片列表，跳过重复识别：%s', path.name)
+            return True
+
     text, err = ocr_text(path)
     item, match_err = match_asset(text)
 
