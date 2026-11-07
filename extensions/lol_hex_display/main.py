@@ -2260,10 +2260,12 @@ def main():
     cfg=read_config(); host=cfg.get('host','127.0.0.1'); port=int(cfg.get('port','8767'))
     log.info('管理页：http://%s:%d/ | OBS 展示页：http://%s:%d/display',host,port,host,port)
     global HTTP_SERVER
-    write_pid_file()
     try:
         from werkzeug.serving import make_server
+        # 先确认 HTTP 服务成功绑定端口，再公布本进程身份，避免主项目捕获到
+        # 尚未成功启动服务的 PID。
         HTTP_SERVER = make_server(host, port, app, threaded=True)
+        write_pid_file()
         HTTP_SERVER.serve_forever()
     finally:
         stop_bar_worker()
