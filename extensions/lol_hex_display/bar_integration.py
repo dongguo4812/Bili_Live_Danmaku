@@ -1207,7 +1207,12 @@ def register_bar_routes(
                 1, min(100000, int(cfg["batch_gap_min"]))
             )
 
-            write_json(config_path, cfg)
+            nonlocal config_cache_state, config_cache_value
+            with config_lock:
+                write_json(config_path, cfg)
+                # 文件内容已更新，丢弃旧缓存；下一次读取会重新加载并校验。
+                config_cache_state = object()
+                config_cache_value = None
 
             log.info(
                 "[战绩条诊断] 配置已保存：max_games=%s，"
