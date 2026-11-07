@@ -457,8 +457,25 @@ class LolHexExtensionManager:
                     except Exception as exc:
                         self.logger.warning("启动超时后发送 Hex 有序退出请求失败：%s", exc)
                 if not self._wait_for_process_exit(self._elevated_pid, 3.0):
-                    # 启动句柄可能属于提权前进程，不能据此强制结束实际服务进程。
-                    self.logger.error("启动超时后未能确认 LOL Hex 实际服务进程退出；保留托管身份，避免误杀其他进程。")
+                    # 只有句柄身份与实际服务进程身份完全一致，才允许强制终止。
+                    same_process = (
+                        self._worker_pid is not None
+                        and self._elevated_pid == self._worker_pid
+                        and self._elevated_creation_time is not None
+                        and self._elevated_creation_time == self._worker_creation_time
+                    )
+                    if same_process and self._launcher_process_state() == "running":
+                        try:
+                            terminate_process = ctypes.windll.kernel32.TerminateProcess
+                            terminate_process.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                            terminate_process.restype = ctypes.c_bool
+                            if not terminate_process(self._elevated_process_handle, 1):
+                                raise ctypes.WinError(ctypes.get_last_error())
+                        except Exception:
+                            self.logger.exception("启动超时后终止已核实的 LOL Hex 工作进程失败。")
+                        self._wait_for_process_exit(self._elevated_pid, 3.0)
+                    else:
+                        self.logger.error("启动超时后无法确认启动进程就是 Hex 工作进程；保留托管身份，不执行强制终止。")
                 self._clear_stale_elevated_process()
             else:
                 self._clear_stale_elevated_process()
