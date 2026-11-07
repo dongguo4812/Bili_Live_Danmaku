@@ -135,11 +135,21 @@ def register_bar_routes(
             worker.start()
 
     def stop_worker():
-        """先阻止缓存提交，再通知自动刷新线程退出并有限等待。"""
-        # 与战绩缓存提交共用 cache_lock：
-        # 已进入提交区的操作先完成；之后拿到锁的刷新会看到停止信号并退出。
-        with cache_lock:
-            stop_event.set()
+        """通知刷新线程退出；有限等待当前缓存提交完成后再等待线程收尾。"""
+        # 先发出停止信号，避免新刷新进入缓存提交区。
+        stop_event.set()
+
+        # 尝试等待已开始的本地缓存提交完成，但绝不让锁等待拖住主程序关闭。
+        # 若超时，当前提交可能仍在执行；它结束后，后续提交会被停止检查拦截。
+        cache_lock_acquired = cache_lock.acquire(timeout=1.0)
+        if cache_lock_acquired:
+            cache_lock.release()
+        else:
+            log.warning(
+                "[战绩条] 等待缓存提交锁超过1秒；主程序继续关闭，"
+                "正在执行的本次提交可能尚未完成"
+            )
+
         game_end_event.set()
         refresh_wakeup_event.set()
 
