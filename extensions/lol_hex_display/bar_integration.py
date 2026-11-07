@@ -590,6 +590,10 @@ def register_bar_routes(
                     except (TypeError, ValueError, AttributeError):
                         log.exception("[战绩条诊断] 解析单局战绩失败")
 
+                # 解析对局期间也可能发生账号切换；写入任何缓存前再核对一次。
+                if get_lcu_credentials() != refresh_credentials:
+                    raise RuntimeError("刷新期间 LCU 凭据已变化，已丢弃本轮结果")
+
                 evicted_count = 0
 
                 if newly_seen_ids:
