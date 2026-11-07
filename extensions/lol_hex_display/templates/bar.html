@@ -412,8 +412,18 @@ async function loadBar() {
     }
 }
 
+// 首次加载后由服务器主动推送人数变化；断线重连时重新同步快照。
 loadBar();
-setInterval(loadBar, 10000);
+
+if (typeof EventSource !== 'undefined') {
+    const lobbyEvents = new EventSource('/api/lobby-events');
+    lobbyEvents.addEventListener('lobby-change', () => {
+        loadBar();
+    });
+    lobbyEvents.onerror = () => {
+        // EventSource 会自动重连；重连后服务端会发送一次同步事件。
+    };
+}
 </script>
 </body>
 </html>
