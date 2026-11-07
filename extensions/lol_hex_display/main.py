@@ -1814,7 +1814,16 @@ def api_state():
     })
 @app.post('/api/action')
 def api_action():
-    data=request.get_json(silent=True) or {}; action=data.get('action'); key=str(data.get('key',''))
+    data = request.get_json(silent=True) or {}
+    if data.get('action') == 'delete':
+        # 单张卡片删除与 watcher 截图识别串行化，避免删除后识别结果重新写回。
+        with cleanup_lock:
+            return _api_action_impl(data)
+    return _api_action_impl(data)
+
+
+def _api_action_impl(data):
+    action=data.get('action'); key=str(data.get('key',''))
     removed=[]
     with state_lock:
         if action == 'shutdown':
