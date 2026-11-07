@@ -277,9 +277,11 @@ function renderBar(data, games) {
                     <div class="account-name">
                         ${escapeHtml(data.account)}
                     </div>
+                    ${data.lobby_member_count == null ? '' : `
                     <div class="lobby-count">
-                        ${data.lobby_member_count == null ? '' : '车队人数 ' + escapeHtml(data.lobby_member_count) + '/5'}
+                        车队人数 ${escapeHtml(data.lobby_member_count)}/5
                     </div>
+                    `}
                 </div>
 
                 <div class="record">
