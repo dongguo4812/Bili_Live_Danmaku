@@ -2388,7 +2388,6 @@ def main():
     if not acquire_single_instance_mutex():
         return EXIT_ALREADY_RUNNING
 
-    global HTTP_SERVER
     try:
         initialize_runtime_resources()
         # 战绩条自动刷新线程必须在取得单实例锁并完成运行期初始化后启动。
