@@ -1247,13 +1247,16 @@ def save_state():
     with state_lock: state['updated_at']=time.time(); atomic_json(STATE_PATH,state)
 
 def process_screenshot(path):
+    """处理截图；True 表示已完成（包括重复记录），False 表示应保留重试机会。"""
     # 若清理发生在 OCR 期间，丢弃旧任务结果，避免上一局卡片重新出现。
     with state_lock: generation_at_start = cleanup_generation
     # Wait until file size stabilizes to avoid reading a partial PNG.
     old=-1; stable=0
     for _ in range(10):
         try: size=path.stat().st_size
-        except OSError: return
+        except OSError:
+            log.debug('截图文件暂时无法读取，稍后重试：%s', path.name)
+            return False
         if size>0 and size==old: stable+=1
         else: stable=0
         if stable>=2: break
@@ -1269,8 +1272,8 @@ def process_screenshot(path):
 
     with state_lock:
         if generation_at_start != cleanup_generation or not path.exists():
-            log.debug('截图处理结果已因对局清理而丢弃：%s', path.name)
-            return
+            log.debug('截图处理结果已因对局清理或文件变动而丢弃，保留重试机会：%s', path.name)
+            return False
 
         # 防止程序重启后，将已有截图再次加入卡片列表。
         if any(
@@ -1278,7 +1281,7 @@ def process_screenshot(path):
             for existing in state['cards']
         ):
             log.debug('截图已存在于卡片列表，跳过重复添加：%s', path.name)
-            return
+            return True
 
         state['cards'].append(card)
         state['cards'] = state['cards'][-100:]
@@ -1293,6 +1296,7 @@ def process_screenshot(path):
         card['name'] or '未匹配',
         card['reason'],
     )
+    return True
 
 stop_event=threading.Event(); processed_files=OrderedDict(); PROCESSED_FILES_LIMIT=100; update_status_lock=threading.Lock(); update_status={'running':False,'message':'尚未手动检查','updated_at':0}; manual_update_lock=threading.Lock()
 def _mark_processed_file(name):
@@ -1345,9 +1349,15 @@ def screenshot_watcher():
                     if not _is_processed_file(p.name)
                 ]
                 files.sort(key=lambda p: p.stat().st_mtime)
+                retry_pending = False
                 for p in files:
-                    process_screenshot(p)
-                    _mark_processed_file(p.name)
+                    if process_screenshot(p):
+                        _mark_processed_file(p.name)
+                    else:
+                        retry_pending = True
+                # 保留现有扫描频率；下一轮重新枚举未完成文件，避免目录指纹不变时漏掉重试。
+                if retry_pending:
+                    directory_signature = None
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
         except OSError as exc:
             # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
@@ -1363,9 +1373,14 @@ def screenshot_watcher():
                     if not _is_processed_file(p.name)
                 ]
                 files.sort(key=lambda p: p.stat().st_mtime)
+                retry_pending = False
                 for p in files:
-                    process_screenshot(p)
-                    _mark_processed_file(p.name)
+                    if process_screenshot(p):
+                        _mark_processed_file(p.name)
+                    else:
+                        retry_pending = True
+                if retry_pending:
+                    directory_signature = None
                 _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
             except Exception as scan_exc:
                 _log_screenshot_issue("watcher_scan", "扫描截图目录异常", scan_exc)
