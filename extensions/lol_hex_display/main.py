@@ -600,9 +600,9 @@ def _refresh_lobby_member_count(port, token):
 
 
 def get_bar_lobby_member_count():
-    """空闲或阶段未知时隐藏人数；其他有效阶段返回最近一次 LCU 房间人数。"""
+    """明确空闲时隐藏人数；阶段暂时未知时保留最近一次有效人数。"""
     with _lcu_lock:
-        if _gameflow_phase in (None, "None"):
+        if _gameflow_phase == "None":
             return None
         return _lobby_member_count
 
