@@ -1318,7 +1318,7 @@ def _forget_processed_file(name):
 
 
 def screenshot_watcher():
-    """仅在截图目录发生变化时枚举文件；配置在启动时读取，修改后重启生效。"""
+    """目录变化或存在未完成截图时枚举文件；配置在启动时读取，修改后重启生效。"""
     cfg = read_config()
     folder = screenshot_dir(cfg)
     try:
