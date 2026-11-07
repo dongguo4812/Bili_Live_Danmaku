@@ -52,7 +52,6 @@ DEFAULTS = {
 
 def register_bar_routes(
     app, get_lcu_credentials: Callable, base_dir,
-    get_lcu_account_data: Callable[[], dict | None] | None = None,
     client_is_recognized: Callable[[], bool] | None = None,
     lcu_is_available: Callable[[], bool] | None = None,
     get_lobby_member_count: Callable[[], int | None] | None = None,
@@ -408,14 +407,7 @@ def register_bar_routes(
             status["message"] = "正在刷新战绩……"
 
         try:
-            # 当前账号信息由 LCU 识别循环每10秒验证账号接口后缓存；
-            # 战绩刷新直接复用完整响应，不重复请求相同接口。
-            summoner = (
-                get_lcu_account_data()
-                if get_lcu_account_data is not None else None
-            )
-            if not isinstance(summoner, dict):
-                raise RuntimeError("尚未取得有效的当前账号信息缓存")
+            summoner = lcu_get("/lol-summoner/v1/current-summoner")
 
             puuid = str(summoner.get("puuid") or "").strip()
             game_name = str(
