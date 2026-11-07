@@ -1477,10 +1477,16 @@ def process_screenshot(path):
             log.debug('截图已存在于卡片列表，跳过重复添加：%s', path.name)
             return True
 
-        state['cards'].append(card)
-        state['cards'] = state['cards'][-100:]
-        state['updated_at'] = time.time()
-        atomic_json(STATE_PATH, state)
+        # 先构造候选状态并持久化；只有写入成功后才更新内存，
+        # 避免磁盘写入失败时内存已包含卡片，导致 watcher 重试被重复检查短路。
+        new_state = dict(state)
+        new_cards = list(state['cards'])
+        new_cards.append(card)
+        new_state['cards'] = new_cards[-100:]
+        new_state['updated_at'] = time.time()
+        atomic_json(STATE_PATH, new_state)
+        state.clear()
+        state.update(new_state)
 
     log_method = log.error if err.startswith('OCR 初始化或识别失败：') else log.info
     log_method(
