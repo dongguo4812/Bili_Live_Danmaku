@@ -1521,23 +1521,12 @@ def _process_screenshot_locked(path):
     text, err = ocr_text(path)
     item, match_err = match_asset(text)
 
-    # OCR 保留原始名称，展示名称添加质变前缀
-    display_name = f"已质变：{item['name']}" if item else ''
-
     card={'key':f'{path.name}-{time.time_ns()}','filename':path.name,'ocr_text':text,'name':item['name'] if item else '', 'augment_id':item['id'] if item else '', 'reason':err or match_err, 'level': item.get('level', '') if item else '', 'created_at':datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
     with state_lock:
         if generation_at_start != cleanup_generation or not path.exists():
             log.debug('截图处理结果已因对局清理或文件变动而丢弃，保留重试机会：%s', path.name)
             return False
-
-        # 防止程序重启后，将已有截图再次加入卡片列表。
-        if any(
-            str(existing.get('filename', '')) == path.name
-            for existing in state['cards']
-        ):
-            log.debug('截图已存在于卡片列表，跳过重复添加：%s', path.name)
-            return True
 
         # 先构造候选状态并持久化；只有写入成功后才更新内存，
         # 避免磁盘写入失败时内存已包含卡片，导致 watcher 重试被重复检查短路。
