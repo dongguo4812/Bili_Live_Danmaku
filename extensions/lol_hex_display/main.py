@@ -2508,12 +2508,13 @@ def main():
         HTTP_SERVER.serve_forever()
     finally:
         # 无论初始化、热键注册、端口绑定还是服务运行阶段发生异常，都统一回收已启动资源。
+        # 先停止 Hex 自身的后台任务，再通知战绩条线程退出，避免关闭等待期间继续产生新状态。
+        stop_event.set()
         try:
             stop_bar_worker()
         except Exception:
             log.exception('停止战绩条后台线程失败')
 
-        stop_event.set()
         try:
             selector.cancel()
         except Exception:
