@@ -106,9 +106,12 @@ def register_bar_routes(
         for subscriber in subscribers:
             try:
                 if subscriber.full():
-                    subscriber.get_nowait()
+                    try:
+                        subscriber.get_nowait()
+                    except queue.Empty:
+                        pass
                 subscriber.put_nowait(payload)
-            except queue.Empty:
+            except queue.Full:
                 pass
             except Exception:
                 log.debug("[战绩条] 推送组队人数变更失败", exc_info=True)
