@@ -71,9 +71,6 @@ def register_bar_routes(
     data_dir = Path(base_dir) / "data"
     config_path = data_dir / "bar_config.json"
 
-    # 旧版单账号缓存：只用于首次迁移，不再作为日常读写文件。
-    legacy_matches_path = data_dir / "bar_matches.json"
-
     # 新版：每个 puuid 一份独立缓存。
     accounts_dir = data_dir / "bar_accounts"
 
@@ -284,17 +281,12 @@ def register_bar_routes(
         return saved
 
     def load_account_cache(puuid, account, platform):
-        """
-        读取指定账号的缓存。
-
-        首次使用新版目录时，如果旧版 bar_matches.json 的 puuid
-        与当前账号一致，则迁移旧缓存；如果不一致，绝不继承旧账号数据。
-        """
+        """读取指定账号的独立战绩缓存；不存在或账号不匹配时初始化空缓存。"""
         path = account_cache_path(puuid)
         old = read_json(path, None)
 
         if isinstance(old, dict) and str(old.get("puuid") or "") == puuid:
-            return old, path, False
+            return old, path
 
         if path.exists():
             log.warning(
@@ -306,47 +298,6 @@ def register_bar_routes(
                 old.get("puuid") if isinstance(old, dict) else None,
             )
 
-        # 新账号缓存不存在时，尝试从旧版单文件迁移。
-        legacy = read_json(legacy_matches_path, {})
-
-        if (
-            isinstance(legacy, dict)
-            and str(legacy.get("puuid") or "") == puuid
-        ):
-            migrated = dict(legacy)
-            migrated["puuid"] = puuid
-            migrated["account"] = account or migrated.get("account", "")
-            migrated["platform"] = platform or migrated.get("platform", "")
-
-            if not isinstance(migrated.get("matches"), list):
-                migrated["matches"] = []
-
-            # 清除旧版无实际用途的手动批次历史列表。
-            migrated.pop("manual_pins", None)
-
-            migrated["manual_boundary_ms"] = safe_int(
-                migrated.get("manual_boundary_ms")
-            )
-
-            log.info(
-                "[战绩条诊断] 已读取旧版单账号缓存，暂不落盘迁移：旧文件=%s，"
-                "目标文件=%s，保留对局=%s，手动边界=%s",
-                legacy_matches_path,
-                path,
-                len(migrated.get("matches", [])),
-                migrated["manual_boundary_ms"],
-            )
-
-            return migrated, path, True
-
-        # 旧缓存属于其他账号，不能把它的对局或手动边界带给当前账号。
-        if isinstance(legacy, dict) and legacy.get("puuid"):
-            log.info(
-                "[战绩条诊断] 旧版缓存属于其他账号，不迁移："                "旧 puuid=%s，当前 puuid=%s",
-                legacy.get("puuid"),
-                puuid,
-            )
-
         fresh = {
             "puuid": puuid,
             "account": account,
@@ -355,10 +306,10 @@ def register_bar_routes(
             "manual_boundary_ms": 0,
         }
 
-        return fresh, path, False
+        return fresh, path
 
     def load_active_matches():
-        """根据活动账号指针读取对应账号的缓存。"""
+        """根据活动账号指针读取对应账号的独立缓存。"""
         active = get_active_account()
         puuid = str(active.get("puuid") or "")
 
@@ -370,15 +321,6 @@ def register_bar_routes(
 
         if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
             saved = {}
-
-        # 迁移尚未因新增对局而落盘时，快照继续读取属于当前账号的旧缓存。
-        if not saved:
-            legacy = read_json(legacy_matches_path, {})
-            if (
-                isinstance(legacy, dict)
-                and str(legacy.get("puuid") or "") == puuid
-            ):
-                saved = dict(legacy)
 
         return saved, path, active
 
@@ -471,7 +413,7 @@ def register_bar_routes(
             )
 
             with cache_lock:
-                old, matches_path, migrated = load_account_cache(
+                old, matches_path = load_account_cache(
                     puuid, account, platform
                 )
 
@@ -594,7 +536,7 @@ def register_bar_routes(
                         )
                         cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
 
-                    # 新增对局时才落盘；若此前读取的是旧版缓存，此时一并完成迁移。
+                    # 只有新增对局时才写入账号缓存。
                     old.pop("manual_pins", None)
                     old.update({
                         "puuid": puuid,
@@ -625,11 +567,10 @@ def register_bar_routes(
 
             log.info(
                 "[战绩条诊断] 刷新合并完成：账号=%s，缓存文件=%s，"
-                "旧缓存迁移=%s，接口返回=%s，成功解析=%s，"
-                "无法定位账号=%s，缓存总数=%s，新增=%s，手动边界=%s",
+                "接口返回=%s，成功解析=%s，无法定位账号=%s，"
+                "缓存总数=%s，新增=%s，手动边界=%s",
                 account,
                 matches_path,
-                migrated,
                 len(games),
                 parsed_count,
                 unable_to_locate_count,
@@ -754,7 +695,7 @@ def register_bar_routes(
                 if not isinstance(raw_matches, list):
                     raw_matches = []
 
-                # 文件元数据可检测对局缓存、手动边界及旧版迁移缓存的变化。
+                # 文件元数据可检测对局缓存和手动边界的变化。
                 def file_state(path):
                     try:
                         stat = path.stat() if path else None
@@ -765,7 +706,6 @@ def register_bar_routes(
                 cache_key = (
                     str(matches_path or ""),
                     file_state(matches_path),
-                    file_state(legacy_matches_path),
                     str(active.get("puuid") or ""),
                     str(active.get("account") or ""),
                     str(active.get("platform") or ""),
