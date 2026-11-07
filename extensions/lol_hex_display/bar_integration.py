@@ -740,8 +740,6 @@ def register_bar_routes(
 
         # 串行化快照生成：并发请求等待首个请求完成，随后复用其计算结果。
         with snapshot_cache_lock:
-        # 串行化快照生成：并发请求等待首个请求完成，随后复用其计算结果。
-        with snapshot_cache_lock:
             cfg = get_config()
 
             # 与缓存写入串行化，避免读取对局和读取文件元数据之间发生竞态。
