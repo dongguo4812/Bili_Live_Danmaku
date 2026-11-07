@@ -614,7 +614,8 @@ def register_bar_routes(
             return True, message, bool(newly_seen_ids)
 
         except Exception as exc:
-            message = f"战绩刷新失败：{exc}"            log.exception("[战绩条诊断] %s", message)
+            message = f"战绩刷新失败：{exc}"
+            log.exception("[战绩条诊断] %s", message)
 
             with lock:
                 status["message"] = message
