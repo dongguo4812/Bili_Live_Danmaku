@@ -299,11 +299,9 @@ def register_bar_routes(
                 migrated.get("manual_boundary_ms")
             )
 
-            write_json(path, migrated)
-
             log.info(
-                "[战绩条诊断] 已迁移旧版单账号缓存：旧文件=%s，"
-                "新文件=%s，保留对局=%s，手动边界=%s",
+                "[战绩条诊断] 已读取旧版单账号缓存，暂不落盘迁移：旧文件=%s，"
+                "目标文件=%s，保留对局=%s，手动边界=%s",
                 legacy_matches_path,
                 path,
                 len(migrated.get("matches", [])),
@@ -343,6 +341,15 @@ def register_bar_routes(
 
         if not isinstance(saved, dict) or str(saved.get("puuid") or "") != puuid:
             saved = {}
+
+        # 迁移尚未因新增对局而落盘时，快照继续读取属于当前账号的旧缓存。
+        if not saved:
+            legacy = read_json(legacy_matches_path, {})
+            if (
+                isinstance(legacy, dict)
+                and str(legacy.get("puuid") or "") == puuid
+            ):
+                saved = dict(legacy)
 
         return saved, path, active
 
@@ -453,9 +460,7 @@ def register_bar_routes(
                     if isinstance(item, dict) and item.get("gameId")
                 }
 
-                previously_cached_ids = set(indexed.keys())
                 newly_seen_ids = set()
-                updated_match_ids = set()
                 parsed_count = 0
                 unable_to_locate_count = 0
 
@@ -463,7 +468,7 @@ def register_bar_routes(
                     try:
                         game_id = str(game.get("gameId") or "")
 
-                        if not game_id:
+                        if not game_id or game_id in indexed:
                             continue
 
                         participants = game.get("participants") or []
@@ -519,51 +524,59 @@ def register_bar_routes(
                             "deaths": safe_int(stats.get("deaths")),
                             "assists": safe_int(stats.get("assists")),
                         }
-                        previous_record = indexed.get(game_id)
-
-                        if previous_record != match_record:
-                            indexed[game_id] = match_record
-
-                            if game_id in previously_cached_ids:
-                                updated_match_ids.add(game_id)
-
+                        indexed[game_id] = match_record
+                        newly_seen_ids.add(game_id)
                         parsed_count += 1
-
-                        if game_id not in previously_cached_ids:
-                            newly_seen_ids.add(game_id)
 
                     except (TypeError, ValueError, AttributeError):
                         log.exception("[战绩条诊断] 解析单局战绩失败")
 
-                # 本地对局缓存最多保留最近 100 局；每个账号独立计算。
-                cached_matches = sorted(
-                    indexed.values(),
-                    key=lambda item: (
-                        safe_int(item.get("startMs")),
-                        str(item.get("gameId") or ""),
-                    ),
-                    reverse=True,
-                )
-                evicted_count = max(0, len(cached_matches) - CACHE_MATCH_LIMIT)
+                evicted_count = 0
 
-                if evicted_count:
-                    evicted_matches = cached_matches[CACHE_MATCH_LIMIT:]
-                    log.info(
-                        "[战绩条诊断] 账号缓存达到上限：保留最近 %s 局，"
-                        "清理最旧的 %s 局；最旧清理对局 gameId=%s",
-                        CACHE_MATCH_LIMIT,
-                        evicted_count,
-                        [str(item.get("gameId") or "") for item in evicted_matches[:5]],
+                if newly_seen_ids:
+                    # 只有新增对局时才重新排序，并将每个账号的缓存限制为最近 100 局。
+                    cached_matches = sorted(
+                        indexed.values(),
+                        key=lambda item: (
+                            safe_int(item.get("startMs")),
+                            str(item.get("gameId") or ""),
+                        ),
+                        reverse=True,
                     )
-                    cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
+                    evicted_count = max(
+                        0, len(cached_matches) - CACHE_MATCH_LIMIT
+                    )
 
-                # 只有对局数据实际新增或变化（包括缓存上限清理）时，
-                # 才重写账号缓存并更新时间；普通轮询不触碰战绩文件。
-                match_data_changed = bool(
-                    newly_seen_ids or updated_match_ids or evicted_count
-                )
+                    if evicted_count:
+                        evicted_matches = cached_matches[CACHE_MATCH_LIMIT:]
+                        log.info(
+                            "[战绩条诊断] 账号缓存达到上限：保留最近 %s 局，"
+                            "清理最旧的 %s 局；最旧清理对局 gameId=%s",
+                            CACHE_MATCH_LIMIT,
+                            evicted_count,
+                            [
+                                str(item.get("gameId") or "")
+                                for item in evicted_matches[:5]
+                            ],
+                        )
+                        cached_matches = cached_matches[:CACHE_MATCH_LIMIT]
 
-                if match_data_changed:
+                    # 新增对局时才落盘；若此前读取的是旧版缓存，此时一并完成迁移。
+                    old.pop("manual_pins", None)
+                    old.update({
+                        "puuid": puuid,
+                        "account": account,
+                        "platform": platform,
+                        "matches": cached_matches,
+                        "manual_boundary_ms": safe_int(
+                            old.get("manual_boundary_ms")
+                        ),
+                        "fetched_at": time.time(),
+                    })
+                    write_json(matches_path, old)
+                else:
+                    # 无新增时只用于状态反馈，不排序、不截断、不改写对局缓存。
+                    cached_matches = list(indexed.values())
                     # 保留手动批次边界，并清除旧缓存中的无用字段。
                     old.pop("manual_pins", None)
                     old.update({
