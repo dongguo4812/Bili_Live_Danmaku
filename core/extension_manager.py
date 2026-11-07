@@ -182,7 +182,7 @@ class LolHexExtensionManager:
             kernel32.CloseHandle.restype = ctypes.c_bool
             handle = kernel32.OpenProcess(0x00101000, False, pid)
             if not handle:
-                return "exited" if ctypes.get_last_error() in (87, 1168) else "unknown"
+                return "exited" if kernel32.GetLastError() in (87, 1168) else "unknown"
             try:
                 result = kernel32.WaitForSingleObject(handle, 0)
                 if result == 0x00000000:
