@@ -550,12 +550,35 @@ _lcu_scan_interval_unrecognized = 5
 _lcu_scan_interval_recognized = 10
 _gameflow_phase = None
 _lobby_member_count = None
+_notify_bar_lobby_member_count_changed = lambda count: None
+
+
+def _set_lobby_member_count(count):
+    """更新组队人数缓存；仅在有效显示值变化时通知战绩条页面。"""
+    global _lobby_member_count
+    with _lcu_lock:
+        previous = _lobby_member_count
+        if previous == count:
+            return
+        _lobby_member_count = count
+
+    try:
+        _notify_bar_lobby_member_count_changed(count)
+    except Exception:
+        log.exception("[组队人数] 通知战绩条更新失败")
 
 
 def _refresh_lobby_member_count(port, token):
-    """复用 LCU 识别线程的10秒周期读取组队房间成员数；不创建额外轮询。"""
-    global _lobby_member_count
-    count = None
+    """复用 LCU 识别线程读取人数；空闲时清除，临时读取失败时保留旧值。"""
+    with _lcu_lock:
+        phase = _gameflow_phase
+
+    # 只有明确返回 None 字符串的空闲阶段才清除人数；
+    # phase=None 表示阶段尚未知或读取失败，不能据此清空。
+    if phase == "None":
+        _set_lobby_member_count(None)
+        return
+
     try:
         response = requests.get(
             f"https://127.0.0.1:{int(port)}/lol-lobby/v2/lobby",
@@ -564,17 +587,16 @@ def _refresh_lobby_member_count(port, token):
             timeout=3,
             headers={"Accept": "application/json"},
         )
-        if response.status_code == 200:
-            payload = response.json()
-            members = payload.get("members") if isinstance(payload, dict) else None
-            if isinstance(members, list) and members:
-                count = len(members)
-    except Exception as exc:
-        log.debug("[组队人数] 读取 LCU 房间成员失败：%s", exc)
+        if response.status_code != 200:
+            log.debug("[组队人数] LCU 房间接口暂不可用：HTTP %s", response.status_code)
+            return
 
-    # 读取不到房间或成员时清空旧值，避免离开房间后继续显示上次人数。
-    with _lcu_lock:
-        _lobby_member_count = count
+        payload = response.json()
+        members = payload.get("members") if isinstance(payload, dict) else None
+        if isinstance(members, list) and members:
+            _set_lobby_member_count(len(members))
+    except Exception as exc:
+        log.debug("[组队人数] 读取 LCU 房间成员失败，保留上次有效人数：%s", exc)
 
 
 def get_bar_lobby_member_count():
@@ -954,9 +976,9 @@ def lcu_recognition_worker():
             _refresh_lobby_member_count(*credentials)
         else:
             with _lcu_lock:
-                _lobby_member_count = None
-                # 客户端断开后不沿用上次阶段，避免继续显示过期人数。
                 _gameflow_phase = None
+            # 客户端确认断开时清除旧人数；普通 LCU 请求失败不会走到这里。
+            _set_lobby_member_count(None)
 
         current_status = (bool(valid), source if valid else "", account)
         if current_status != last_logged_status:
@@ -1702,7 +1724,12 @@ def request_server_shutdown():
         threading.Thread(target=server.shutdown, daemon=True, name='HexHttpShutdown').start()
 
 atexit.register(remove_pid_file)
-notify_bar_game_ended, start_bar_worker, stop_bar_worker = register_bar_routes(
+(
+    notify_bar_game_ended,
+    start_bar_worker,
+    stop_bar_worker,
+    _notify_bar_lobby_member_count_changed,
+) = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
     lcu_is_available=lcu_is_available,
