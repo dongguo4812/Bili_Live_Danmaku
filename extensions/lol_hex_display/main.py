@@ -983,6 +983,13 @@ def lcu_recognition_worker():
             _set_lobby_member_count(None)
 
         current_status = (bool(valid), source if valid else "", account)
+        if valid and (last_logged_status is None or not last_logged_status[0]):
+            try:
+                notify_bar_lcu_recognized()
+                log.info("[战绩条] LCU 首次识别成功，已唤醒战绩刷新线程")
+            except Exception:
+                log.exception("[战绩条] LCU 识别成功后唤醒战绩刷新线程失败")
+
         if current_status != last_logged_status:
             if valid:
                 log.info(
@@ -1731,6 +1738,7 @@ atexit.register(remove_pid_file)
     start_bar_worker,
     stop_bar_worker,
     _notify_bar_lobby_member_count_changed,
+    notify_bar_lcu_recognized,
 ) = register_bar_routes(
     app, get_lcu_credentials, BASE_DIR,
     client_is_recognized=lambda: client_status()["recognized"],
