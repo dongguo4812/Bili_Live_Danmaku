@@ -2,7 +2,6 @@
 """LOL Hex 启动入口。"""
 from __future__ import annotations
 
-import sys
 
 
 def main() -> int:
