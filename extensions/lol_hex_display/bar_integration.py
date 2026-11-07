@@ -104,9 +104,27 @@ def register_bar_routes(
             worker.start()
 
     def stop_worker():
-        """通知自动刷新线程退出，并唤醒可能正在等待的线程。"""
+        """通知自动刷新线程退出，并在有限时间内等待其完成收尾。"""
         stop_event.set()
         game_end_event.set()
+
+        current_worker = worker
+        if (
+            current_worker is None
+            or current_worker is threading.current_thread()
+            or not current_worker.is_alive()
+        ):
+            return
+
+        # LCU 请求本身有超时；这里再设置有限等待，避免关闭流程无限阻塞。
+        current_worker.join(timeout=15)
+
+        if current_worker.is_alive():
+            log.warning(
+                "[战绩条] 后台自动刷新线程在 %s 秒内未能退出，"
+                "主程序将继续关闭；线程结束后不会再启动新的刷新任务",
+                15,
+            )
 
     def notify_game_ended():
         """由主程序的唯一 gameflow 监控线程通知：已检测到离开对局。"""
@@ -297,8 +315,7 @@ def register_bar_routes(
         # 旧缓存属于其他账号，不能把它的对局或手动边界带给当前账号。
         if isinstance(legacy, dict) and legacy.get("puuid"):
             log.info(
-                "[战绩条诊断] 旧版缓存属于其他账号，不迁移："
-                "旧 puuid=%s，当前 puuid=%s",
+                "[战绩条诊断] 旧版缓存属于其他账号，不迁移："                "旧 puuid=%s，当前 puuid=%s",
                 legacy.get("puuid"),
                 puuid,
             )
@@ -597,8 +614,7 @@ def register_bar_routes(
             return True, message, bool(newly_seen_ids)
 
         except Exception as exc:
-            message = f"战绩刷新失败：{exc}"
-            log.exception("[战绩条诊断] %s", message)
+            message = f"战绩刷新失败：{exc}"            log.exception("[战绩条诊断] %s", message)
 
             with lock:
                 status["message"] = message
@@ -897,8 +913,7 @@ def register_bar_routes(
             if boundary > 0:
                 log.info(
                     "[战绩条诊断] 边界筛选完成：筛选前=%s，"
-                    "边界后保留=%s，边界前过滤=%s",
-                    before_boundary_count,
+                    "边界后保留=%s，边界前过滤=%s",                    before_boundary_count,
                     after_boundary_count,
                     boundary_filtered_count,
                 )
