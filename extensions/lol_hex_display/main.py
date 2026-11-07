@@ -22,6 +22,8 @@ _config_args, _ = _config_parser.parse_known_args()
 CONFIG_PATH = (_config_args.config.resolve() if _config_args.config else ROOT / "config.json")
 ASSET_CACHE = DATA / 'hex_assets.json'; STATE_PATH = DATA / 'state.json'; ICON_SOURCE_PATH = DATA / 'hex_icon_sources.json'
 AUGMENTS_URL = 'https://game.gtimg.cn/images/lol/act/img/js/kiwi/kiwi_augments.json'
+CDRAGON_AUGMENTS_URL = ('https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/'
+                         'global/zh_cn/v1/cherry-augments.json')
 # 日志配置与主项目 config/default/local/logging.json 保持一致。
 def _load_logging_settings():
     settings = {"retention_days": 7, "debug": False}
@@ -334,6 +336,7 @@ def atomic_json(path, obj):
     tmp=path.with_suffix(path.suffix+'.tmp'); tmp.write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding='utf-8'); tmp.replace(path)
 
 def normalize_assets(payload):
+    """解析腾讯主数据；腾讯记录始终拥有相同 ID 的优先权。"""
     rows=payload.get('data') if isinstance(payload,dict) else payload
     if isinstance(payload,dict) and not isinstance(rows,list): rows=payload.get('list')
     if not isinstance(rows,list): raise ValueError('腾讯数据中没有 data/list 数组')
@@ -346,9 +349,46 @@ def normalize_assets(payload):
         icon=str(r.get('small_Icon') or r.get('icon') or '').strip()
         if icon.startswith('//'): icon='https:'+icon
         if icon and not icon.startswith(('http://','https://')): icon=''
-        out[aid]={'id':aid,'name':name,'icon_url':icon,'level':str(r.get('level') or '')}
-    if not out: raise ValueError('远端数据没有有效海克斯记录')
+        out[aid]={'id':aid,'name':name,'icon_url':icon,'level':str(r.get('level') or ''),'source':'tencent'}
+    if not out: raise ValueError('腾讯数据中没有有效海克斯记录')
     return out
+
+
+def normalize_cdragon_assets(payload):
+    """解析 CommunityDragon 大乱斗海克斯；保留历史条目，不按当前启用状态过滤。"""
+    if not isinstance(payload,list):
+        raise ValueError('CommunityDragon 数据不是数组')
+    out={}
+    for row in payload:
+        if not isinstance(row,dict): continue
+        aid=str(row.get('id') or '').strip()
+        name=str(row.get('nameTRA') or '').strip()
+        name_id=str(row.get('augmentNameId') or '').strip()
+        icon_path=str(row.get('augmentSmallIconPath') or '')
+        is_aram=name_id.startswith('ARAM_') or 'kiwi' in icon_path.lower()
+        if not aid or not name or not is_aram: continue
+        rarity=str(row.get('rarity') or '').strip()
+        if rarity not in ('kSilver','kGold','kPrismatic'): rarity=''
+        out[aid]={
+            'id':aid,
+            'name':name,
+            'icon_url':'',
+            'level':rarity,
+            'source':'cdragon',
+        }
+    if not out: raise ValueError('CommunityDragon 数据中没有有效的大乱斗海克斯记录')
+    return out
+
+
+def merge_cdragon_assets(tencent_assets,payload):
+    """只补齐腾讯缺失的 ID；已有腾讯记录不被覆盖。"""
+    supplements=normalize_cdragon_assets(payload)
+    added=0
+    for aid,item in supplements.items():
+        if aid not in tencent_assets:
+            tencent_assets[aid]=item
+            added+=1
+    return added
 
 assets_lock=threading.RLock(); assets=read_json(ASSET_CACHE,{})
 if not isinstance(assets,dict): assets={}
@@ -369,6 +409,19 @@ def _update_assets_impl(force=False):
     try:
         r=requests.get(AUGMENTS_URL,timeout=20,headers={'User-Agent':'Mozilla/5.0'}); r.raise_for_status()
         new=normalize_assets(r.json())
+        tencent_count=len(new)
+        cdragon_added=0
+        try:
+            cr=requests.get(CDRAGON_AUGMENTS_URL,timeout=30,headers={'User-Agent':'Mozilla/5.0'})
+            cr.raise_for_status()
+            cdragon_added=merge_cdragon_assets(new,cr.json())
+        except Exception as cdragon_error:
+            # CommunityDragon 是补充源；其不可用不应阻止腾讯主数据正常更新。
+            log.warning('CommunityDragon 海克斯补充失败，仅使用腾讯数据：%s',cdragon_error)
+        log.info(
+            '海克斯数据源合并：腾讯 %d 条，CommunityDragon 补充 %d 条，索引共 %d 条',
+            tencent_count,cdragon_added,len(new)
+        )
         digest=lambda x: hashlib.sha256(json.dumps(x,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
         # assets 只会整体替换，不会原地修改；在锁内取得当前字典引用后，
         # 可在锁外完成序列化和摘要计算，避免阻塞截图匹配读取。
@@ -1591,7 +1644,7 @@ def api_update_assets():
         if update_status['running']:
             _asset_update_mutex.release()
             return jsonify({'ok':True,'running':True,'message':'更新任务已在执行，请稍候'}),202
-        update_status.update({'running':True,'message':'正在请求并检查腾讯海克斯数据接口…','updated_at':time.time()})
+        update_status.update({'running':True,'message':'正在请求腾讯与 CommunityDragon 海克斯数据源…','updated_at':time.time()})
     def worker():
         try:
             ok=_update_assets_impl(False)
