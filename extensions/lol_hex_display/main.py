@@ -93,11 +93,20 @@ def initialize_runtime_resources():
     if not isinstance(assets, dict):
         assets = {}
     state = read_json(STATE_PATH, {'cards': [], 'updated_at': 0})
+    state_changed = False
     if not isinstance(state, dict) or not isinstance(state.get('cards'), list):
         state = {'cards': [], 'updated_at': 0}
+        state_changed = True
+    else:
+        valid_cards = [card for card in state['cards'] if isinstance(card, dict)]
+        if len(valid_cards) != len(state['cards']):
+            state['cards'] = valid_cards
+            state_changed = True
     if state.get('display_order_version') != 2:
         state['cards'].reverse()
         state['display_order_version'] = 2
+        state_changed = True
+    if state_changed:
         state['updated_at'] = time.time()
         atomic_json(STATE_PATH, state)
     icon_sources = read_json(ICON_SOURCE_PATH, {})
