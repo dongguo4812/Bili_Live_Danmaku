@@ -459,14 +459,15 @@ def _update_assets_impl(force=False):
             log.info('海克斯索引更新：%d 条', len(new))
         else:
             log.debug('海克斯索引无变化：%d 条', len(new))
-        icon_sources=read_json(ICON_SOURCE_PATH,{})
+        # 先使用局部副本；持久化成功后再更新全局来源记录。
+        new_icon_sources=read_json(ICON_SOURCE_PATH,{})
         icon_sources_changed = False
         for aid,item in new.items():
             url=item.get('icon_url',''); dest=ICON_DIR/f'{aid}.png'
             if not url: continue
             # 本地文件存在且来源 URL 未变化时直接复用，避免每轮更新重复读取并校验全部 PNG。
             # 若图标损坏，可删除对应文件（或清空本地图标目录）后手动更新，缺失文件会自动重新下载。
-            if dest.exists() and icon_sources.get(aid)==url:
+            if dest.exists() and new_icon_sources.get(aid)==url:
                 continue
             # 图片请求采用 10 秒超时；仅对临时网络错误有限重试，避免单张图片长期阻塞更新。
             for attempt in range(3):
@@ -475,7 +476,7 @@ def _update_assets_impl(force=False):
                     ir.raise_for_status()
                     with Image.open(io.BytesIO(ir.content)) as im:
                         im.convert('RGBA').save(dest,format='PNG')
-                    icon_sources[aid]=url
+                    new_icon_sources[aid]=url
                     icon_sources_changed = True
                     break
                 except (
@@ -497,7 +498,8 @@ def _update_assets_impl(force=False):
                     log.warning('图标下载失败 id=%s：%s',aid,e)
                     break
         if icon_sources_changed:
-            atomic_json(ICON_SOURCE_PATH,icon_sources)
+            atomic_json(ICON_SOURCE_PATH,new_icon_sources)
+        icon_sources = new_icon_sources
         return True
     except Exception as e:
         log.warning('海克斯索引更新失败，保留本地缓存：%s',e); return False
