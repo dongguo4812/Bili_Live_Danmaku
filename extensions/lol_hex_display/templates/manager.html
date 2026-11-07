@@ -137,6 +137,11 @@
         <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">
       </label>
 
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        <input id="barShowLobbyMemberCount" type="checkbox" checked>
+        显示组队人数
+      </label>
+
       <button type="button" onclick="saveBarConfig()">保存配置</button>
       <button type="button" onclick="barAction('refresh')">刷新战绩</button>
       <button type="button" onclick="barAction('new_batch')">开启新批次</button>
@@ -431,6 +436,9 @@ async function loadBarConfig() {
 
     document.getElementById('barGapMin').value =
       config.batch_gap_min ?? 100000;
+
+    document.getElementById('barShowLobbyMemberCount').checked =
+      config.show_lobby_member_count !== false;
   } catch (error) {
     status.textContent = '配置读取失败：' + error.message;
     status.style.color = '#e08b8b';
@@ -684,7 +692,8 @@ async function saveBarConfig() {
   const body = {
     max_games: Number(document.getElementById('barMaxGames').value || 5),
     mode_filter: Number(document.getElementById('barModeFilter').value || 1),
-    batch_gap_min: Number(document.getElementById('barGapMin').value || 100000)
+    batch_gap_min: Number(document.getElementById('barGapMin').value || 100000),
+    show_lobby_member_count: document.getElementById('barShowLobbyMemberCount').checked
   };
 
   const status = document.getElementById('barAdminStatus');
