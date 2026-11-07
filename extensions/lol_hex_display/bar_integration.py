@@ -84,6 +84,10 @@ def register_bar_routes(
     # 串行化账号缓存的读取-修改-写入，避免自动刷新覆盖手动批次边界。
     cache_lock = threading.RLock()
     status = {"busy": False, "message": ""}
+    # snapshot 的静态战绩统计缓存；文件或相关配置变化时才重新计算。
+    snapshot_cache_key = None
+    snapshot_cache_result = None
+    snapshot_cache_lock = threading.RLock()
     stop_event = threading.Event()
     game_end_event = threading.Event()
 
@@ -732,7 +736,7 @@ def register_bar_routes(
 
     def snapshot():
         """根据最近成功识别的账号生成战绩条快照。"""
-        nonlocal last_snapshot_diag_signature
+        nonlocal last_snapshot_diag_signature, snapshot_cache_key, snapshot_cache_result
 
         cfg = get_config()
         saved, matches_path, active = load_active_matches()
@@ -741,6 +745,39 @@ def register_bar_routes(
 
         if not isinstance(raw_matches, list):
             raw_matches = []
+
+        # 文件元数据可检测对局缓存、手动边界及旧版迁移缓存的变化。
+        def file_state(path):
+            try:
+                stat = path.stat() if path else None
+                return (stat.st_mtime_ns, stat.st_size) if stat else None
+            except OSError:
+                return None
+
+        cache_key = (
+            str(matches_path or ""),
+            file_state(matches_path),
+            file_state(legacy_matches_path),
+            str(active.get("puuid") or ""),
+            str(active.get("account") or ""),
+            str(active.get("platform") or ""),
+            tuple(sorted((str(k), repr(v)) for k, v in cfg.items())),
+        )
+
+        with snapshot_cache_lock:
+            if cache_key == snapshot_cache_key and snapshot_cache_result is not None:
+                result = dict(snapshot_cache_result)
+                with lock:
+                    result["status"] = status["message"]
+                    result["busy"] = status["busy"]
+                result["lobby_member_count"] = (
+                    get_lobby_member_count()
+                    if (
+                        cfg["show_lobby_member_count"]
+                        and callable(get_lobby_member_count)
+                    ) else None
+                )
+                return result
 
         matches = [
             item for item in raw_matches
@@ -1032,7 +1069,7 @@ def register_bar_routes(
                     remake_count,
                 )
 
-        return {
+        result = {
             "games": result_games if has_games else [],
             "account": account if has_games else "",
             "region": region if has_games else "",
@@ -1053,6 +1090,13 @@ def register_bar_routes(
                 if isinstance(saved, dict) else 0
             ),
         }
+
+        # 只缓存静态统计结果；运行状态和组队人数在每次请求时实时更新。
+        with snapshot_cache_lock:
+            snapshot_cache_key = cache_key
+            snapshot_cache_result = dict(result)
+
+        return result
 
     @bp.get("/bar")
     def bar_page():
