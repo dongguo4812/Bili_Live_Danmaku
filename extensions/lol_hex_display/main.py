@@ -1177,13 +1177,21 @@ def gameflow_worker():
     last_monitor_state = None
     was_gaming = False
     cleanup_completed = False
+    last_identity = None
 
     while not stop_event.is_set():
         try:
             phase, phase_credentials = get_gameflow_phase()
 
-            if phase is None:
-                # 读取失败或凭据已切换时，不改变阶段、监控状态或清理标记。
+            if phase_credentials is None:
+                # LCU 已断开；清除线程本地状态，避免重连后继承上一会话。
+                last_identity = None
+                last_phase = None
+                last_monitor_state = None
+                was_gaming = False
+                cleanup_completed = False
+            elif phase is None:
+                # 请求失败或请求期间凭据切换；保留状态等待下一次有效响应。
                 pass
             else:
                 with _lcu_lock:
@@ -1191,6 +1199,17 @@ def gameflow_worker():
                     if _lcu_credentials != phase_credentials:
                         phase = None
                     else:
+                        identity = (
+                            phase_credentials,
+                            _lcu_status.get("account", ""),
+                        )
+                        if identity != last_identity:
+                            # 新凭据或新账号会话不能继承上一会话的阶段与清理标记。
+                            last_phase = None
+                            last_monitor_state = None
+                            was_gaming = False
+                            cleanup_completed = False
+                            last_identity = identity
                         _gameflow_phase = phase
 
             if phase is not None:
