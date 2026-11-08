@@ -169,7 +169,6 @@ class QRLogin:
         self._poll_lock = threading.Lock()
         self._active_poll_session: requests.Session | None = None
         self._sessions: set[requests.Session] = set()
-        self._closed_sessions: set[requests.Session] = set()
         self._shutting_down = False
 
     def start(self) -> dict[str, Any]:
@@ -187,7 +186,7 @@ class QRLogin:
             self.expires_at = 0.0
             close_old_session = old_session is not None and old_session is not self._active_poll_session
         if close_old_session:
-            _close_http_session(old_session)
+            self._close_session(old_session)
         try:
             session = requests.Session()
             with self.lock:
@@ -363,9 +362,8 @@ class QRLogin:
     def _close_session(self, session: requests.Session) -> None:
         """关闭并登记 HTTP Session，避免退出与轮询清理重复关闭。"""
         with self.lock:
-            if session in self._closed_sessions:
+            if session not in self._sessions:
                 return
-            self._closed_sessions.add(session)
             self._sessions.discard(session)
             if self.session is session:
                 self.session = None
