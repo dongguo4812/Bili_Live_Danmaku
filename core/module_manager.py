@@ -185,11 +185,25 @@ class ModuleManager:
                 raise
 
     def begin_shutdown(self) -> None:
-        """同步封锁新的连接状态回调，避免退出过程中再次暂停业务模块。"""
+        """同步封锁新生命周期操作，并通知模块立即停止产生新资源。"""
         with self._lock:
+            if self._shutting_down:
+                return
             self._shutting_down = True
             self._connection_active = False
             self._disconnect_snapshot = None
+            records = tuple(self._modules.values())
+
+        # 模块可提供同步 begin_shutdown 钩子，先封锁本模块新任务；
+        # 耗时资源回收仍由后续异步 shutdown() 负责。
+        for record in records:
+            callback = getattr(record.instance, "begin_shutdown", None)
+            if not callable(callback):
+                continue
+            try:
+                callback()
+            except Exception:
+                logger.exception("通知模块进入关闭态失败：%s", record.name)
 
     async def on_connection_lost(self) -> None:
         with self._lock:
