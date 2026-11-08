@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -105,6 +107,37 @@ class QRLoginConcurrencyTests(unittest.TestCase):
 
         self.assertEqual(session.close_calls, 1)
         self.assertEqual(login.status()["state"], "error")
+
+    def test_cookie_validation_closes_temporary_http_session(self):
+        class FakeCookies:
+            def set(self, *_args, **_kwargs):
+                return None
+
+            def get_dict(self):
+                return {}
+
+        class FakeValidationSession:
+            def __init__(self):
+                self.headers = {}
+                self.cookies = FakeCookies()
+                self.close_calls = 0
+
+            def get(self, *_args, **_kwargs):
+                return FakeResponse({"code": -101, "data": {"isLogin": False}})
+
+            def close(self):
+                self.close_calls += 1
+
+        session = FakeValidationSession()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bilibili.json"
+            path.write_text(json.dumps({"cookies": {"sessdata": "test"}}), encoding="utf-8")
+            with patch("bilibili_client.requests.Session", return_value=session):
+                from bilibili_client import validate_cookie_file
+                result = validate_cookie_file(path)
+
+        self.assertFalse(result[0])
+        self.assertEqual(session.close_calls, 1)
 
     def test_old_poll_cannot_overwrite_new_qr_state(self):
         old_session = BlockingPollSession(FakeResponse({"data": {"code": 86090}}))
