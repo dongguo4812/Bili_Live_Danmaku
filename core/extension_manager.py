@@ -713,6 +713,10 @@ class LolHexExtensionManager:
                         remaining = max(0.0, deadline - time.monotonic())
                         if remaining > 0:
                             process.kill()
+                            try:
+                                process.wait(timeout=max(0.0, deadline - time.monotonic()))
+                            except subprocess.TimeoutExpired:
+                                pass
                     forced_exit = process.poll() is not None
                 except Exception:
                     self.logger.exception("强制结束本程序直接托管的 LOL Hex 子进程失败。")
