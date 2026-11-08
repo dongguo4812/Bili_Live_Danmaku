@@ -87,6 +87,23 @@ class CombinedEmbeddedModuleDisplayTests(unittest.TestCase):
 
 
 class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
+
+    def test_tts_playback_state_posts_are_single_flight_and_coalesce_updates(self):
+        script = (Path(__file__).resolve().parents[1] / "static/js/display.js").read_text(encoding="utf-8")
+        start = script.index("function flushSpeechStatePost()")
+        end = script.index("function publishSpeechState(level)", start)
+        flush = script[start:end]
+        self.assertIn("speechStatePostInFlight", flush)
+        self.assertIn("pendingSpeechStatePost", flush)
+        self.assertIn("if (pendingSpeechStatePost) flushSpeechStatePost()", flush)
+
+        publish_start = end
+        publish_end = script.index("function speechTextFor(item)", publish_start)
+        publish = script[publish_start:publish_end]
+        self.assertIn("pendingSpeechStatePost = state;", publish)
+        self.assertIn("flushSpeechStatePost();", publish)
+        self.assertNotIn('fetch("/api/voice/tts/state"', publish)
+
     def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
         start = script.index("async function pollTtsTestQueue()")
