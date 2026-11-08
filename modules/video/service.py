@@ -679,7 +679,7 @@ def _browser_process_alive_sync(browser) -> bool:
     return False
 
 
-def _force_terminate_browser_sync(browser) -> bool:
+def _force_terminate_browser_sync(browser):
     """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
     if browser is None or os.name != "nt":
         return False
