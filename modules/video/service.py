@@ -2202,7 +2202,9 @@ class VideoModuleFacade:
                     "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
                     roots, remaining,
                 )
-                await run_blocking(_force_terminate_browser_sync, old_driver)
+                await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                if old_service is not None:
+                    await run_blocking(_force_terminate_service_sync, old_service)
                 roots, remaining = await run_blocking(_terminate_chrome_profile_processes_sync)
             if remaining:
                 logger.error("Chrome 专用 Profile 仍有残留进程，PID=%s。", remaining)
