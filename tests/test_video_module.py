@@ -435,6 +435,9 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         import asyncio
 
         video_service.module_enabled = True
+        # close() intentionally retains cooldown history; isolate this test from
+        # any prior request state so the restarted request is eligible.
+        video_service.last_order_time.pop(1001, None)
         old_entered = asyncio.Event()
         old_release = asyncio.Event()
         new_entered = asyncio.Event()
@@ -459,7 +462,11 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(video_service, "ensure_video_info", side_effect=delayed_info), \
              patch.object(video_service, "configure_video_module"), \
              patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)), \
-             patch.object(video_service, "run_blocking", new=AsyncMock(return_value=object())), \
+             patch.object(
+                 video_service,
+                 "run_blocking",
+                 new=AsyncMock(side_effect=lambda func, *args, **kwargs: ([], []) if func is video_service._terminate_chrome_profile_processes_sync else object()),
+             ), \
              patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \
              patch.object(video_service, "_quit_browser_sync", return_value=None):
             old_task = asyncio.create_task(video_service.on_dan_mu(event))
