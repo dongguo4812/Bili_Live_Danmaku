@@ -271,11 +271,16 @@ class ModuleManager:
                     record.error = "应用退出清理总时间预算已耗尽。"
                 continue
 
+            lock_wait_timeout = min(max(0.1, float(per_module_timeout)), remaining)
             acquire_task = asyncio.create_task(record.operation_lock.acquire())
-            acquired, _ = await asyncio.wait({acquire_task}, timeout=remaining)
+            acquired, _ = await asyncio.wait({acquire_task}, timeout=lock_wait_timeout)
             if not acquired:
                 acquire_task.cancel()
-                logger.error("等待模块当前操作结束超时，跳过其生命周期锁并继续其他模块：%s", record.name)
+                logger.error(
+                    "等待模块当前操作结束超过 %.1f 秒，跳过该模块并继续其他模块：%s",
+                    lock_wait_timeout,
+                    record.name,
+                )
                 with self._lock:
                     record.state = "error"
                     record.error = "等待模块现有操作结束超时。"
