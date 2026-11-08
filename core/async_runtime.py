@@ -9,6 +9,8 @@ import threading
 from collections.abc import Coroutine
 from typing import Any
 
+from core.blocking import DaemonExecutor, install_blocking_executor, reset_blocking_executor
+
 logger = logging.getLogger("bili_live_danmaku.runtime")
 
 
@@ -20,6 +22,7 @@ class AsyncRuntime:
         self._ready = threading.Event()
         self._stopped = threading.Event()
         self._lock = threading.RLock()
+        self._blocking_executor: DaemonExecutor | None = None
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop | None:
@@ -31,6 +34,7 @@ class AsyncRuntime:
                 return
             self._ready.clear()
             self._stopped.clear()
+            self._blocking_executor = DaemonExecutor(max_workers=4, max_pending=32)
             self._thread = threading.Thread(target=self._thread_main, name=self.name, daemon=True)
             self._thread.start()
         if not self._ready.wait(timeout):
@@ -42,6 +46,10 @@ class AsyncRuntime:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
+        executor = self._blocking_executor
+        if executor is None:
+            raise RuntimeError("阻塞任务执行器尚未初始化。")
+        install_blocking_executor(loop, executor)
         self._ready.set()
         try:
             loop.run_forever()
@@ -50,13 +58,43 @@ class AsyncRuntime:
             for task in pending:
                 task.cancel()
             if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            # 等待 asyncio.to_thread 使用的默认线程池退出，避免关闭后残留工作线程。
-            loop.run_until_complete(loop.shutdown_default_executor())
-            loop.close()
-            self._loop = None
-            self._stopped.set()
+                # 最终兜底取消也必须有上限；阻塞同步函数由 daemon worker 承载，
+                # 不允许默认线程池 shutdown 无限等待。
+                try:
+                    _, unfinished = loop.run_until_complete(
+                        asyncio.wait(pending, timeout=2.0)
+                    )
+                    if unfinished:
+                        logger.warning(
+                            "异步运行时关闭时仍有 %s 个任务未完成：%s",
+                            len(unfinished),
+                            [task.get_name() for task in unfinished],
+                        )
+                except Exception:
+                    logger.exception("等待异步任务取消时发生异常。")
+            try:
+                asyncgen_shutdown = loop.create_task(loop.shutdown_asyncgens())
+                _, unfinished_generators = loop.run_until_complete(
+                    asyncio.wait({asyncgen_shutdown}, timeout=1.0)
+                )
+                if unfinished_generators:
+                    asyncgen_shutdown.cancel()
+                    logger.warning("异步生成器清理超过 1 秒，已请求取消。")
+                elif asyncgen_shutdown.done():
+                    try:
+                        asyncgen_shutdown.result()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning("异步生成器清理任务失败。", exc_info=True)
+            except Exception:
+                logger.warning("异步生成器清理失败。", exc_info=True)
+            finally:
+                executor.shutdown(wait=True, cancel_futures=True, timeout=1.0)
+                reset_blocking_executor(loop)
+                loop.close()
+                self._loop = None
+                self._stopped.set()
 
     def submit(self, coroutine: Coroutine[Any, Any, Any]) -> concurrent.futures.Future[Any]:
         loop = self._loop
@@ -75,11 +113,11 @@ class AsyncRuntime:
         with self._lock:
             loop = self._loop
             thread = self._thread
-            if loop is None or thread is None:
+            if thread is None:
                 return
-            if not loop.is_closed():
+            if loop is not None and not loop.is_closed():
                 loop.call_soon_threadsafe(loop.stop)
         if thread.is_alive():
-            thread.join(timeout)
+            thread.join(max(0.0, timeout))
         if thread.is_alive():
             logger.warning("统一异步运行时未能在 %.1f 秒内退出。", timeout)

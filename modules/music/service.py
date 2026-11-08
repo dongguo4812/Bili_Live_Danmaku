@@ -23,6 +23,7 @@ import requests
 
 from core.config_manager import ConfigManager
 from core.paths import get_base_dir
+from core.blocking import run_blocking
 
 log = logging.getLogger("bili_live_danmaku.music")
 BASE_DIR = get_base_dir()
@@ -229,7 +230,7 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
 
 
 async def check_fan_medal(uid: int) -> tuple[bool, str]:
-    return await asyncio.to_thread(check_fan_medal_sync, uid)
+    return await run_blocking(check_fan_medal_sync, uid)
 
 def normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
@@ -1089,11 +1090,11 @@ class MusicModule:
 
     async def pause_for_video(self) -> bool:
         """视频点播实际播放时暂停洛雪；记录曲目，供视频结束后安全恢复。"""
-        status = await asyncio.to_thread(get_lx_status)
+        status = await run_blocking(get_lx_status)
         if self._video_pause_active:
             # 若有人在视频播放期间手动恢复音乐，再次暂停以维持视频优先级。
             if is_lx_playing(status):
-                ok, detail = await asyncio.to_thread(_lx_control, "pause")
+                ok, detail = await run_blocking(_lx_control, "pause")
                 if not ok:
                     log.warning("视频播放期间重新暂停洛雪音乐失败：%s", detail)
             return True
@@ -1101,7 +1102,7 @@ class MusicModule:
             return False
         title = normalize_name(str(status.get("name", "") or ""))
         artist = normalize_name(str(status.get("singer", "") or ""))
-        ok, detail = await asyncio.to_thread(_lx_control, "pause")
+        ok, detail = await run_blocking(_lx_control, "pause")
         if not ok:
             log.warning("视频开始播放，但暂停洛雪音乐失败：%s", detail)
             return False
@@ -1119,7 +1120,7 @@ class MusicModule:
             # 保留自动暂停标记，供程序退出时的 shutdown(force=True) 再尝试恢复。
             log.info("歌曲模块当前处于暂停状态，暂不恢复洛雪；保留视频自动暂停标记。")
             return False
-        status = await asyncio.to_thread(get_lx_status)
+        status = await run_blocking(get_lx_status)
         if get_lx_playback_state(status) != "paused":
             self._video_pause_active = False
             self._video_pause_track = None
@@ -1134,7 +1135,7 @@ class MusicModule:
             self._video_pause_track = None
             log.info("点播视频结束，但洛雪当前曲目与自动暂停时不同，不自动恢复。")
             return False
-        ok, detail = await asyncio.to_thread(_lx_control, "resume")
+        ok, detail = await run_blocking(_lx_control, "resume")
         if ok:
             self._video_pause_active = False
             self._video_pause_track = None
@@ -1163,7 +1164,7 @@ class MusicModule:
         # 避免暂停空队列时误暂停用户自己播放的歌曲。
         self.paused = True
         if self._lx_playback_active:
-            ok, detail = await asyncio.to_thread(_lx_control, "pause")
+            ok, detail = await run_blocking(_lx_control, "pause")
             if not ok:
                 self.paused = False
                 raise RuntimeError(detail)
@@ -1177,7 +1178,7 @@ class MusicModule:
             return
         # 当前没有机器人点播歌曲时，只解除模块暂停，不触碰洛雪中其他来源的歌曲。
         if self._lx_playback_active and not self._video_pause_active:
-            ok, detail = await asyncio.to_thread(_lx_control, "resume")
+            ok, detail = await run_blocking(_lx_control, "resume")
             if not ok:
                 raise RuntimeError(detail)
         self.paused = False
@@ -1212,7 +1213,7 @@ class MusicModule:
             self.queued_keys.clear()
             self.current = None
         if had_current_song and stop_playback:
-            ok, detail = await asyncio.to_thread(_lx_control, "stop")
+            ok, detail = await run_blocking(_lx_control, "stop")
             if not ok:
                 log.warning("关闭歌曲模块时停止当前点播失败：%s", detail)
             else:
@@ -1252,7 +1253,7 @@ class MusicModule:
                 for i, item in enumerate(self.queue, 1)
             ]
             queue_count = len(waiting)
-        lx_status = await asyncio.to_thread(get_lx_status)
+        lx_status = await run_blocking(get_lx_status)
         playback_state = (
             "module_paused" if current and self.paused
             else get_lx_playback_state(lx_status) if current and self._lx_playback_active
@@ -1299,7 +1300,7 @@ class MusicModule:
                 return {"ok": True, "message": message}
 
             # 机器人待播队列为空：改为请求洛雪自身播放列表的下一首。
-            ok, detail = await asyncio.to_thread(skip_lx_next)
+            ok, detail = await run_blocking(skip_lx_next)
             if not ok:
                 log.error("控制面板切歌失败：%s", detail)
                 return {"ok": False, "message": detail}
@@ -1427,7 +1428,7 @@ class MusicModule:
         # 先搜索并核验，只有拿到明确的歌曲 ID/音源后才继续。
         if not self.enabled or self._closing:
             return
-        matched_candidates, reason = await asyncio.to_thread(find_matching_songs, title, artist)
+        matched_candidates, reason = await run_blocking(find_matching_songs, title, artist)
         if not self.enabled or self._closing:
             return
 
@@ -1471,7 +1472,7 @@ class MusicModule:
 
         # 第一步：检查洛雪当前正在播放的歌曲。
         # 只检查 status=playing 的歌曲，暂停或已经结束的歌曲不参与重复判断。
-        lx_status = await asyncio.to_thread(get_lx_status)
+        lx_status = await run_blocking(get_lx_status)
         lx_current_key = get_lx_current_song_key(lx_status)
 
         if lx_current_key is not None and lx_current_key == key:
@@ -1610,7 +1611,7 @@ class MusicModule:
                     candidate_song["source"] = str(candidate.get("source") or "")
                     candidate_song["songmid"] = str(candidate.get("songmid") or "")
 
-                    before_status = await asyncio.to_thread(get_lx_status)
+                    before_status = await run_blocking(get_lx_status)
                     if self._skip_requested.is_set() or not self.enabled or self._closing:
                         break
 
@@ -1619,7 +1620,7 @@ class MusicModule:
                         candidate_song["title"], candidate_song["artist"],
                         candidate_song["source"], candidate_index + 1, len(candidates),
                     )
-                    started = await asyncio.to_thread(play_song_in_lx, candidate_song)
+                    started = await run_blocking(play_song_in_lx, candidate_song)
                     if started:
                         # Scheme 调用已成功发起；后续即使在切歌/关闭窗口内，也需确保可暂停此曲。
                         self._lx_playback_active = True
@@ -1627,7 +1628,7 @@ class MusicModule:
                         break
                     if not started:
                         log.warning("调用洛雪播放失败，准备搜索下一个平台：%s（%s）", candidate_song["title"], candidate_song["source"])
-                        next_candidates, next_reason = await asyncio.to_thread(
+                        next_candidates, next_reason = await run_blocking(
                             find_matching_songs,
                             str(item.get("requested_title") or item.get("title") or ""),
                             str(item.get("requested_artist") or ""),
@@ -1639,7 +1640,7 @@ class MusicModule:
 
                     # 若暂停发生在 Scheme 启动途中，再补发一次暂停，确保新启动的曲目不会漏过暂停。
                     if (self.paused or self._video_pause_active) and self.enabled and not self._closing:
-                        pause_ok, pause_detail = await asyncio.to_thread(_lx_control, "pause")
+                        pause_ok, pause_detail = await run_blocking(_lx_control, "pause")
                         if not pause_ok:
                             log.warning("播放启动期间补充暂停失败：%s", pause_detail)
                         while (self.paused or self._video_pause_active) and self.enabled and not self._closing:
@@ -1650,7 +1651,7 @@ class MusicModule:
                     # 用户在核验过程中暂停时，等待恢复后重新核验同一个已保存 ID，
                     # 不把“暂停状态”误判为音源播放失败并切换到下一平台。
                     while True:
-                        ok, verify_message = await asyncio.to_thread(
+                        ok, verify_message = await run_blocking(
                             verify_requested_song,
                             candidate_song,
                             before_status,
@@ -1684,7 +1685,7 @@ class MusicModule:
                         candidate_song["title"], candidate_song["artist"],
                         candidate_song["source"], verify_message,
                     )
-                    next_candidates, next_reason = await asyncio.to_thread(
+                    next_candidates, next_reason = await run_blocking(
                         find_matching_songs,
                         str(item.get("requested_title") or item.get("title") or ""),
                         str(item.get("requested_artist") or ""),
@@ -1720,14 +1721,14 @@ class MusicModule:
                 # 如果洛雪已经自动切到列表下一首，不再重复调用 skip-next。
                 async with self.queue_lock:
                     if not self.queue and self.enabled and not self._closing:
-                        lx_status = await asyncio.to_thread(get_lx_status)
+                        lx_status = await run_blocking(get_lx_status)
                         lx_key = get_lx_current_song_key(lx_status)
                         bot_key = (
                             normalize_name(str(item.get("title", ""))),
                             normalize_name(str(item.get("artist", ""))),
                         )
                         if lx_key is None or lx_key == bot_key:
-                            ok, detail = await asyncio.to_thread(skip_lx_next)
+                            ok, detail = await run_blocking(skip_lx_next)
                             if not ok:
                                 log.warning("机器人队列为空，切换洛雪播放列表下一首失败：%s", detail)
 
@@ -1744,7 +1745,7 @@ class MusicModule:
             if self._skip_requested.is_set():
                 return
             await asyncio.sleep(2)
-            status = await asyncio.to_thread(get_lx_status)
+            status = await run_blocking(get_lx_status)
             if not status:
                 # 没有可用状态 API 时不猜测歌曲结束，允许管理员切歌控制。
                 continue

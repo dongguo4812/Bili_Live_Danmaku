@@ -124,9 +124,22 @@ class CombinedDisplayContractTests(unittest.TestCase):
         refresh_flow = main[main.index("def _refresh_obs_combined_display_sources"):main.index("def _obs_combined_display_refresh_watchdog")]
         self.assertNotIn("SetSceneItemEnabled", refresh_flow)
         self.assertIn("result.get(\"voice_engine\")", main)
-        self.assertIn("_refresh_obs_combined_display_sources(ensure_voice_engine=False)", main)
+        self.assertIn("ensure_voice_engine=False", main)
+        self.assertIn("refresh_timeout = remaining_budget(5.0)", main)
+        self.assertIn("final_refresh_thread.join(timeout=refresh_timeout)", main)
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
+
+
+    def test_obs_settings_and_credential_refreshes_use_shared_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
+        for route_name in ("def save_obs_settings", "def save_obs_credential"):
+            start = main.index(route_name)
+            end = main.find("\n@app.", start + 1)
+            route = main[start:end if end >= 0 else len(main)]
+            self.assertIn("with OBS_DISPLAY_LOCK:", route)
+            self.assertIn("_refresh_obs_browser_sources()", route)
 
     def test_saving_combined_layout_triggers_non_blocking_obs_refresh(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
@@ -134,10 +147,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         end = main.index('\n\n@app.get("/api/danmaku")', start)
         route = main[start:end]
         self.assertIn("_save_display_layout_store(store)", route)
-        self.assertIn('target=_refresh_obs_combined_display_sources', route)
-        self.assertIn('name="obs-layout-save-refresh"', route)
-        self.assertIn("daemon=True", route)
-        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("target=_refresh_obs_combined_display_sources"))
+        self.assertIn('_start_obs_refresh_thread("obs-layout-save-refresh")', route)
+        helper_start = main.index("def _start_obs_refresh_thread")
+        helper_end = main.index("def _obs_combined_display_refresh_watchdog", helper_start)
+        helper = main[helper_start:helper_end]
+        self.assertIn("target=_refresh_obs_combined_display_sources", helper)
+        self.assertIn("name=name", helper)
+        self.assertIn("daemon=True", helper)
+        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("_start_obs_refresh_thread"))
 
 
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):

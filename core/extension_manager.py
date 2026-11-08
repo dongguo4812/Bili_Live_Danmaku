@@ -607,7 +607,51 @@ class LolHexExtensionManager:
                     process.kill()
             raise TimeoutError(self._last_error)
 
-    def stop(self) -> dict[str, Any]:
+    def _terminate_verified_elevated_worker(self, timeout: float = 3.0) -> bool:
+        """仅在 PID 与创建时间再次匹配时，强制结束本次托管的 Hex 工作进程。"""
+        if os.name != "nt" or not self._elevated_managed or self._duplicate_instance_conflict:
+            return False
+        self._capture_worker_identity()
+        pid = self._worker_pid
+        expected_creation = self._worker_creation_time
+        if pid is None or expected_creation is None:
+            self.logger.error("Hex 工作进程身份不完整，拒绝强制终止。")
+            return False
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_ulong]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        kernel32.WaitForSingleObject.restype = ctypes.c_ulong
+        kernel32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        kernel32.TerminateProcess.restype = ctypes.c_bool
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_bool
+
+        handle = kernel32.OpenProcess(0x00101001, False, pid)
+        if not handle:
+            state = self._process_identity_state(pid, expected_creation)
+            return state == "exited"
+        try:
+            actual_creation = self._creation_time_from_handle(handle)
+            if actual_creation != expected_creation:
+                self.logger.error("Hex 工作进程创建时间不匹配，拒绝强制终止：PID=%s。", pid)
+                return False
+            state = kernel32.WaitForSingleObject(handle, 0)
+            if state == 0:
+                return True
+            if state != 0x102:
+                self.logger.error("无法确认 Hex 工作进程句柄状态，拒绝强制终止：PID=%s。", pid)
+                return False
+            if not kernel32.TerminateProcess(handle, 1):
+                self.logger.error("强制终止已核验的 Hex 工作进程失败：PID=%s。", pid)
+                return False
+            return kernel32.WaitForSingleObject(handle, max(0, int(timeout * 1000))) == 0
+        finally:
+            kernel32.CloseHandle(handle)
+
+    def stop(self, timeout: float = 12.0) -> dict[str, Any]:
+        deadline = time.monotonic() + max(0.0, float(timeout))
         with self._lock:
             process = self._process
             record = self._read_pid_record()
@@ -627,15 +671,21 @@ class LolHexExtensionManager:
                 return self.status()
 
             self.logger.info("正在请求 LOL Hex 管理员进程执行有序退出，PID：%s", pid or "未知")
-            try:
-                self._request("/api/action", {"action": "shutdown"}, timeout=2.0)
-            except Exception as exc:
-                self.logger.warning("发送 Hex 有序退出请求时连接中断：%s", exc)
+            request_timeout = min(2.0, max(0.0, deadline - time.monotonic()))
+            if request_timeout > 0:
+                try:
+                    self._request("/api/action", {"action": "shutdown"}, timeout=request_timeout)
+                except Exception as exc:
+                    self.logger.warning("发送 Hex 有序退出请求时连接中断：%s", exc)
 
-            if self._wait_for_process_exit(pid, 12.0):
+            # 为强制兜底预留一部分时间；timeout 是本次 stop 的总预算。
+            remaining = max(0.0, deadline - time.monotonic())
+            force_reserve = min(2.5, max(0.0, float(timeout) * 0.4))
+            graceful_wait = max(0.0, remaining - force_reserve)
+            if self._wait_for_process_exit(pid, graceful_wait):
                 if process is not None:
                     try:
-                        process.wait(timeout=1.0)
+                        process.wait(timeout=max(0.0, deadline - time.monotonic()))
                     except subprocess.TimeoutExpired:
                         pass
                 self._process = None
@@ -649,17 +699,55 @@ class LolHexExtensionManager:
                 self.logger.info("已确认 LOL Hex 进程退出，PID：%s", pid or "未知")
                 return self.status()
 
+            # 有序退出超时后升级处理：Popen 句柄只代表本程序直接启动的进程；
+            # 提权模式必须再次核验工作进程 PID + creation_time，身份不完整时绝不强杀。
+            forced_exit = False
+            remaining = max(0.0, deadline - time.monotonic())
+            if process is not None and self._owned and remaining > 0:
+                try:
+                    if process.poll() is None:
+                        process.terminate()
+                    try:
+                        process.wait(timeout=min(1.0, remaining))
+                    except subprocess.TimeoutExpired:
+                        remaining = max(0.0, deadline - time.monotonic())
+                        if remaining > 0:
+                            process.kill()
+                            try:
+                                process.wait(timeout=max(0.0, deadline - time.monotonic()))
+                            except subprocess.TimeoutExpired:
+                                pass
+                    forced_exit = process.poll() is not None
+                except Exception:
+                    self.logger.exception("强制结束本程序直接托管的 LOL Hex 子进程失败。")
+            elif self._elevated_managed and remaining > 0:
+                forced_exit = self._terminate_verified_elevated_worker(timeout=remaining)
+
+            remaining = max(0.0, deadline - time.monotonic())
+            if forced_exit and self._wait_for_process_exit(pid, remaining):
+                self.logger.warning("LOL Hex 有序退出超时后，已通过托管进程身份核验完成兜底终止：PID=%s。", pid)
+                if process is not None:
+                    self._process = None
+                    self._owned = False
+                self._close_elevated_process_handle()
+                self._elevated_pid = None
+                self._elevated_creation_time = None
+                self._worker_pid = None
+                self._worker_creation_time = None
+                self._elevated_managed = False
+                return self.status()
+
             self.logger.error(
-                "LOL Hex 收到有序退出请求后仍未退出；PID=%s，服务健康=%s。",
+                "LOL Hex 收到有序退出请求后仍未确认退出；PID=%s，服务健康=%s；未核实身份的进程不会被强制结束。",
                 pid, self._is_healthy(),
             )
             raise TimeoutError(
-                f"LOL Hex 管理员进程仍在运行（PID：{pid or '未知'}），未确认退出；请检查 Hex 日志。"
+                f"LOL Hex 托管进程仍在运行或无法核验退出（PID：{pid or '未知'}），请检查 Hex 日志。"
             )
 
-    def stop_if_owned(self) -> None:
+    def stop_if_owned(self, timeout: float = 6.0) -> None:
         try:
             if (self._process is not None and self._owned) or self._elevated_managed:
-                self.stop()
+                self.stop(timeout=timeout)
         except Exception:
             self.logger.exception("退出主程序时停止 LOL Hex 扩展失败。")

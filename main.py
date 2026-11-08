@@ -852,6 +852,10 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
 OBS_DISPLAY_LOCK = threading.RLock()
 OBS_COMBINED_REFRESH_STOP = threading.Event()
 OBS_COMBINED_DISPLAY_REFRESHED = False
+CREDENTIAL_WATCHDOG_STOP = threading.Event()
+CREDENTIAL_WATCHDOG_THREAD: threading.Thread | None = None
+OBS_COMBINED_REFRESH_THREAD: threading.Thread | None = None
+APPLICATION_SHUTDOWN_STARTED = threading.Event()
 APPLICATION_SHUTDOWN_LOCK = threading.RLock()
 APPLICATION_SHUTDOWN_FINISHED = threading.Event()
 
@@ -1120,6 +1124,19 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
                     pass
 
 
+def _start_obs_refresh_thread(name: str) -> None:
+    """启动短时 OBS 刷新任务；与统一关闭入口串行化，避免最终刷新后又启动新任务。"""
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_STARTED.is_set():
+            return
+        worker = threading.Thread(
+            target=_refresh_obs_combined_display_sources,
+            name=name,
+            daemon=True,
+        )
+        worker.start()
+
+
 def _obs_combined_display_refresh_watchdog() -> None:
     """等待 OBS WebSocket 可用，刷新综合展示源并建立全局语音引擎；不依赖 B 站连接状态。"""
     global OBS_COMBINED_DISPLAY_REFRESHED
@@ -1133,42 +1150,92 @@ def _obs_combined_display_refresh_watchdog() -> None:
 
 
 def _shutdown_application_and_refresh_obs() -> None:
-    """优先关闭独立的管理员 Hex 进程，再关闭业务模块并刷新 OBS。"""
+    """统一、幂等地停止事件来源、子进程、业务模块和 OBS 刷新。"""
     global OBS_COMBINED_DISPLAY_REFRESHED
     with APPLICATION_SHUTDOWN_LOCK:
         if APPLICATION_SHUTDOWN_FINISHED.is_set():
             return
-        logger.warning("开始程序退出清理：先关闭 LOL Hex 管理员进程，再关闭业务模块并刷新 OBS。")
+
+        APPLICATION_SHUTDOWN_STARTED.set()
+        shutdown_deadline = time.monotonic() + 65.0
+
+        def remaining_budget(maximum: float) -> float:
+            return max(0.0, min(maximum, shutdown_deadline - time.monotonic()))
+
+        logger.warning("开始有序退出：封锁新事件 -> 停止后台来源 -> 关闭子进程和业务模块 -> 最终刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
+        CREDENTIAL_WATCHDOG_STOP.set()
+        APPLICATION_RUNTIME.begin_shutdown()
+
+        # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
-            # Hex 是独立的管理员进程，优先请求其自身完成退出清理并核验 PID。
-            # 不让其他模块最长 30 秒的关闭等待延迟 Hex 退出。
-            LOL_HEX_EXTENSION.stop_if_owned()
+            if not LIVE_CLIENT.stop(timeout=remaining_budget(6.0)):
+                logger.error("B站连接线程在 6 秒内未退出；保留其 daemon 状态并继续清理其他资源。")
+        except Exception:
+            logger.exception("停止 B 站连接时发生异常，仍将继续执行其他退出清理。")
+
+        # Hex 是独立子进程；只停止本主程序托管且身份核验通过的实例。
+        try:
+            LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(6.0))
         except Exception:
             logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行其他退出清理。")
+
         try:
-            APPLICATION_RUNTIME.shutdown(timeout=30.0)
+            APPLICATION_RUNTIME.shutdown(timeout=max(0.1, remaining_budget(37.0)))
         except Exception:
             logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
-        try:
-            LIVE_CLIENT.stop()
-        except Exception:
-            logger.exception("停止 B 站连接时发生异常，仍将继续执行 OBS 刷新。")
 
-        # 所有模块 shutdown 已完成后，只执行一次最终刷新；失败交由后续 OBS WebSocket 重连时的刷新机制处理。
-        result = _refresh_obs_combined_display_sources(ensure_voice_engine=False)
-        if result.get("ok") and result.get("refreshed", 0) > 0:
-            OBS_COMBINED_DISPLAY_REFRESHED = True
-            logger.info(
-                "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
-                result["refreshed"],
-            )
-        else:
-            logger.warning(
-                "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
-                result.get("message", "未知错误"),
-            )
-        APPLICATION_SHUTDOWN_FINISHED.set()
+        # watchdog 已收到停止信号；有界等待它们退出，不等待已结束或尚未创建的线程。
+        for worker in (CREDENTIAL_WATCHDOG_THREAD, OBS_COMBINED_REFRESH_THREAD):
+            if worker is not None and worker is not threading.current_thread() and worker.is_alive():
+                worker.join(timeout=remaining_budget(1.0))
+                if worker.is_alive():
+                    logger.warning("后台 watchdog 未在 1 秒内退出：%s", worker.name)
+
+        # 所有模块 shutdown 完成后最后刷新综合展示源；独立 daemon 线程最多等待 5 秒，
+        # 防止 OBS 无响应或此前刷新锁未释放时拖住主程序退出。
+        try:
+            refresh_timeout = remaining_budget(5.0)
+            if refresh_timeout <= 0:
+                logger.warning("退出总时间预算已耗尽，跳过 OBS 最终刷新。")
+            else:
+                refresh_result: dict[str, Any] = {}
+
+                def refresh_final_obs() -> None:
+                    try:
+                        refresh_result["result"] = _refresh_obs_combined_display_sources(
+                            ensure_voice_engine=False
+                        )
+                    except Exception as exc:
+                        refresh_result["error"] = exc
+                        logger.exception("程序退出阶段最终刷新 OBS 综合展示源失败。")
+
+                final_refresh_thread = threading.Thread(
+                    target=refresh_final_obs,
+                    name="obs-final-shutdown-refresh",
+                    daemon=True,
+                )
+                final_refresh_thread.start()
+                final_refresh_thread.join(timeout=refresh_timeout)
+                if final_refresh_thread.is_alive():
+                    logger.warning("OBS 最终刷新超过剩余 %.1f 秒仍未完成；不再阻塞主程序退出。", refresh_timeout)
+                elif "error" in refresh_result:
+                    logger.warning("程序退出阶段最终 OBS 综合展示源刷新失败。")
+                else:
+                    result = refresh_result.get("result", {})
+                    if result.get("ok") and result.get("refreshed", 0) > 0:
+                        OBS_COMBINED_DISPLAY_REFRESHED = True
+                        logger.info(
+                            "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
+                            result["refreshed"],
+                        )
+                    else:
+                        logger.warning(
+                            "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
+                            result.get("message", "未知错误"),
+                        )
+        finally:
+            APPLICATION_SHUTDOWN_FINISHED.set()
 
 
 def _available_models(version: str = "moc2") -> list[dict[str, str]]:
@@ -1321,6 +1388,8 @@ def _append_danmaku(item: dict[str, Any]) -> None:
 
 def _dispatch_live_event(item: dict[str, Any]) -> None:
     """只接收真实 WebSocket 认证连接期间的新事件，再投递给统一事件总线。"""
+    if APPLICATION_SHUTDOWN_STARTED.is_set():
+        return
     with BILIBILI_STATE_LOCK:
         if not BILIBILI_STATE["connected"]:
             return
@@ -2636,7 +2705,8 @@ def save_obs_settings():
             "host": host, "port": port, "timeout": timeout,
         }
         VIDEO_MODULE.reload_obs_settings()
-        _refresh_obs_browser_sources()
+        with OBS_DISPLAY_LOCK:
+            _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "OBS 配置保存失败。"}), 400
@@ -2651,7 +2721,8 @@ def save_obs_credential():
     try:
         CredentialStore().save("obs", {"password": password})
         VIDEO_MODULE.reload_obs_settings()
-        _refresh_obs_browser_sources()
+        with OBS_DISPLAY_LOCK:
+            _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
     except Exception as exc:
         logger.warning("保存 OBS 凭据失败：%s", type(exc).__name__)
@@ -2802,11 +2873,7 @@ def save_combined_display_layout():
             _save_display_layout_store(store)
 
         # 布局落盘后异步刷新 OBS 综合展示源；OBS 未连接时不影响保存结果。
-        threading.Thread(
-            target=_refresh_obs_combined_display_sources,
-            name="obs-layout-save-refresh",
-            daemon=True,
-        ).start()
+        _start_obs_refresh_thread("obs-layout-save-refresh")
         return jsonify({"ok": True, "layout_id": item["id"], "layout": layout,
                         "message": "布局“{}”已保存。".format(item["name"])})
     except Exception as exc:
@@ -2880,11 +2947,7 @@ def api_lol_hex_start():
     try:
         result = LOL_HEX_EXTENSION.start()
         if result.get("running"):
-            threading.Thread(
-                target=_refresh_obs_combined_display_sources,
-                name="obs-lol-hex-start-refresh",
-                daemon=True,
-            ).start()
+            _start_obs_refresh_thread("obs-lol-hex-start-refresh")
         return jsonify(result)
     except Exception as exc:
         logger.exception("启动 LOL Hex 扩展失败。")
@@ -2895,11 +2958,7 @@ def api_lol_hex_start():
 def api_lol_hex_stop():
     try:
         result = LOL_HEX_EXTENSION.stop()
-        threading.Thread(
-            target=_refresh_obs_combined_display_sources,
-            name="obs-lol-hex-stop-refresh",
-            daemon=True,
-        ).start()
+        _start_obs_refresh_thread("obs-lol-hex-stop-refresh")
         return jsonify(result)
     except Exception as exc:
         logger.exception("停止 LOL Hex 扩展失败。")
@@ -2945,8 +3004,7 @@ def _initialize_login_state() -> None:
 
 
 def _credential_watchdog() -> None:
-    while True:
-        time.sleep(60)
+    while not CREDENTIAL_WATCHDOG_STOP.wait(60.0):
         with BILIBILI_STATE_LOCK:
             should_check = BILIBILI_STATE["connection_state"] in {"connected", "connecting", "reconnecting"}
         if should_check:
@@ -2984,7 +3042,7 @@ def _install_console_close_handler() -> None:
         )
         task.start()
         # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
-        task.join(40.0)
+        task.join(65.0)
         logger.warning(
             "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
             task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
@@ -3036,14 +3094,18 @@ if __name__ == "__main__":
 
     APPLICATION_RUNTIME.start()
     _install_console_close_handler()
-    threading.Thread(target=_credential_watchdog, name="bili-credential-watchdog", daemon=True).start()
-    atexit.register(APPLICATION_RUNTIME.shutdown)
+    CREDENTIAL_WATCHDOG_THREAD = threading.Thread(
+        target=_credential_watchdog, name="bili-credential-watchdog", daemon=True
+    )
+    CREDENTIAL_WATCHDOG_THREAD.start()
+    atexit.register(_shutdown_application_and_refresh_obs)
     _restore_saved_live_connection()
-    threading.Thread(
+    OBS_COMBINED_REFRESH_THREAD = threading.Thread(
         target=_obs_combined_display_refresh_watchdog,
         name="obs-combined-display-refresh",
         daemon=True,
-    ).start()
+    )
+    OBS_COMBINED_REFRESH_THREAD.start()
     logger.info("Starting local management server at http://%s:%s", host, port)
     try:
         app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)

@@ -55,7 +55,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         manager = (ROOT / "core" / "module_manager.py").read_text(encoding="utf-8")
         music = (ROOT / "modules" / "music" / "service.py").read_text(encoding="utf-8")
         video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")
-        self.assertIn("self.modules.shutdown_all()", application)
+        self.assertIn("self.modules.shutdown_all(timeout=module_timeout)", application)
         self.assertIn('getattr(instance, "shutdown", None)', manager)
         self.assertIn("async def shutdown(self):", music)
         self.assertIn("await self.bot.close(stop_playback=False)", music)
@@ -89,11 +89,17 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("$pattern = '(?i)--user-data-dir=", video)
         self.assertIn("$_.CommandLine -match $pattern", video)
         self.assertIn("$leftIds", video)
-        self.assertIn("await asyncio.to_thread(_terminate_chrome_profile_processes_sync)", video)
-        self.assertIn("await asyncio.to_thread(emergency_close_browser_sync)", video)
+        self.assertIn("await run_blocking(_terminate_chrome_profile_processes_sync)", video)
+        self.assertIn("run_blocking(emergency_close_browser_sync)", video)
+        self.assertIn("timeout=9.0", video)
+        video_begin_shutdown_body = video[video.index("def begin_shutdown(self) -> None:", video.index("class VideoModuleFacade")):]
+        video_begin_shutdown_body = video_begin_shutdown_body[:video_begin_shutdown_body.index("\n    async def shutdown", 1)]
+        self.assertLess(video_begin_shutdown_body.index("VIDEO_SHUTDOWN_REQUESTED.set()"), video_begin_shutdown_body.index("target=emergency_close_browser_sync"))
+        self.assertIn("module_enabled = False", video_begin_shutdown_body)
         video_shutdown_body = video[video.index("async def shutdown(self):", video.index("class VideoModuleFacade")):]
         video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\n    async def close", 1)]
-        self.assertLess(video_shutdown_body.index("module_enabled = False"), video_shutdown_body.index("emergency_close_browser_sync"))
+        self.assertIn("cleanup_thread.join, 9.0", video_shutdown_body)
+        self.assertIn("await self.close(restore_music=False, cleanup_browser=False)", video_shutdown_body)
         self.assertIn("if cleanup_browser else ([], [])", video)
         video_close_body = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
@@ -114,18 +120,20 @@ class PlaybackPauseContractTests(unittest.TestCase):
         console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
         self.assertIn("_shutdown_application_and_refresh_obs", console_handler)
         self.assertNotIn("emergency_close_browser_sync", console_handler)
-        self.assertIn("task.join(40.0)", console_handler)
+        self.assertIn("task.join(65.0)", console_handler)
         self.assertIn("def _shutdown_application_and_refresh_obs()", main)
         shutdown_flow = main[main.index("def _shutdown_application_and_refresh_obs()"):]
         shutdown_flow = shutdown_flow[:shutdown_flow.index("\ndef _available_models", 1)]
-        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=30.0)"),
-                        shutdown_flow.index("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"))
-        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop()"),
-                        shutdown_flow.index("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"))
-        self.assertEqual(shutdown_flow.count("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"), 1)
+        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=max(0.1, remaining_budget(37.0)))"),
+                        shutdown_flow.index("ensure_voice_engine=False"))
+        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop(timeout=remaining_budget(6.0))"),
+                        shutdown_flow.index("ensure_voice_engine=False"))
+        self.assertEqual(shutdown_flow.count("ensure_voice_engine=False"), 1)
         self.assertIn("不再重试", shutdown_flow)
         self.assertNotIn("for attempt in range", shutdown_flow)
         self.assertIn("OBS_COMBINED_REFRESH_STOP.set()", shutdown_flow)
+        self.assertIn("shutdown_deadline = time.monotonic() + 65.0", shutdown_flow)
+        self.assertIn("remaining_budget(6.0)", shutdown_flow)
         self.assertIn("_shutdown_application_and_refresh_obs()", main[main.index("finally:", main.index("if __name__ == \"__main__\"")):])
 
 
