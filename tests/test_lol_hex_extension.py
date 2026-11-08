@@ -131,13 +131,22 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             process_states = iter(["running", "exited"])
             calls = []
             manager._is_healthy = lambda: False
-            manager._process_identity_state = lambda pid, creation_time=None: next(process_states, "exited")
+
+            def process_identity_state(pid, creation_time=None):
+                state = next(process_states, "exited")
+                if state == "exited":
+                    # 模拟 Hex 工作进程在正常退出时清理自己创建的 PID 文件。
+                    manager.pid_file.unlink(missing_ok=True)
+                return state
+
+            manager._process_identity_state = process_identity_state
             manager._request = lambda path, payload=None, timeout=1.0: calls.append((path, payload)) or {}
 
             state = manager.stop()
 
             self.assertEqual(calls, [("/api/action", {"action": "shutdown"})])
             self.assertFalse(state["running"])
+            self.assertIsNone(manager._worker_pid)
             self.assertFalse(manager.pid_file.exists())
 
 
@@ -174,7 +183,7 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn("str(ROOT), 0", hex_main)
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
-        self.assertIn('str(self.extension_dir), 0', manager)
+        self.assertIn('info.lpDirectory = str(self.extension_dir)', manager)
         self.assertIn('self.config_path', manager)
         self.assertIn('"--config"', manager)
         self.assertIn('config/local/lol_hex_display.json', manager)
