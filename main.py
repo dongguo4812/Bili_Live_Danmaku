@@ -640,7 +640,8 @@ def synthesize_tts():
         preferences = _tts_preferences(_load_user_settings())
 
     deadline = time.monotonic() + TTS_SYNTHESIS_TIMEOUT_SECONDS
-    lock_acquired = TTS_CACHE_LOCK.acquire(timeout=TTS_SYNTHESIS_TIMEOUT_SECONDS)
+    lock_wait = max(0.0, deadline - time.monotonic())
+    lock_acquired = lock_wait > 0 and TTS_CACHE_LOCK.acquire(timeout=lock_wait)
     if not lock_acquired:
         return jsonify({"ok": False, "error": "TTS 合成超时，已跳过当前语音。"}), 504
 
