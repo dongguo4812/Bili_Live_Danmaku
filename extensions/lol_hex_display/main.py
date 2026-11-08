@@ -1591,6 +1591,20 @@ def screenshot_watcher():
         scan_interval = 1.0
     directory_signature = None
 
+    def scan_pending_screenshots():
+        """按原有顺序处理未完成截图；返回是否仍有文件需要重试。"""
+        files = [
+            path for path in folder.glob('GameShot_*.png')
+            if not _is_processed_file(path.name)
+        ]
+        files.sort(key=lambda path: path.stat().st_mtime)
+        retry_pending = False
+        for path in files:
+            if not process_screenshot(path):
+                retry_pending = True
+        _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
+        return retry_pending
+
     while not stop_event.is_set():
         try:
             stat_result = folder.stat()
@@ -1604,19 +1618,9 @@ def screenshot_watcher():
                 # 在枚举前记录指纹。若枚举期间又有新截图写入，
                 # 目录时间会再次变化，下一轮仍会触发扫描。
                 directory_signature = current_signature
-                files = [
-                    p for p in folder.glob('GameShot_*.png')
-                    if not _is_processed_file(p.name)
-                ]
-                files.sort(key=lambda p: p.stat().st_mtime)
-                retry_pending = False
-                for p in files:
-                    if not process_screenshot(p):
-                        retry_pending = True
                 # 保留现有扫描频率；下一轮重新枚举未完成文件，避免目录指纹不变时漏掉重试。
-                if retry_pending:
+                if scan_pending_screenshots():
                     directory_signature = None
-                _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
         except OSError as exc:
             # 无法读取目录元数据时退回原有扫描方式，避免漏掉截图。
             directory_signature = None
@@ -1626,18 +1630,8 @@ def screenshot_watcher():
                 exc,
             )
             try:
-                files = [
-                    p for p in folder.glob('GameShot_*.png')
-                    if not _is_processed_file(p.name)
-                ]
-                files.sort(key=lambda p: p.stat().st_mtime)
-                retry_pending = False
-                for p in files:
-                    if not process_screenshot(p):
-                        retry_pending = True
-                if retry_pending:
+                if scan_pending_screenshots():
                     directory_signature = None
-                _clear_screenshot_issue("watcher_scan", "截图目录扫描已恢复")
             except Exception as scan_exc:
                 _log_screenshot_issue("watcher_scan", "扫描截图目录异常", scan_exc)
         except Exception as exc:
