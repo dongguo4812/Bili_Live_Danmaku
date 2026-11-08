@@ -94,6 +94,9 @@ class DaemonExecutor(concurrent.futures.Executor):
                 if remaining <= 0:
                     break
                 thread.join(remaining)
+            alive = [thread.name for thread in threads if thread.is_alive()]
+            if alive:
+                logger.warning("阻塞任务执行器关闭时仍有 daemon worker 在执行：%s", alive)
 
 
 _EXECUTORS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[DaemonExecutor, asyncio.Semaphore]] = weakref.WeakKeyDictionary()
