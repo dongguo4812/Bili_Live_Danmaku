@@ -56,7 +56,7 @@ STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName",
 def _clear_medal_cache() -> None:
     global _MEDAL_CACHE_LAST_PRUNE
     with MEDAL_CACHE_LOCK:
-        MEDAL_CACHE.clear()
+        _clear_medal_cache()
         _MEDAL_CACHE_LAST_PRUNE = 0.0
 
 
@@ -140,13 +140,13 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
         "buvid4": str(values.get("buvid4", "")),
         "DedeUserID": str(values.get("dedeuserid", "")),
     }
-    MEDAL_CACHE.clear()
+    _clear_medal_cache()
 
 
 def update_music_room_id(room_id: int) -> None:
     global ROOM_ID
     ROOM_ID = max(0, int(room_id or 0))
-    MEDAL_CACHE.clear()
+    _clear_medal_cache()
 
 
 def _lx_control(action: str, timeout: float | None = None) -> tuple[bool, str]:
@@ -241,7 +241,7 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
         medals = _find_medal_list(payload["data"])
         if medals is None:
             reason = "粉丝牌接口缺少完整勋章列表，拒绝点歌"
-            MEDAL_CACHE[uid] = (now, False, reason)
+            _store_medal_cache(uid, (now, False, reason))
             return False, reason
         found_room_medal = False
         found_lit_medal = False
@@ -264,7 +264,7 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
         return result[1], result[2]
     except Exception as exc:
         reason = f"粉丝牌查询失败：{type(exc).__name__}，拒绝点歌"
-        MEDAL_CACHE[uid] = (now, False, reason)
+        _store_medal_cache(uid, (now, False, reason))
         log.warning("UID %s %s", uid, reason)
         return False, reason
 
