@@ -56,7 +56,7 @@ STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName",
 def _clear_medal_cache() -> None:
     global _MEDAL_CACHE_LAST_PRUNE
     with MEDAL_CACHE_LOCK:
-        _clear_medal_cache()
+        MEDAL_CACHE.clear()
         _MEDAL_CACHE_LAST_PRUNE = 0.0
 
 
