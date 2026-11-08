@@ -1163,19 +1163,19 @@ def _shutdown_application_and_refresh_obs() -> None:
 
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
-            if not LIVE_CLIENT.stop(timeout=8.0):
+            if not LIVE_CLIENT.stop(timeout=6.0):
                 logger.error("B站连接线程在 8 秒内未退出；保留其 daemon 状态并继续清理其他资源。")
         except Exception:
             logger.exception("停止 B 站连接时发生异常，仍将继续执行其他退出清理。")
 
         # Hex 是独立子进程；只停止本主程序托管且身份核验通过的实例。
         try:
-            LOL_HEX_EXTENSION.stop_if_owned()
+            LOL_HEX_EXTENSION.stop_if_owned(timeout=6.0)
         except Exception:
             logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行其他退出清理。")
 
         try:
-            APPLICATION_RUNTIME.shutdown(timeout=40.0)
+            APPLICATION_RUNTIME.shutdown(timeout=37.0)
         except Exception:
             logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
 
