@@ -854,6 +854,7 @@ def _obs_connection_monitor() -> None:
     attempted = False
     while not OBS_CONNECTION_MONITOR_STOP.is_set():
         ws = None
+        reconnect_requested = False
         try:
             _set_obs_connection_status(
                 "reconnecting" if attempted else "connecting",
@@ -872,6 +873,7 @@ def _obs_connection_monitor() -> None:
                     OBS_CONNECTION_MONITOR_WAKE.clear()
                     if OBS_CONNECTION_MONITOR_STOP.is_set():
                         break
+                    reconnect_requested = True
                     break
                 _obs_connection_ping(ws)
                 _set_obs_connection_status(
@@ -892,7 +894,7 @@ def _obs_connection_monitor() -> None:
                 except Exception:
                     pass
 
-        if not OBS_CONNECTION_MONITOR_STOP.is_set():
+        if not OBS_CONNECTION_MONITOR_STOP.is_set() and not reconnect_requested:
             OBS_CONNECTION_MONITOR_WAKE.wait(OBS_CONNECTION_RETRY_INTERVAL_SECONDS)
             OBS_CONNECTION_MONITOR_WAKE.clear()
 
