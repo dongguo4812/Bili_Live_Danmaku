@@ -799,6 +799,116 @@ def _read_obs_password() -> str:
         return ""
 
 
+OBS_CONNECTION_STATUS_LOCK = threading.RLock()
+OBS_CONNECTION_STATUS: dict[str, Any] = {
+    "state": "connecting",
+    "connected": False,
+    "message": "正在检查 OBS WebSocket 连接。",
+    "error": "",
+    "last_checked_at": 0.0,
+}
+OBS_CONNECTION_MONITOR_STOP = threading.Event()
+OBS_CONNECTION_MONITOR_WAKE = threading.Event()
+OBS_CONNECTION_MONITOR_THREAD: threading.Thread | None = None
+OBS_CONNECTION_MONITOR_INTERVAL_SECONDS = 5.0
+OBS_CONNECTION_RETRY_INTERVAL_SECONDS = 5.0
+
+
+def _set_obs_connection_status(
+    state: str, message: str, error: str = "", checked: bool = False,
+) -> None:
+    with OBS_CONNECTION_STATUS_LOCK:
+        OBS_CONNECTION_STATUS.update({
+            "state": state,
+            "connected": state == "connected",
+            "message": message,
+            "error": error[:240],
+        })
+        if checked:
+            OBS_CONNECTION_STATUS["last_checked_at"] = time.time()
+
+
+def _obs_connection_status_snapshot() -> dict[str, Any]:
+    with OBS_CONNECTION_STATUS_LOCK:
+        return dict(OBS_CONNECTION_STATUS)
+
+
+def _request_obs_connection_recheck() -> None:
+    """OBS 地址或凭据变化后，唤醒独立状态连接进行重新认证。"""
+    OBS_CONNECTION_MONITOR_WAKE.set()
+
+
+def _obs_connection_ping(ws: Any) -> None:
+    """仅通过 OBS WebSocket v5 Ping/Pong 验证状态，不执行任何场景操作。"""
+    ws.send(json.dumps({"op": 3, "d": {"time": int(time.time() * 1000)}}))
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        message = json.loads(ws.recv())
+        if message.get("op") == 4:
+            return
+    raise TimeoutError("等待 OBS WebSocket 心跳响应超时。")
+
+
+def _obs_connection_monitor() -> None:
+    """维护专用状态连接；业务 OBS 操作仍使用各自的短连接。"""
+    attempted = False
+    while not OBS_CONNECTION_MONITOR_STOP.is_set():
+        ws = None
+        try:
+            _set_obs_connection_status(
+                "reconnecting" if attempted else "connecting",
+                "正在重新连接 OBS WebSocket。" if attempted else "正在连接 OBS WebSocket。",
+            )
+            ws = _open_obs_websocket()
+            ws.settimeout(2.5)
+            _obs_connection_ping(ws)
+            _set_obs_connection_status(
+                "connected", "OBS WebSocket 已认证，连接状态正常。", checked=True,
+            )
+            attempted = True
+
+            while not OBS_CONNECTION_MONITOR_STOP.is_set():
+                if OBS_CONNECTION_MONITOR_WAKE.wait(OBS_CONNECTION_MONITOR_INTERVAL_SECONDS):
+                    OBS_CONNECTION_MONITOR_WAKE.clear()
+                    if OBS_CONNECTION_MONITOR_STOP.is_set():
+                        break
+                    break
+                _obs_connection_ping(ws)
+                _set_obs_connection_status(
+                    "connected", "OBS WebSocket 连接正常。", checked=True,
+                )
+        except Exception as exc:
+            if not OBS_CONNECTION_MONITOR_STOP.is_set():
+                error = str(exc).strip() or type(exc).__name__
+                _set_obs_connection_status(
+                    "reconnecting", "OBS WebSocket 连接断开，正在重连。", error,
+                    checked=True,
+                )
+                logger.warning("OBS WebSocket 状态连接异常，将在稍后重试：%s", error)
+        finally:
+            if ws is not None:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+        if not OBS_CONNECTION_MONITOR_STOP.is_set():
+            OBS_CONNECTION_MONITOR_WAKE.wait(OBS_CONNECTION_RETRY_INTERVAL_SECONDS)
+            OBS_CONNECTION_MONITOR_WAKE.clear()
+
+    _set_obs_connection_status("disconnected", "OBS WebSocket 状态监测已停止。")
+
+
+def _stop_obs_connection_monitor(timeout: float = 1.0) -> None:
+    OBS_CONNECTION_MONITOR_STOP.set()
+    OBS_CONNECTION_MONITOR_WAKE.set()
+    worker = OBS_CONNECTION_MONITOR_THREAD
+    if worker is not None and worker is not threading.current_thread() and worker.is_alive():
+        worker.join(timeout=max(0.0, timeout))
+        if worker.is_alive():
+            logger.warning("OBS WebSocket 状态监测线程未在 %.1f 秒内退出；保留 daemon 状态。", timeout)
+
+
 def _open_obs_websocket() -> Any:
     """按统一 OBS 配置和凭据完成 WebSocket v5 握手并返回已认证连接。"""
     obs_config = CONFIG.get("obs_websocket", {})
@@ -1274,6 +1384,7 @@ def _shutdown_application_and_refresh_obs() -> None:
         logger.warning("开始有序退出：封锁新事件 -> 停止后台来源 -> 关闭子进程和业务模块 -> 最终刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
         CREDENTIAL_WATCHDOG_STOP.set()
+        _stop_obs_connection_monitor(timeout=1.0)
         if OBS_REFRESH_WORKER is not None:
             if not OBS_REFRESH_WORKER.stop(timeout=remaining_budget(1.0)):
                 logger.warning("OBS 刷新工作线程未在 1 秒内退出；继续执行其他退出清理。")
@@ -2829,6 +2940,7 @@ def save_obs_settings():
         CONFIG["obs_websocket"] = {
             "host": host, "port": port, "timeout": timeout,
         }
+        _request_obs_connection_recheck()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
@@ -2844,6 +2956,7 @@ def save_obs_credential():
         return jsonify({"ok": False, "error": "OBS WebSocket 密码不能为空。"}), 400
     try:
         CredentialStore().save("obs", {"password": password})
+        _request_obs_connection_recheck()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
@@ -3029,6 +3142,7 @@ def api_status():
         "application": "Bili Live Danmaku",
         "web_server": "running",
         "bilibili": bili,
+        "obs_websocket": _obs_connection_status_snapshot(),
         "live2d": live2d,
         "features": {
             "danmaku": True,
@@ -3160,6 +3274,8 @@ def _shutdown_application_for_console_close() -> None:
 
         OBS_COMBINED_REFRESH_STOP.set()
         CREDENTIAL_WATCHDOG_STOP.set()
+        OBS_CONNECTION_MONITOR_STOP.set()
+        OBS_CONNECTION_MONITOR_WAKE.set()
         if OBS_REFRESH_WORKER is not None:
             OBS_REFRESH_WORKER.stop(timeout=remaining_budget(0.2))
 
@@ -3285,6 +3401,12 @@ if __name__ == "__main__":
     )
     CREDENTIAL_WATCHDOG_THREAD.start()
     atexit.register(_shutdown_application_and_refresh_obs)
+    OBS_CONNECTION_MONITOR_THREAD = threading.Thread(
+        target=_obs_connection_monitor,
+        name="obs-websocket-status-monitor",
+        daemon=True,
+    )
+    OBS_CONNECTION_MONITOR_THREAD.start()
     _restore_saved_live_connection()
     OBS_COMBINED_REFRESH_THREAD = threading.Thread(
         target=_obs_combined_display_refresh_watchdog,
