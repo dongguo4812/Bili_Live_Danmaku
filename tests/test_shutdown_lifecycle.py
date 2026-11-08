@@ -262,3 +262,48 @@ class ModuleManagerShutdownTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OBSConnectionMonitorContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        source_path = Path(__file__).resolve().parents[1] / "main.py"
+        cls.source = source_path.read_text(encoding="utf-8")
+        cls.tree = ast.parse(cls.source)
+        cls.functions = {
+            node.name: node for node in cls.tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+    def function_source(self, name):
+        return ast.get_source_segment(self.source, self.functions[name]) or ""
+
+    def test_status_connection_uses_only_obs_ping_pong(self):
+        source = self.function_source("_obs_connection_ping")
+        self.assertIn('"op": 3', source)
+        self.assertIn('message.get("op") == 4', source)
+        self.assertNotIn("_obs_ws_request", source)
+
+    def test_monitor_uses_dedicated_connection_without_business_operations(self):
+        source = self.function_source("_obs_connection_monitor")
+        self.assertIn("_open_obs_websocket()", source)
+        self.assertIn("_obs_connection_ping(ws)", source)
+        self.assertNotIn("_obs_ws_request", source)
+        self.assertNotIn("OBS_DISPLAY_LOCK", source)
+
+    def test_status_api_reads_cached_state_only(self):
+        source = self.function_source("api_status")
+        self.assertIn("_obs_connection_status_snapshot()", source)
+        self.assertNotIn("_open_obs_websocket", source)
+        self.assertNotIn("_obs_connection_ping", source)
+
+    def test_obs_configuration_and_credential_changes_wake_monitor(self):
+        self.assertIn("_request_obs_connection_recheck()", self.function_source("save_obs_settings"))
+        self.assertIn("_request_obs_connection_recheck()", self.function_source("save_obs_credential"))
+
+    def test_both_shutdown_paths_stop_monitor(self):
+        source = self.function_source("_shutdown_application_and_refresh_obs")
+        self.assertIn("_stop_obs_connection_monitor(timeout=1.0)", source)
+        console_source = self.function_source("_shutdown_application_for_console_close")
+        self.assertIn("OBS_CONNECTION_MONITOR_STOP.set()", console_source)
+        self.assertIn("OBS_CONNECTION_MONITOR_WAKE.set()", console_source)
