@@ -2663,7 +2663,7 @@ def get_logging_settings():
     config = ConfigManager().load("logging", {})
     return jsonify({
         "ok": True,
-        "level": config.get("level", "INFO"),
+        "debug": config.get("debug") is True,
         "retention_days": int(config.get("retention_days", 7)),
         "retention_options": config.get("retention_options", [3, 5, 7, 15, 30, 60, 90, 0]),
     })
@@ -2675,23 +2675,24 @@ def save_logging_settings():
     if not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "请求内容必须是 JSON 对象。"}), 400
     try:
-        level = str(payload.get("level", "INFO")).upper()
         retention = int(payload.get("retention_days", 7))
+        debug = payload.get("debug", False)
+        if not isinstance(debug, bool):
+            raise ValueError("DEBUG 开关必须为布尔值。")
         allowed_retention = {3, 5, 7, 15, 30, 60, 90, 0}
-        if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-            raise ValueError("日志等级无效。")
         if retention not in allowed_retention:
             raise ValueError("日志保留天数无效。")
         config = ConfigManager().load("logging", {})
         config.pop("daily_rotation", None)
+        config.pop("level", None)
         config.update({
-            "level": level,
+            "debug": debug,
             "retention_days": retention,
             "retention_options": [3, 5, 7, 15, 30, 60, 90, 0],
         })
         ConfigManager().save("logging", config)
         setup_logging()
-        logger.info("日志设置已更新：level=%s retention_days=%s", level, retention)
+        logger.info("日志设置已更新：debug=%s retention_days=%s", debug, retention)
         return jsonify({"ok": True, "message": "日志设置已保存并立即生效。"})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc) or "日志设置保存失败。"}), 400
@@ -2910,7 +2911,11 @@ def lol_hex_extension_logs():
     log_dir = LOL_HEX_EXTENSION.extension_dir / "logs"
     try:
         candidates = sorted(
-            log_dir.glob("app_*.log"),
+            (
+                item for item in log_dir.glob("*.log")
+                if re.fullmatch(r"(?:app_)?\d{4}-\d{2}-\d{2}\.log", item.name)
+                and item.is_file()
+            ),
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )

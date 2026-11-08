@@ -1,5 +1,4 @@
 {
-  "level": "INFO",
   "retention_days": 7,
   "retention_options": [
     3,
@@ -10,5 +9,6 @@
     60,
     90,
     0
-  ]
+  ],
+  "debug": false
 }

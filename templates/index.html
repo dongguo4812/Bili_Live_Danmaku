@@ -564,7 +564,6 @@
         live2dControlState.dataset.state = live2dEnabled ? "enabled" : "disabled";
         renderModuleControls();
         renderModuleOperations();
-        await refreshLolHexControl();
         if (document.activeElement !== $("room-id")) {
           $("room-id").value = data.bilibili.room_id || "";
         }
@@ -673,9 +672,11 @@
 
     renderModuleControls();
     renderModuleOperations();
+    refreshLolHexControl();
     refreshStatus();
     refreshMusicQueue();
     refreshVideoQueue();
+    setInterval(refreshLolHexControl, 3000);
     setInterval(refreshStatus, 3000);
     setInterval(refreshMusicQueue, 2500);
     setInterval(refreshVideoQueue, 2500);

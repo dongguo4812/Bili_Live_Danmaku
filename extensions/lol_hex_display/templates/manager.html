@@ -35,13 +35,57 @@
 	}
 
 	/* 截图与数据管理工具栏 */
+	/* 截图与数据管理工具栏：三行纵向排列，每行内部横向排列 */
+	main:has(#barAdminPanel) > .toolbar {
+	  display: flex;
+	  flex-direction: column;
+	  align-items: stretch;
+	  justify-content: flex-start;
+	  gap: 10px;
+	}
+
 	main:has(#barAdminPanel) > .toolbar {
 	  width: 100% !important;
 	  max-width: none !important;
 	  box-sizing: border-box !important;
 	}
 
-	/* 海克斯卡片列表 */
+	.toolbar .toolbar-row {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.toolbar .toolbar-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 带操作按钮的行：说明文字靠左，按钮组贴齐工具栏最右侧。 */
+.toolbar .toolbar-row:has(> div) {
+  justify-content: space-between;
+}
+
+.toolbar .toolbar-row > div {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  .toolbar .toolbar-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* 海克斯卡片列表 */
 	main:has(#barAdminPanel) > #cards {
 	  width: 100% !important;
 	  max-width: none !important;
@@ -103,13 +147,12 @@
 <header>
   <div>
     <h1>LOL 海克斯卡片管理</h1>
-    <p id="meta">正在连接本地服务…</p>
+    <p id="meta" aria-live="polite" style="display:none">正在连接本地服务…</p>
     <p id="clientStatus" style="margin:6px 0 0;font-size:13px;color:#aab4c5">正在识别英雄联盟客户端…</p>
   </div>
   <nav>
-    <button class="danger" id="shutdownBtn" onclick="shutdownProgram()">结束程序</button>
-    <a class="active" href="/">管理页</a>
-    <a href="/display" target="_blank">OBS 展示页</a>
+    <a href="/display" target="_blank">海克斯展示页</a>
+    <a href="/bar" target="_blank" rel="noopener">战绩条展示</a>
   </nav>
 </header>
 
@@ -137,25 +180,40 @@
         <input id="barGapMin" type="number" min="1" max="100000" value="100000" style="width:100px">
       </label>
 
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        <input id="barShowLobbyMemberCount" type="checkbox" checked>
+        显示组队人数
+      </label>
+
       <button type="button" onclick="saveBarConfig()">保存配置</button>
       <button type="button" onclick="barAction('refresh')">刷新战绩</button>
       <button type="button" onclick="barAction('new_batch')">开启新批次</button>
-      <a href="/bar" target="_blank" rel="noopener">打开战绩条页面</a>
     </div>
 
     <p id="barAdminStatus" aria-live="polite"></p>
+    <p id="barLastUpdated" style="margin:8px 0;color:#8992a3">最近更新时间：暂无</p>
     <div id="barAdminPreview"></div>
   </section>
 
   <section class="toolbar">
-    <div>
+    <div class="toolbar-row">
       <b>截图与数据管理</b>
       <span>游戏中按 F1 冻结画面并框选；再次按 F1 或按 ESC 取消。</span>
     </div>
 
-    <div class="toolbar-actions">
-      <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯数据</button>
-      <button class="danger" onclick="act('clear')">清空卡片和截图</button>
+    <div class="toolbar-row">
+      <span id="assetCount">海克斯索引：读取中…</span>
+      <div id="assetDataActions">
+        <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯索引</button>
+        <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯索引</button>
+      </div>
+    </div>
+
+    <div class="toolbar-row">
+      <span id="screenshotDir">截图目录：读取中…</span>
+      <div id="cardScreenshotActions">
+        <button class="danger" onclick="act('clear')">清空卡片和截图</button>
+      </div>
     </div>
   </section>
 
@@ -199,8 +257,11 @@ async function act(action, key = '') {
 }
 
 async function updateAssets() {
-  const b = document.getElementById('updateBtn');
-  b.disabled = true;
+  const buttons = [
+    document.getElementById('updateBtn'),
+    document.getElementById('resetUpdateBtn')
+  ];
+  buttons.forEach(button => button.disabled = true);
 
   try {
     const r = await fetch('/api/update-assets', {method: 'POST'});
@@ -212,7 +273,41 @@ async function updateAssets() {
     pollUpdate();
   } catch (e) {
     alert('无法启动更新：' + e);
-    b.disabled = false;
+    buttons.forEach(button => button.disabled = false);
+  }
+}
+
+async function resetAndUpdateAssets() {
+  const confirmed = confirm(
+    '确定重置海克斯索引吗？\n\n' +
+    '将删除内存索引和本地 hex_assets.json。\n' +
+    '图标缓存、截图和卡片记录不会删除。\n\n' +
+    '如果数据源请求失败，索引会保持为空，需要稍后重新更新。'
+  );
+
+  if (!confirmed) return;
+
+  const buttons = [
+    document.getElementById('updateBtn'),
+    document.getElementById('resetUpdateBtn')
+  ];
+  buttons.forEach(button => button.disabled = true);
+  document.getElementById('meta').textContent = '正在清空并重建海克斯索引…';
+
+  try {
+    const response = await fetch('/api/reset-update-assets', {method: 'POST'});
+    const result = await response.json();
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.message || '无法启动清空与重建操作');
+    }
+
+    document.getElementById('meta').textContent =
+      result.message || '已开始清空并重新建立海克斯索引';
+    pollUpdate();
+  } catch (error) {
+    alert('重置海克斯索引失败：' + error.message);
+    buttons.forEach(button => button.disabled = false);
   }
 }
 
@@ -227,59 +322,17 @@ async function pollUpdate() {
       setTimeout(pollUpdate, 1000);
     } else {
       document.getElementById('updateBtn').disabled = false;
+      document.getElementById('resetUpdateBtn').disabled = false;
       load();
     }
   } catch (e) {
     document.getElementById('updateBtn').disabled = false;
-  }
-}
-
-async function shutdownProgram() {
-  const confirmed = confirm(
-    '确定结束 lol_hex_display 程序吗？\n\n' +
-    '程序退出时会清理截图、归档图片和卡片状态。' +
-    '\nOBS 展示页也将无法继续获取数据。'
-  );
-
-  if (!confirmed) return;
-
-  const button = document.getElementById('shutdownBtn');
-  button.disabled = true;
-  button.textContent = '正在结束…';
-
-  try {
-    const r = await fetch('/api/action', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'shutdown'})
-    });
-
-    const d = await r.json();
-
-    if (!r.ok || !d.ok) {
-      throw new Error(d.message || '关停请求失败');
-    }
-
-    document.getElementById('meta').textContent =
-      d.message || '程序即将退出';
-
-  } catch (e) {
-    setTimeout(async () => {
-      try {
-        await fetch('/api/state', {cache: 'no-store'});
-        button.disabled = false;
-        button.textContent = '结束程序';
-        alert('结束程序请求未能确认，请检查程序窗口。');
-      } catch (_) {
-        document.getElementById('meta').textContent =
-          '程序连接已断开，可能已经退出。';
-      }
-    }, 1200);
+    document.getElementById('resetUpdateBtn').disabled = false;
   }
 }
 
 function esc(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -308,12 +361,19 @@ async function loadClientStatus() {
   }
 }
 
+let lastRenderedAt = null;
+
 async function load() {
   try {
-    const d = await (await fetch('/api/state')).json();
+    const d = await (await fetch('/api/state', {cache: 'no-store'})).json();
 
-    document.getElementById('meta').textContent =
-      `截图目录：${d.screenshot_dir}　｜　海克斯索引：${d.asset_count} 条`;
+    document.getElementById('screenshotDir').textContent =
+      `截图目录：${d.screenshot_dir}`;
+    document.getElementById('assetCount').textContent =
+      `海克斯索引：${d.asset_count} 条`;
+
+    if (lastRenderedAt !== null && d.updated_at === lastRenderedAt) return;
+    lastRenderedAt = d.updated_at;
 
     const root = document.getElementById('cards');
     root.innerHTML = '';
@@ -362,19 +422,16 @@ async function load() {
   }
 }
 
-async function loadBarAdmin() {
+let lastBarPreviewSignature = null;
+
+async function loadBarConfig() {
+  const status = document.getElementById('barAdminStatus');
+
   try {
-    const [configResponse, snapshotResponse] = await Promise.all([
-      fetch('/api/bar-config', {cache: 'no-store'}),
-      fetch('/api/snapshot', {cache: 'no-store'})
-    ]);
+    const response = await fetch('/api/bar-config', {cache: 'no-store'});
+    if (!response.ok) throw new Error('战绩条配置读取失败');
 
-    if (!configResponse.ok || !snapshotResponse.ok) {
-      throw new Error('战绩条接口请求失败');
-    }
-
-    const config = await configResponse.json();
-    const snapshot = await snapshotResponse.json();
+    const config = await response.json();
 
     document.getElementById('barMaxGames').value =
       config.max_games ?? 5;
@@ -385,21 +442,55 @@ async function loadBarAdmin() {
     document.getElementById('barGapMin').value =
       config.batch_gap_min ?? 100000;
 
+    document.getElementById('barShowLobbyMemberCount').checked =
+      config.show_lobby_member_count !== false;
+  } catch (error) {
+    status.textContent = '配置读取失败：' + error.message;
+    status.style.color = '#e08b8b';
+  }
+}
+
+async function loadBarAdmin() {
+  try {
+    const snapshotResponse = await fetch('/api/snapshot', {cache: 'no-store'});
+
+    if (!snapshotResponse.ok) {
+      throw new Error('战绩条数据接口请求失败');
+    }
+
+    const snapshot = await snapshotResponse.json();
+
+    const fetchedAt = Number(snapshot.fetched_at || 0);
+    const updatedEl = document.getElementById('barLastUpdated');
+    updatedEl.textContent = fetchedAt > 0 && Number.isFinite(fetchedAt)
+      ? `最近更新时间：${new Date(fetchedAt * 1000).toLocaleString()}`
+      : '最近更新时间：暂无战绩数据更新记录';
+
     const preview = document.getElementById('barAdminPreview');
     const games = Array.isArray(snapshot.games) ? snapshot.games : [];
+    const previewSignature = JSON.stringify({
+      account: snapshot.account,
+      region: snapshot.region,
+      wins: snapshot.wins,
+      losses: snapshot.losses,
+      games: games.map(game => [
+        game.gameId,
+        game.champion_id,
+        game.win,
+        game.k,
+        game.d,
+        game.a
+      ])
+    });
+
+    // 预览内容没有变化时保留现有 DOM，避免重复销毁和加载英雄头像。
+    if (previewSignature === lastBarPreviewSignature) return;
 
     if (!games.length) {
       preview.replaceChildren();
+      lastBarPreviewSignature = previewSignature;
       return;
     }
-
-    const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[c]));
 
     preview.innerHTML = `
       <style>
@@ -587,6 +678,7 @@ async function loadBarAdmin() {
         }).join('')}
       </div>
     `;
+    lastBarPreviewSignature = previewSignature;
   } catch (error) {
     document.getElementById('barAdminStatus').textContent =
       '战绩条数据读取失败：' + error.message;
@@ -597,10 +689,13 @@ async function saveBarConfig() {
   const body = {
     max_games: Number(document.getElementById('barMaxGames').value || 5),
     mode_filter: Number(document.getElementById('barModeFilter').value || 1),
-    batch_gap_min: Number(document.getElementById('barGapMin').value || 100000)
+    batch_gap_min: Number(document.getElementById('barGapMin').value || 100000),
+    show_lobby_member_count: document.getElementById('barShowLobbyMemberCount').checked
   };
 
   const status = document.getElementById('barAdminStatus');
+  status.textContent = '正在保存……';
+  status.style.color = '#e0ad62';
 
   try {
     const response = await fetch('/api/bar-config', {
@@ -611,13 +706,16 @@ async function saveBarConfig() {
 
     const result = await response.json();
 
-    status.textContent = result.ok
-      ? '战绩条配置已保存'
-      : (result.error || '保存失败');
-
-    if (result.ok) loadBarAdmin();
+    if (result.ok) {
+      status.textContent = '战绩条配置已保存';
+      status.style.color = '#55c98a';
+    } else {
+      status.textContent = '保存失败：' + (result.error || '服务端未能保存配置');
+      status.style.color = '#e08b8b';
+    }
   } catch (error) {
     status.textContent = '保存失败：' + error.message;
+    status.style.color = '#e08b8b';
   }
 }
 
@@ -650,6 +748,7 @@ async function barAction(action) {
   }
 }
 
+loadBarConfig();
 loadBarAdmin();
 setInterval(loadBarAdmin, 5000);
 
