@@ -120,18 +120,20 @@ class PlaybackPauseContractTests(unittest.TestCase):
         console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
         self.assertIn("_shutdown_application_and_refresh_obs", console_handler)
         self.assertNotIn("emergency_close_browser_sync", console_handler)
-        self.assertIn("task.join(40.0)", console_handler)
+        self.assertIn("task.join(65.0)", console_handler)
         self.assertIn("def _shutdown_application_and_refresh_obs()", main)
         shutdown_flow = main[main.index("def _shutdown_application_and_refresh_obs()"):]
         shutdown_flow = shutdown_flow[:shutdown_flow.index("\ndef _available_models", 1)]
-        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=37.0)"),
+        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=max(0.1, remaining_budget(37.0)))"),
                         shutdown_flow.index("ensure_voice_engine=False"))
-        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop(timeout=6.0)"),
+        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop(timeout=remaining_budget(6.0))"),
                         shutdown_flow.index("ensure_voice_engine=False"))
         self.assertEqual(shutdown_flow.count("ensure_voice_engine=False"), 1)
         self.assertIn("不再重试", shutdown_flow)
         self.assertNotIn("for attempt in range", shutdown_flow)
         self.assertIn("OBS_COMBINED_REFRESH_STOP.set()", shutdown_flow)
+        self.assertIn("shutdown_deadline = time.monotonic() + 65.0", shutdown_flow)
+        self.assertIn("remaining_budget(6.0)", shutdown_flow)
         self.assertIn("_shutdown_application_and_refresh_obs()", main[main.index("finally:", main.index("if __name__ == \"__main__\"")):])
 
 
