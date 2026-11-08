@@ -325,6 +325,34 @@ class MusicModuleLifecycleTests(unittest.IsolatedAsyncioTestCase):
             ["pause", "resume"],
         )
 
+    async def test_queue_snapshot_skips_lx_status_when_idle_or_paused(self):
+        from unittest.mock import AsyncMock, patch
+        module = MusicModule(config={}, admin_uids=set())
+        with patch("modules.music.service.run_blocking", new_callable=AsyncMock) as run_blocking:
+            idle = await module.queue_snapshot()
+            self.assertEqual(idle["playback_state"], "stopped")
+            run_blocking.assert_not_awaited()
+
+            module.current = {"title": "晴天", "artist": "周杰伦"}
+            module._lx_playback_active = True
+            module.paused = True
+            paused = await module.queue_snapshot()
+            self.assertEqual(paused["playback_state"], "module_paused")
+            run_blocking.assert_not_awaited()
+
+    async def test_queue_snapshot_reads_lx_status_for_active_bot_song(self):
+        from unittest.mock import AsyncMock, patch
+        import modules.music.service as service
+        module = MusicModule(config={}, admin_uids=set())
+        module.current = {"title": "晴天", "artist": "周杰伦"}
+        module._lx_playback_active = True
+        lx_status = {"status": "playing"}
+        with patch("modules.music.service.run_blocking", new_callable=AsyncMock, return_value=lx_status) as run_blocking, \
+             patch("modules.music.service.get_lx_playback_state", return_value="playing"):
+            snapshot = await module.queue_snapshot()
+        run_blocking.assert_awaited_once_with(service.get_lx_status)
+        self.assertEqual(snapshot["playback_state"], "playing")
+
     async def test_parallel_requests_from_same_uid_obey_cooldown(self):
         import asyncio
         from unittest.mock import AsyncMock, patch
