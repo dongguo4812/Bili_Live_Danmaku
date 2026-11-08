@@ -15,7 +15,8 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def get_lx_playback_state(", source)
         self.assertIn('return "paused"', source)
         self.assertIn('"playback_state": playback_state', source)
-        self.assertIn('"module_paused" if current and self.paused', source)
+        self.assertIn('"module_paused" if current and module_paused', source)
+        self.assertIn("needs_lx_status = bool(current and lx_playback_active and not module_paused)", source)
         self.assertIn("歌曲点播当前已暂停", source)
 
     def test_video_snapshot_tracks_html5_paused_state_and_module_pause_separately(self):
