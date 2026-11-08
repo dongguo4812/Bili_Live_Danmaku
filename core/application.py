@@ -75,7 +75,13 @@ class ApplicationRuntime:
             if self._shutdown_complete or self._shutting_down:
                 return
             self._shutting_down = True
+            self.events.begin_shutdown()
             self.modules.begin_shutdown()
+
+    async def _shutdown_async(self, module_timeout: float) -> None:
+        """先排空已接收事件，再按依赖逆序关闭业务模块。"""
+        await self.events.shutdown(timeout=min(3.0, max(0.1, module_timeout)))
+        await self.modules.shutdown_all(timeout=module_timeout)
 
     def shutdown(self, timeout: float = 40.0) -> None:
         """关闭模块后再停止事件循环；整个过程有明确的总等待上限。"""
@@ -84,13 +90,12 @@ class ApplicationRuntime:
                 return
             self._shutting_down = True
             self._started = False
+            self.events.begin_shutdown()
             self.modules.begin_shutdown()
 
             try:
                 module_timeout = min(32.0, max(0.1, float(timeout) - 5.0))
-                future = self.async_runtime.submit(
-                    self.modules.shutdown_all(timeout=module_timeout)
-                )
+                future = self.async_runtime.submit(self._shutdown_async(module_timeout))
                 try:
                     future.result(timeout=module_timeout + 1.0)
                 except concurrent.futures.TimeoutError:
