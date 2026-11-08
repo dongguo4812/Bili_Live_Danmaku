@@ -1932,6 +1932,8 @@ class VideoModuleFacade:
                     run_blocking(cleanup_thread.join, 9.0),
                     timeout=9.5,
                 )
+                if cleanup_thread.is_alive():
+                    logger.error("专用 Chrome 清理线程在 9 秒后仍未退出；保留 daemon 状态。")
             except asyncio.TimeoutError:
                 logger.error("程序退出时专用 Chrome 清理超过 9 秒；后台清理线程继续运行。")
             except Exception:
