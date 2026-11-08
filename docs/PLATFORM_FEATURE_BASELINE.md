@@ -133,7 +133,7 @@
 | 通用扩展 SDK、权限模型和 IPC 协议 | 新平台新增 | 平台基础设施 |
 | 事件录制、回放和压力测试 | 新平台新增 | 核心测试基础设施 |
 
-## 4. MagicalDanmaku 历史功能参考
+## 4. 功能参考
 
 > 本节记录历史项目中值得研究的产品能力。具体实现状态、支持平台和当前可运行性需要以归档代码及对应版本为准。
 
@@ -195,7 +195,7 @@
 
 ## 5. 两项目合并后的功能矩阵
 
-| 功能领域 | Bili_Live_Danmaku | MagicalDanmaku 历史 | 新平台决策 |
+| 功能领域 | Bili_Live_Danmaku | Danmaku 历史 | 新平台决策 |
 |---|---|---|---|
 | B站接入 | 已有 | 历史有 | 迁移并抽象 |
 | 抖音接入 | 无 | 部分实现 | 重新适配 |
@@ -334,20 +334,15 @@ SQLite 用于用户档案、历史事件、统计、规则、布局、扩展状�
 
 本文件是第一轮功能基线，不等于代码审计报告。以下内容需要后续逐项核验：
 1. Bili 每项功能的具体入口、核心服务、API、页面、配置和测试覆盖。
-2. MagicalDanmaku 每项历史功能对应的版本、源码位置、平台支持范围和可运行状态。
+2. Danmaku 每项历史功能对应的版本、源码位置、平台支持范围和可运行状态。
 3. 直播平台事件字段、鉴权条件、接口限制及合规边界。
 4. 现有功能的依赖、许可证、资源占用和迁移成本。
 5. 各功能是否应该内置、官方扩展或第三方扩展。
 
 ## 10. 参考链接
 
-- [Bili_Live_Danmaku dev](https://github.com/dongguo4812/Bili_Live_Danmaku/tree/dev)
 - [Bili_Live_Danmaku 中文 README](https://github.com/dongguo4812/Bili_Live_Danmaku/blob/dev/README.zh-CN.md)
-- [MagicalDanmaku 仓库](https://github.com/iwxyi/MagicalDanmaku)
-- [MagicalDanmaku CHANGELOG](https://github.com/iwxyi/MagicalDanmaku/blob/master/CHANGELOG.md)
-- [MagicalDanmaku Examples](https://github.com/iwxyi/MagicalDanmaku/blob/master/Examples.md)
-- [MagicalDanmaku API Archive](https://github.com/iwxyi/MagicalDanmaku/blob/master/API%20Archieve.md)
 
 ---
 
-**当前结论：** Bili_Live_Danmaku 提供可迁移的直播互动、OBS、TTS、Live2D、媒体和游戏扩展资产；MagicalDanmaku 提供多平台接入、互动规则、脚本、用户档案、统计和 AI 等历史产品能力参考。新平台的核心不是将两者功能简单堆叠，而是围绕“统一事件处理、平台能力差异、低资源运行、可控扩展”重新组织。
+**当前结论：** Bili_Live_Danmaku 提供可迁移的直播互动、OBS、TTS、Live2D、媒体和游戏扩展资产；Danmaku 提供多平台接入、互动规则、脚本、用户档案、统计和 AI 等历史产品能力参考。新平台的核心不是将两者功能简单堆叠，而是围绕“统一事件处理、平台能力差异、低资源运行、可控扩展”重新组织。
