@@ -15,6 +15,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "module_paused": video_service.module_paused,
             "driver": video_service.driver,
             "current_bv": video_service.current_bv,
+            "current_video_position": video_service.current_video_position,
             "is_playing": video_service.is_playing,
             "video_queue": list(video_service.video_queue),
             "monitor": video_service.playback_monitor_task,
@@ -31,6 +32,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.module_paused = False
         video_service.driver = None
         video_service.current_bv = None
+        video_service.current_video_position = 0.0
         video_service.is_playing = False
         video_service.video_queue.clear()
         video_service.playback_monitor_task = None
@@ -49,6 +51,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.module_paused = self.old_state["module_paused"]
         video_service.driver = self.old_state["driver"]
         video_service.current_bv = self.old_state["current_bv"]
+        video_service.current_video_position = self.old_state["current_video_position"]
         video_service.is_playing = self.old_state["is_playing"]
         video_service.video_queue.clear()
         video_service.video_queue.extend(self.old_state["video_queue"])
@@ -88,6 +91,34 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(video_service.video_queue, ["BV1xx411c7mD"])
         self.assertEqual(video_service.last_order_time[1001], 10)
+
+    async def test_open_video_page_restores_last_known_playback_position(self):
+        class FakeDriver:
+            def __init__(self):
+                self.scripts = []
+                self.opened_url = None
+
+            def get(self, url):
+                self.opened_url = url
+
+            def execute_script(self, script, *args):
+                self.scripts.append((script, args))
+                return {"ok": True, "currentTime": args[0], "duration": 120}
+
+        fake_driver = FakeDriver()
+        original_driver = video_service.driver
+        try:
+            video_service.driver = fake_driver
+            with patch.object(video_service, "ensure_browser_window"):
+                video_service.open_video_page(
+                    "BV1xx411c7mD",
+                    "https://www.bilibili.com/video/BV1xx411c7mD",
+                    37.5,
+                )
+            self.assertEqual(fake_driver.opened_url, "https://www.bilibili.com/video/BV1xx411c7mD")
+            self.assertEqual(fake_driver.scripts[0][1], (37.5,))
+        finally:
+            video_service.driver = original_driver
 
     async def test_bv_command_pattern(self):
         self.assertIsNotNone(video_service.ORDER_PATTERN.fullmatch("点播 BV1xx411c7mD"))
