@@ -2,6 +2,7 @@
 """Regression tests for the temporary Edge TTS audio cache."""
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -12,6 +13,51 @@ import main
 
 
 class TtsCacheLimitTests(unittest.TestCase):
+    def test_synthesis_timeout_skips_request_and_removes_partial_audio(self):
+        class SlowCommunicate:
+            async def save(self, path):
+                Path(path).write_bytes(b"partial")
+                await asyncio.sleep(1)
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_dir = Path(directory)
+            with patch.object(main, "TTS_CACHE_DIR", cache_dir), patch.object(
+                main, "TTS_SYNTHESIS_TIMEOUT_SECONDS", 0.01
+            ), patch.object(main, "_load_user_settings", return_value={}), patch.object(
+                main, "_tts_preferences",
+                return_value={"voice": "zh-CN-XiaoxiaoNeural", "rate": 0, "volume": 0},
+            ), patch("edge_tts.Communicate", return_value=SlowCommunicate()):
+                response = main.app.test_client().post(
+                    "/api/voice/tts/synthesize", json={"text": "测试超时"}
+                )
+
+            self.assertEqual(response.status_code, 504)
+            self.assertIn("超时", response.get_json()["error"])
+            self.assertEqual(list(cache_dir.glob("*.mp3")), [])
+            self.assertTrue(main.TTS_CACHE_LOCK.acquire(blocking=False))
+            main.TTS_CACHE_LOCK.release()
+
+    def test_successful_synthesis_keeps_audio_in_cache(self):
+        class ImmediateCommunicate:
+            async def save(self, path):
+                Path(path).write_bytes(b"audio")
+
+        with tempfile.TemporaryDirectory() as directory:
+            cache_dir = Path(directory)
+            with patch.object(main, "TTS_CACHE_DIR", cache_dir), patch.object(
+                main, "_load_user_settings", return_value={}
+            ), patch.object(
+                main, "_tts_preferences",
+                return_value={"voice": "zh-CN-XiaoxiaoNeural", "rate": 0, "volume": 0},
+            ), patch("edge_tts.Communicate", return_value=ImmediateCommunicate()):
+                response = main.app.test_client().post(
+                    "/api/voice/tts/synthesize", json={"text": "测试成功"}
+                )
+
+            self.assertEqual(response.status_code, 200)
+            filename = response.get_json()["url"].rsplit("/", 1)[-1]
+            self.assertEqual((cache_dir / filename).read_bytes(), b"audio")
+
     def test_cleanup_applies_age_and_file_count_limits_with_reserved_slot(self):
         now = 10000.0
         with tempfile.TemporaryDirectory() as directory:
