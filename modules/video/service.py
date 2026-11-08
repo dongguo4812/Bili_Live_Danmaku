@@ -533,7 +533,7 @@ def selenium_locked(func):
 
 @selenium_locked
 def execute_script_sync(script, *args):
-    """在线程安全锁内执行 JavaScript。由 asyncio.to_thread 调用。"""
+    """在线程安全锁内执行 JavaScript。由 run_blocking 调用。"""
     if driver is None:
         raise RuntimeError("Selenium 浏览器尚未初始化")
     return driver.execute_script(script, *args)
