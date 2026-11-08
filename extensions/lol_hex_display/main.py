@@ -1863,10 +1863,7 @@ def _api_action_impl(data):
             log.info('收到主程序关闭请求，Hex 管理员进程开始执行有序退出')
             request_server_shutdown()
             return jsonify({'ok': True, 'message': 'Hex 正在退出'})
-        if action=='clear':
-            # cleanup_match_data() 统一清空状态并持久化，避免重复写入。
-            pass
-        elif action in ('delete', 'up', 'down'):
+        if action in ('delete', 'up', 'down'):
             # 先在副本中修改并持久化，成功后再提交到内存状态。
             new_state = dict(state)
             new_cards = list(state['cards'])
