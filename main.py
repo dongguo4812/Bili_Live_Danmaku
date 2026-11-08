@@ -839,14 +839,15 @@ def _request_obs_connection_recheck() -> None:
 
 
 def _obs_connection_ping(ws: Any) -> None:
-    """仅通过 OBS WebSocket v5 Ping/Pong 验证状态，不执行任何场景操作。"""
-    ws.send(json.dumps({"op": 3, "d": {"time": int(time.time() * 1000)}}))
+    """使用 RFC 6455 WebSocket 控制帧 Ping/Pong 检查连接，不发送 OBS RPC。"""
+    payload = str(time.time_ns()).encode("ascii")
+    ws.ping(payload)
     deadline = time.monotonic() + 2.5
     while time.monotonic() < deadline:
-        message = json.loads(ws.recv())
-        if message.get("op") == 4:
+        opcode, frame = ws.recv_data(control_frame=True)
+        if opcode == websocket.ABNF.OPCODE_PONG and frame.data == payload:
             return
-    raise TimeoutError("等待 OBS WebSocket 心跳响应超时。")
+    raise TimeoutError("等待 OBS WebSocket 控制帧 Pong 超时。")
 
 
 def _obs_connection_monitor() -> None:
