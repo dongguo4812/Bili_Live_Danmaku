@@ -551,6 +551,9 @@ chrome_options.add_argument("--profile-directory=Default")
 chrome_options.page_load_strategy = "eager"
 
 driver = None
+VIDEO_SHUTDOWN_REQUESTED = threading.Event()
+VIDEO_LIFECYCLE_LOCK = threading.RLock()
+VIDEO_EMERGENCY_CLEANUP_LOCK = threading.Lock()
 
 
 @selenium_locked
@@ -700,46 +703,67 @@ def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
 def emergency_close_browser_sync() -> bool:
     """程序退出时优先按 WebDriver PID、再按独立 chrome_profile 清理 Chrome。"""
     global driver
-    browser = driver
-    driver = None
-    # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
-    if browser is not None:
-        _force_terminate_browser_sync(browser)
-    roots, remaining = _terminate_chrome_profile_processes_sync()
-    if remaining:
-        # Profile 查询仍发现残留时，再执行一次定向清理并回查。
+    with VIDEO_EMERGENCY_CLEANUP_LOCK:
+        with VIDEO_LIFECYCLE_LOCK:
+            browser = driver
+            driver = None
+        # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
+        if browser is not None:
+            _force_terminate_browser_sync(browser)
         roots, remaining = _terminate_chrome_profile_processes_sync()
-    if remaining:
-        logger.error("紧急 Chrome 清理后仍有专用 Profile 进程：%s", remaining)
-    return not remaining
+        if remaining:
+            # Profile 查询仍发现残留时，再执行一次定向清理并回查。
+            roots, remaining = _terminate_chrome_profile_processes_sync()
+        if remaining:
+            logger.error("紧急 Chrome 清理后仍有专用 Profile 进程：%s", remaining)
+        return not remaining
 
 
 
 
 @selenium_locked
 def create_browser():
-    """创建 Chrome 浏览器实例；创建失败时只清理本程序专用 Profile。"""
-
+    """创建 Chrome 并登记所有权；退出封锁与登记使用同一把锁，避免关闭后复活。"""
+    global driver
+    browser = None
+    cleaned_for_shutdown = False
     try:
+        if VIDEO_SHUTDOWN_REQUESTED.is_set():
+            raise RuntimeError("程序正在退出，拒绝创建新的视频浏览器。")
         browser = webdriver.Chrome(options=chrome_options)
         browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+        with VIDEO_LIFECYCLE_LOCK:
+            shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
+            if not shutting_down:
+                driver = browser
+        if shutting_down:
+            try:
+                browser.quit()
+            except Exception:
+                logger.warning("退出期间新建的 Chrome 会话无法正常 quit，改由专用 Profile 清理。")
+            roots, remaining = _terminate_chrome_profile_processes_sync()
+            cleaned_for_shutdown = True
+            if remaining:
+                logger.error("退出期间新建 Chrome 的清理仍有残留：%s", remaining)
+            raise RuntimeError("程序正在退出，已拒绝登记新的视频浏览器。")
         return browser
     except Exception:
         # SessionNotCreated 等异常可能发生在 Chrome 已启动、WebDriver 会话
-        # 尚未建立时；此时全局 driver 仍为 None，常规 quit 无法回收孤儿进程。
+        # 尚未建立时；此时全局 driver 仍可能为 None，常规 quit 无法回收孤儿进程。
         # 仅按本程序独立的 user-data-dir 定向清理，绝不结束其他 Chrome。
-        logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
-        roots, remaining = _terminate_chrome_profile_processes_sync()
-        if remaining:
-            logger.error(
-                "Chrome 创建失败后的专用 Profile 清理仍有残留：匹配主进程=%s，残留 PID=%s",
-                roots,
-                remaining,
-            )
-        elif roots:
-            logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
-        else:
-            logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
+        if not cleaned_for_shutdown:
+            logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
+            roots, remaining = _terminate_chrome_profile_processes_sync()
+            if remaining:
+                logger.error(
+                    "Chrome 创建失败后的专用 Profile 清理仍有残留：匹配主进程=%s，残留 PID=%s",
+                    roots,
+                    remaining,
+                )
+            elif roots:
+                logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
+            else:
+                logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
         raise
 
 
@@ -755,7 +779,7 @@ def ensure_browser_window():
 
     if driver is None:
         logger.warning("Selenium 浏览器尚未初始化，正在重新创建")
-        driver = create_browser()
+        create_browser()
         return
 
     try:
@@ -790,7 +814,7 @@ def ensure_browser_window():
     except Exception:
         pass
 
-    driver = create_browser()
+    create_browser()
     logger.info("Chrome 浏览器会话已重新创建")
 
 
@@ -1811,12 +1835,15 @@ class VideoModuleFacade:
         self.config = dict(config)
         self.cookie_provider = cookie_provider
         self.room_id = max(0, int(room_id or 0))
+        self._shutdown_cleanup_thread = None
         configure_video_module(self.config, None, self.room_id)
         self.event_bus.subscribe("danmaku", on_dan_mu)
 
     async def start(self):
         global driver, module_enabled, module_paused, playback_state
         global video_session_generation, video_request_generation
+        if VIDEO_SHUTDOWN_REQUESTED.is_set():
+            raise RuntimeError("程序正在退出，无法启动视频模块。")
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if module_enabled:
             if module_paused:
@@ -1825,10 +1852,13 @@ class VideoModuleFacade:
         video_session_generation += 1
         video_request_generation += 1
         await set_obs_visibility_async(False)
-        driver = await run_blocking(create_browser)
-        module_enabled = True
-        module_paused = False
-        playback_state = "stopped"
+        await run_blocking(create_browser)
+        with VIDEO_LIFECYCLE_LOCK:
+            if VIDEO_SHUTDOWN_REQUESTED.is_set():
+                raise RuntimeError("程序正在退出，视频模块未启动。")
+            module_enabled = True
+            module_paused = False
+            playback_state = "stopped"
         logger.info("视频模块已启动，Chrome 播放会话已初始化。")
 
     async def pause(self):
@@ -1869,27 +1899,45 @@ class VideoModuleFacade:
                 await play_next()
         logger.info("视频模块已恢复。")
 
-    async def shutdown(self):
-        """程序退出时先封锁视频任务并快速回收专用 Chrome；不触碰洛雪。"""
+    def begin_shutdown(self) -> None:
+        """同步封锁新视频任务，并立即启动专用 Chrome 进程清理。"""
         global module_enabled, module_paused, video_session_generation, video_request_generation
-        # 先阻止播放监控/旧请求在 Chrome 被回收期间重新创建浏览器。
-        module_enabled = False
-        module_paused = False
-        video_session_generation += 1
-        video_request_generation += 1
-        try:
-            closed = await asyncio.wait_for(
-                run_blocking(emergency_close_browser_sync),
-                timeout=9.0,
-            )
-            if not closed:
-                logger.error("程序退出时专用 Chrome 清理未能确认无残留进程。")
-        except asyncio.TimeoutError:
-            # 同步清理函数仍在 daemon worker 中继续执行；不让 Selenium/系统进程查询
-            # 无限拖住模块生命周期，后续 close 仍会完成状态与 OBS 收尾。
-            logger.error("程序退出时专用 Chrome 清理超过 9 秒；后台清理任务继续运行。")
-        except Exception:
-            logger.exception("程序退出时专用 Chrome 清理发生异常，仍将继续模块状态收尾。")
+        with VIDEO_LIFECYCLE_LOCK:
+            if VIDEO_SHUTDOWN_REQUESTED.is_set():
+                return
+            VIDEO_SHUTDOWN_REQUESTED.set()
+            module_enabled = False
+            module_paused = False
+            video_session_generation += 1
+            video_request_generation += 1
+        cleanup_thread = threading.Thread(
+            target=emergency_close_browser_sync,
+            name="video-emergency-browser-cleanup",
+            daemon=True,
+        )
+        self._shutdown_cleanup_thread = cleanup_thread
+        cleanup_thread.start()
+
+    async def shutdown(self):
+        """程序退出时等待预先启动的专用 Chrome 清理；不触碰洛雪。"""
+        self.begin_shutdown()
+        cleanup_thread = getattr(self, "_shutdown_cleanup_thread", None)
+        if cleanup_thread is not None:
+            try:
+                await asyncio.wait_for(
+                    run_blocking(cleanup_thread.join, 9.0),
+                    timeout=9.5,
+                )
+            except asyncio.TimeoutError:
+                logger.error("程序退出时专用 Chrome 清理超过 9 秒；后台清理线程继续运行。")
+            except Exception:
+                logger.exception("等待专用 Chrome 清理线程时发生异常。")
+        else:
+            logger.warning("视频模块未能启动专用 Chrome 清理线程，执行一次兜底清理。")
+            try:
+                await asyncio.wait_for(run_blocking(emergency_close_browser_sync), timeout=9.0)
+            except Exception:
+                logger.exception("程序退出时专用 Chrome 兜底清理失败。")
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
