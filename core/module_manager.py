@@ -144,6 +144,10 @@ class ModuleManager:
         # 同一模块的生命周期操作串行执行，避免 Chrome/洛雪资源竞争和断线恢复覆盖用户操作。
         async with record.operation_lock:
             with self._lock:
+                # 退出封锁后，拒绝所有尚未开始的生命周期操作（包括手动 close），
+                # 退出专用 shutdown() 会在 shutdown_all 中直接调用。
+                if self._shutting_down:
+                    return
                 if expected_generation is not None and record.generation != expected_generation:
                     return
                 if expected_states is not None and record.state not in expected_states:
