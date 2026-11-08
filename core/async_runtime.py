@@ -49,7 +49,7 @@ class AsyncRuntime:
         executor = self._blocking_executor
         if executor is None:
             raise RuntimeError("阻塞任务执行器尚未初始化。")
-        tokens = install_blocking_executor(executor)
+        install_blocking_executor(loop, executor)
         self._ready.set()
         try:
             loop.run_forever()
