@@ -1916,7 +1916,11 @@ class VideoModuleFacade:
             daemon=True,
         )
         self._shutdown_cleanup_thread = cleanup_thread
-        cleanup_thread.start()
+        try:
+            cleanup_thread.start()
+        except Exception:
+            self._shutdown_cleanup_thread = None
+            raise
 
     async def shutdown(self):
         """程序退出时等待预先启动的专用 Chrome 清理；不触碰洛雪。"""
