@@ -250,7 +250,7 @@ class ModuleManager:
         with self._lock:
             self._disconnect_snapshot = None
 
-    async def shutdown_all(self, timeout: float = 32.0, per_module_timeout: float = 12.0) -> None:
+    async def shutdown_all(self, timeout: float = 32.0, per_module_timeout: float = 14.0) -> None:
         """按依赖逆序清理模块；单个模块卡住时限时取消并继续处理其他模块。"""
         self.begin_shutdown()
         deadline = asyncio.get_running_loop().time() + max(0.1, float(timeout))
