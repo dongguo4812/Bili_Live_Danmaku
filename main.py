@@ -880,6 +880,7 @@ def _obs_connection_monitor() -> None:
                     "connected", "OBS WebSocket 连接正常。", checked=True,
                 )
         except Exception as exc:
+            attempted = True
             if not OBS_CONNECTION_MONITOR_STOP.is_set():
                 error = str(exc).strip() or type(exc).__name__
                 _set_obs_connection_status(
