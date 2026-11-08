@@ -12,6 +12,7 @@ import contextvars
 import logging
 import queue
 import threading
+import time
 import weakref
 from collections.abc import Callable
 from typing import Any
@@ -87,8 +88,12 @@ class DaemonExecutor(concurrent.futures.Executor):
                             self._queue.task_done()
             threads = tuple(self._threads)
         if wait:
+            deadline = time.monotonic() + max(0.0, timeout)
             for thread in threads:
-                thread.join(max(0.0, timeout))
+                remaining = max(0.0, deadline - time.monotonic())
+                if remaining <= 0:
+                    break
+                thread.join(remaining)
 
 
 _EXECUTORS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[DaemonExecutor, asyncio.Semaphore]] = weakref.WeakKeyDictionary()
