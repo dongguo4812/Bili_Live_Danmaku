@@ -19,15 +19,10 @@ from typing import Any
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchWindowException, InvalidSessionIdException
 from selenium.webdriver.chrome.options import Options
-
-try:
-    import obsws_python
-except ImportError:
-    obsws_python = None
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 from core.config_manager import ConfigManager
 from core.paths import get_base_dir
-from core.credential_store import CredentialStore
 from core.blocking import run_blocking
 
 logger = logging.getLogger("bili_live_danmaku.video")
@@ -43,6 +38,7 @@ MAX_VIDEO_DURATION_SEC = int(VIDEO_CONFIG.get("requests", {}).get("max_video_dur
 COOLDOWN_SEC = int(VIDEO_CONFIG.get("requests", {}).get("cooldown_seconds", 60))
 MAX_QUEUE_SIZE = int(VIDEO_CONFIG.get("requests", {}).get("queue_limit", 30))
 PAGE_LOAD_TIMEOUT = int(VIDEO_CONFIG.get("chrome", {}).get("page_load_timeout_seconds", 45))
+BROWSER_STARTUP_TIMEOUT = 30.0
 CHROME_PROFILE = BASE_DIR / str(VIDEO_CONFIG.get("chrome", {}).get("profile_dir", "data/video/chrome_profile"))
 COOKIE_VALUES: dict[str, str] = {}
 ADMIN_UIDS: set[int] = set()
@@ -69,7 +65,7 @@ OPERATION_MESSAGE_LIMIT = 10
 # 防止同一观众绕过冷却、重复 BV 入队或并发请求突破队列上限。
 pending_video_uids: set[int] = set()
 pending_video_bvs: set[str] = set()
-OBS_CONFIG: dict[str, Any] = {"enabled": False}
+OBS_VISIBILITY_CALLBACK = None
 
 
 def load_cookie_values_for_api():
@@ -79,36 +75,11 @@ def load_cookie_values_for_api():
     return dict(COOKIE_VALUES)
 
 
-def load_obs_config() -> dict[str, Any]:
-    config = CONFIG_MANAGER.load("obs", {})
-    try:
-        secret = CredentialStore().load("obs") or {}
-    except Exception as exc:
-        logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
-        secret = {}
-    host = str(config.get("host", "")).strip()
-    video_obs = VIDEO_CONFIG.get("obs", {}) if isinstance(VIDEO_CONFIG.get("obs"), dict) else {}
-    source_name = str(config.get("source_name") or video_obs.get("source_name", "b站视频播放器")).strip()
-    try:
-        port = int(config.get("port", 4455))
-    except (TypeError, ValueError):
-        port = 0
-    password = str(secret.get("password", "") or "")
-    return {
-        "host": host,
-        "port": port,
-        "password": password,
-        "source_name": source_name,
-        "enabled": bool(host and 1 <= port <= 65535 and source_name and password),
-        "timeout": float(config.get("timeout", 2.5) or 2.5),
-    }
-
-
 def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id: int | None = None) -> None:
     """由主程序注入统一 Cookie 和普通模块配置；不创建第二个登录或连接。"""
     global VIDEO_CONFIG, roomid, REQUIRE_FAN_MEDAL, MAX_VIDEO_DURATION_SEC
     global COOLDOWN_SEC, MAX_QUEUE_SIZE, PAGE_LOAD_TIMEOUT, CHROME_PROFILE
-    global COOKIE_VALUES, ADMIN_UIDS, OBS_CONFIG, chrome_options
+    global COOKIE_VALUES, ADMIN_UIDS, chrome_options
     VIDEO_CONFIG = dict(config or {})
     requests_config = VIDEO_CONFIG.get("requests", {}) if isinstance(VIDEO_CONFIG.get("requests"), dict) else {}
     chrome_config = VIDEO_CONFIG.get("chrome", {}) if isinstance(VIDEO_CONFIG.get("chrome"), dict) else {}
@@ -141,9 +112,6 @@ def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id
     binary_path = str(chrome_config.get("binary_path", "") or "").strip()
     if binary_path and Path(binary_path).is_file():
         chrome_options.binary_location = binary_path
-    OBS_CONFIG = load_obs_config()
-
-
 def add_operation_message(message, kind=""):
     operation_messages.append({
         "time": time.strftime("%H:%M:%S"),
@@ -241,143 +209,16 @@ def build_queue_snapshot():
     }
 
 
-def set_obs_source_visible(visible):
-    """控制所有场景中同名来源的可见性，只修改实际状态不一致的场景项目。"""
-    visible = bool(visible)
-
-    # 配置无效时完全跳过 WebSocket 请求。
-    if not OBS_CONFIG or not OBS_CONFIG.get("enabled", False):
-        return False
-
-    if obsws_python is None:
-        logger.error(
-            "缺少 obsws-python 依赖，无法控制 OBS。"
-            "请安装：python -m pip install obsws-python"
-        )
-        return False
-
-    client = None
-    try:
-        client = obsws_python.ReqClient(
-            host=OBS_CONFIG["host"],
-            port=OBS_CONFIG["port"],
-            password=OBS_CONFIG["password"],
-            timeout=3,
-        )
-
-        scene_response = client.get_scene_list()
-        scenes = getattr(scene_response, "scenes", None)
-        if scenes is None and isinstance(scene_response, dict):
-            scenes = scene_response.get("scenes", [])
-        if not scenes:
-            logger.warning("控制 OBS 来源失败：OBS 未返回任何场景。")
-            return False
-
-        target_name = OBS_CONFIG["source_name"]
-        matched_count = 0
-        changed_count = 0
-        changed_scenes = []
-
-        for scene in scenes:
-            if isinstance(scene, dict):
-                scene_name = (
-                    scene.get("sceneName")
-                    or scene.get("scene_name")
-                    or scene.get("name")
-                )
-            else:
-                scene_name = (
-                    getattr(scene, "scene_name", None)
-                    or getattr(scene, "sceneName", None)
-                    or getattr(scene, "name", None)
-                )
-
-            if not scene_name:
-                continue
-
-            item_response = client.get_scene_item_list(scene_name)
-            items = getattr(item_response, "scene_items", None)
-            if items is None and isinstance(item_response, dict):
-                items = item_response.get(
-                    "sceneItems", item_response.get("scene_items", [])
-                )
-            if not items:
-                continue
-
-            for item in items:
-                if isinstance(item, dict):
-                    item_name = item.get("sourceName") or item.get("source_name")
-                    item_id = item.get("sceneItemId")
-                    if item_id is None:
-                        item_id = item.get("scene_item_id")
-                    item_enabled = item.get("sceneItemEnabled")
-                    if item_enabled is None:
-                        item_enabled = item.get("scene_item_enabled")
-                else:
-                    item_name = (
-                        getattr(item, "source_name", None)
-                        or getattr(item, "sourceName", None)
-                    )
-                    item_id = getattr(item, "scene_item_id", None)
-                    if item_id is None:
-                        item_id = getattr(item, "sceneItemId", None)
-                    item_enabled = getattr(item, "scene_item_enabled", None)
-                    if item_enabled is None:
-                        item_enabled = getattr(item, "sceneItemEnabled", None)
-
-                if item_name != target_name or item_id is None:
-                    continue
-
-                matched_count += 1
-
-                # 只有读取到状态且与目标状态不同，才跳过/执行设置。
-                # 如果此版本返回对象不含 enabled 字段，则保守地执行设置请求。
-                if item_enabled is not None and bool(item_enabled) == visible:
-                    continue
-
-                client.set_scene_item_enabled(scene_name, int(item_id), visible)
-                changed_count += 1
-                if scene_name not in changed_scenes:
-                    changed_scenes.append(scene_name)
-
-        if matched_count == 0:
-            logger.warning(
-                "OBS 中未找到名为“%s”的来源场景项目；"
-                "请检查所有场景中的来源名称是否完全一致。",
-                target_name,
-            )
-            return False
-
-        # 状态已符合要求时，不重复发送设置请求，也不重复打印显隐日志。
-        if changed_count == 0:
-            return True
-
-        logger.info(
-            "OBS 来源已%s：来源=%s；本次修改 %s 个场景项目（场景：%s）",
-            "显示" if visible else "隐藏",
-            target_name,
-            changed_count,
-            "、".join(changed_scenes),
-        )
-        return True
-
-    except Exception as exc:
-        logger.warning(
-            "控制 OBS 来源失败：source=%s；错误类型=%s。请检查 OBS WebSocket 配置。",
-            OBS_CONFIG.get("source_name"), type(exc).__name__,
-        )
-        return False
-    finally:
-        if client is not None:
-            try:
-                client.disconnect()
-            except Exception:
-                pass
-
-
 async def set_obs_visibility_async(visible):
-    """在线程中执行 OBS 请求，避免阻塞弹幕事件循环。"""
-    return await run_blocking(set_obs_source_visible, visible)
+    """通过主程序注入的回调控制 OBS；视频模块不持有 OBS 连接或凭据。"""
+    callback = OBS_VISIBILITY_CALLBACK
+    if not callable(callback):
+        return False
+    try:
+        return await run_blocking(callback, bool(visible))
+    except Exception as exc:
+        logger.warning("请求主程序控制 OBS 视频来源失败：%s", type(exc).__name__)
+        return False
 
 
 def fetch_streamer_uid_sync():
@@ -548,9 +389,32 @@ chrome_options.add_argument("--profile-directory=Default")
 chrome_options.page_load_strategy = "eager"
 
 driver = None
+chrome_service = None
 VIDEO_SHUTDOWN_REQUESTED = threading.Event()
 VIDEO_LIFECYCLE_LOCK = threading.RLock()
 VIDEO_EMERGENCY_CLEANUP_LOCK = threading.Lock()
+
+
+class ManagedChromeService(ChromeService):
+    """在 ChromeDriver 启动时保留可清理的进程句柄。"""
+
+    def _start_process(self, path):
+        startup_timed_out = getattr(self, "startup_timeout_event", None)
+        if VIDEO_SHUTDOWN_REQUESTED.is_set():
+            raise RuntimeError("程序正在退出，拒绝启动 ChromeDriver。")
+        if startup_timed_out is not None and startup_timed_out.is_set():
+            raise TimeoutError("ChromeDriver 启动超过 30 秒，已取消浏览器创建。")
+        super()._start_process(path)
+        # Service._start_process 返回时 process 已经创建；退出线程可通过
+        # 已登记的 Service 立即取得 PID，不必等待 webdriver.Chrome() 返回。
+        with VIDEO_LIFECYCLE_LOCK:
+            shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
+        if shutting_down:
+            _force_terminate_service_sync(self)
+            raise RuntimeError("程序正在退出，已终止新启动的 ChromeDriver。")
+        if startup_timed_out is not None and startup_timed_out.is_set():
+            _force_terminate_service_sync(self)
+            raise TimeoutError("ChromeDriver 启动超过 30 秒，已终止浏览器创建。")
 
 
 @selenium_locked
@@ -570,6 +434,52 @@ def _pause_video_for_close_sync():
 def _quit_browser_sync(browser):
     if browser is not None:
         browser.quit()
+
+
+def _service_process_id(service) -> int:
+    try:
+        process = getattr(service, "process", None)
+        pid = int(getattr(process, "pid", 0) or 0)
+        return pid if pid > 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _force_terminate_service_sync(service) -> bool:
+    """按已登记的 ChromeDriver PID 有界清理其进程树。"""
+    pid = _service_process_id(service)
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                logger.warning("已通过 Windows 进程树清理 ChromeDriver：PID=%s", pid)
+                return True
+            logger.warning(
+                "清理 ChromeDriver 进程树未确认成功：PID=%s，returncode=%s",
+                pid, result.returncode,
+            )
+            return False
+
+        process = getattr(service, "process", None)
+        process.terminate()
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1.0)
+        logger.warning("已终止 ChromeDriver：PID=%s", pid)
+        return True
+    except Exception as exc:
+        logger.warning("强制清理 ChromeDriver 失败：PID=%s，错误=%s", pid, type(exc).__name__)
+        return False
 
 
 def _browser_process_ids(browser) -> list[int]:
@@ -615,12 +525,14 @@ def _browser_process_alive_sync(browser) -> bool:
     return False
 
 
-def _force_terminate_browser_sync(browser) -> bool:
+def _force_terminate_browser_sync(browser):
     """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
     if browser is None or os.name != "nt":
         return False
 
     pids = _browser_process_ids(browser)
+    if not pids:
+        return False
 
     closed = False
     for pid in pids:
@@ -698,14 +610,18 @@ def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
 
 
 def emergency_close_browser_sync() -> bool:
-    """程序退出时优先按 WebDriver PID、再按独立 chrome_profile 清理 Chrome。"""
-    global driver
+    """程序退出时优先按 ChromeDriver PID、再按专用 Profile 清理浏览器进程。"""
+    global driver, chrome_service
     with VIDEO_EMERGENCY_CLEANUP_LOCK:
         with VIDEO_LIFECYCLE_LOCK:
             browser = driver
+            service = chrome_service
             driver = None
-        # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
-        if browser is not None:
+            chrome_service = None
+        # ChromeDriver 是 Chrome 的启动父进程；按其 PID 清理进程树，
+        # 即使 webdriver.Chrome() 尚未返回、全局 driver 仍为 None 也能执行。
+        service_closed = _force_terminate_service_sync(service) if service is not None else False
+        if browser is not None and not service_closed:
             _force_terminate_browser_sync(browser)
         roots, remaining = _terminate_chrome_profile_processes_sync()
         if remaining:
@@ -720,24 +636,53 @@ def emergency_close_browser_sync() -> bool:
 
 @selenium_locked
 def create_browser():
-    """创建 Chrome 并登记所有权；退出封锁与登记使用同一把锁，避免关闭后复活。"""
-    global driver
+    """创建 Chrome 并提前登记 Service，确保启动中的 ChromeDriver 可被退出流程追踪。"""
+    global driver, chrome_service
     browser = None
+    service = None
     cleaned_for_shutdown = False
+    startup_timed_out = threading.Event()
+    startup_completed = threading.Event()
+    startup_timer = None
     try:
         if VIDEO_SHUTDOWN_REQUESTED.is_set():
             raise RuntimeError("程序正在退出，拒绝创建新的视频浏览器。")
-        browser = webdriver.Chrome(options=chrome_options)
+        service = ManagedChromeService()
+        service.startup_timeout_event = startup_timed_out
+        with VIDEO_LIFECYCLE_LOCK:
+            if VIDEO_SHUTDOWN_REQUESTED.is_set():
+                raise RuntimeError("程序正在退出，拒绝登记 ChromeDriver。")
+            chrome_service = service
+
+        def timeout_browser_startup():
+            # 与成功登记 driver 使用同一把锁，避免超时回调误杀已完成的会话。
+            with VIDEO_LIFECYCLE_LOCK:
+                if startup_completed.is_set():
+                    return
+                startup_timed_out.set()
+            logger.error("Chrome 浏览器创建超过 %s 秒，正在终止 ChromeDriver 并清理专用 Profile。", BROWSER_STARTUP_TIMEOUT)
+            _force_terminate_service_sync(service)
+            _terminate_chrome_profile_processes_sync()
+
+        startup_timer = threading.Timer(BROWSER_STARTUP_TIMEOUT, timeout_browser_startup)
+        startup_timer.daemon = True
+        startup_timer.start()
+
+        browser = webdriver.Chrome(service=service, options=chrome_options)
+        if startup_timed_out.is_set():
+            raise TimeoutError(f"Chrome 浏览器创建超过 {BROWSER_STARTUP_TIMEOUT:g} 秒，已终止启动。")
         browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
         with VIDEO_LIFECYCLE_LOCK:
             shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
-            if not shutting_down:
+            timed_out = startup_timed_out.is_set()
+            if not shutting_down and not timed_out:
+                startup_completed.set()
+                startup_timer.cancel()
                 driver = browser
+        if timed_out:
+            raise TimeoutError(f"Chrome 浏览器创建超过 {BROWSER_STARTUP_TIMEOUT:g} 秒，已终止启动。")
         if shutting_down:
-            try:
-                browser.quit()
-            except Exception:
-                logger.warning("退出期间新建的 Chrome 会话无法正常 quit，改由专用 Profile 清理。")
+            _force_terminate_service_sync(service)
             roots, remaining = _terminate_chrome_profile_processes_sync()
             cleaned_for_shutdown = True
             if remaining:
@@ -745,11 +690,14 @@ def create_browser():
             raise RuntimeError("程序正在退出，已拒绝登记新的视频浏览器。")
         return browser
     except Exception:
-        # SessionNotCreated 等异常可能发生在 Chrome 已启动、WebDriver 会话
-        # 尚未建立时；此时全局 driver 仍可能为 None，常规 quit 无法回收孤儿进程。
-        # 仅按本程序独立的 user-data-dir 定向清理，绝不结束其他 Chrome。
+        if startup_timer is not None:
+            startup_timer.cancel()
+        logger.exception("创建视频点播 Chrome 会话失败，正在清理 ChromeDriver 与专用 Profile。")
+        # 即使 WebDriver 会话尚未建立，全局 Service 也已登记，可直接按 PID
+        # 回收 ChromeDriver 及其子进程；专用 Profile 扫描继续作为兜底。
         if not cleaned_for_shutdown:
-            logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
+            if service is not None:
+                _force_terminate_service_sync(service)
             roots, remaining = _terminate_chrome_profile_processes_sync()
             if remaining:
                 logger.error(
@@ -761,6 +709,9 @@ def create_browser():
                 logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
             else:
                 logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
+        with VIDEO_LIFECYCLE_LOCK:
+            if chrome_service is service:
+                chrome_service = None
         raise
 
 
@@ -994,8 +945,8 @@ def try_enter_video_fullscreen(bv, timeout=10):
 
 
 @selenium_locked
-def open_video_page(bv, url):
-    """打开视频页面并重置进度；网页全屏由监控在确认播放进度后触发。"""
+def open_video_page(bv, url, resume_time=0.0):
+    """打开视频页面；新视频从头播放，浏览器恢复时尽可能恢复原进度。"""
     global driver
 
     # 首先处理最常见的情况：视频标签页被手动关闭，但其他标签页仍在。
@@ -1022,7 +973,8 @@ def open_video_page(bv, url):
                 return {ok: false, reason: 'metadata_not_ready', readyState: v.readyState};
             }
             try {
-                v.currentTime = 0;
+                const target = Math.max(0, Number(arguments[0]) || 0);
+                v.currentTime = Math.min(target, Math.max(0, v.duration - 1));
                 return {ok: true, currentTime: v.currentTime, duration: v.duration};
             } catch (e) {
                 return {ok: false, reason: String(e)};
@@ -1031,17 +983,17 @@ def open_video_page(bv, url):
         reset_deadline = time.monotonic() + 10.0
         reset_result = None
         while time.monotonic() < reset_deadline:
-            reset_result = driver.execute_script(reset_script)
+            reset_result = driver.execute_script(reset_script, resume_time)
             if isinstance(reset_result, dict) and reset_result.get("ok"):
                 logger.info(
-                    "已将点播视频播放位置重置到开头：%s（当前 %.2f 秒）",
-                    bv, float(reset_result.get("currentTime") or 0),
+                    "已设置点播视频恢复位置：%s（目标 %.2f 秒，实际 %.2f 秒）",
+                    bv, max(0.0, float(resume_time or 0)), float(reset_result.get("currentTime") or 0),
                 )
                 break
             time.sleep(0.5)
         else:
             reason = reset_result.get("reason", "unknown") if isinstance(reset_result, dict) else "no_result"
-            logger.warning("未能确认视频播放位置已重置为 0 秒：%s（原因：%s）", bv, reason)
+            logger.warning("未能确认视频播放位置已设置：%s（目标 %.2f 秒，原因：%s）", bv, max(0.0, float(resume_time or 0)), reason)
     except Exception as exc:
         logger.warning("重置视频播放位置失败（不影响点播队列）：%s；%s", bv, exc)
 
@@ -1054,6 +1006,8 @@ video_queue = []
 
 # 当前打开的视频
 current_bv = None
+# 最近一次成功读取的 HTML5 播放进度；浏览器被手动关闭后用于恢复。
+current_video_position = 0.0
 
 # 是否正在处理播放任务
 is_playing = False
@@ -1142,7 +1096,7 @@ async def _resume_music_if_video_finished():
 
 async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
-    global is_playing, current_bv, playback_monitor_task, playback_state
+    global is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
     if session_generation is None:
         session_generation = video_session_generation
     if not module_enabled or session_generation != video_session_generation:
@@ -1160,6 +1114,63 @@ async def monitor_video_end(bv, session_generation=None):
     last_obs_visible = False
     status_task = None
     status_timeout_count = 0
+    last_browser_recovery_at = 0.0
+    recovery_attempts = 0
+    max_recovery_attempts = 2
+
+    async def recover_current_video():
+        """恢复当前 BV；最多失败两次，之后放弃当前视频并推进队列。"""
+        nonlocal recovery_attempts, last_browser_recovery_at
+        nonlocal saw_video, last_time, saw_progress
+        nonlocal fullscreen_attempted, last_obs_visible, status_timeout_count
+        global driver, is_playing, current_bv, current_video_position
+
+        recovery_attempts += 1
+        try:
+            await run_blocking(
+                open_video_page, bv,
+                f"https://www.bilibili.com/video/{bv}",
+                current_video_position,
+            )
+            if not module_enabled or session_generation != video_session_generation:
+                return "stale"
+            saw_video = False
+            last_time = -1.0
+            saw_progress = False
+            fullscreen_attempted = False
+            last_obs_visible = False
+            status_timeout_count = 0
+            recovery_attempts = 0
+            logger.info(
+                "Selenium 已重新创建，继续播放当前视频：%s（恢复位置 %.2f 秒）",
+                bv, current_video_position,
+            )
+            return "recovered"
+        except Exception as recovery_exc:
+            logger.warning(
+                "恢复当前视频失败（第 %s/%s 次）：%s；%s",
+                recovery_attempts, max_recovery_attempts, bv,
+                type(recovery_exc).__name__,
+            )
+            # 让下一次尝试重新创建 WebDriver，而不是继续使用可能已失效的引用。
+            driver = None
+            last_browser_recovery_at = time.monotonic()
+            if recovery_attempts < max_recovery_attempts:
+                return "retry"
+
+            logger.error(
+                "当前视频连续恢复失败 %s 次，放弃当前视频并播放队列下一条：%s",
+                max_recovery_attempts, bv,
+            )
+            if module_enabled and session_generation == video_session_generation and current_bv == bv:
+                await set_obs_visibility_async(False)
+                is_playing = False
+                current_bv = None
+                current_video_position = 0.0
+                await play_next()
+                await _resume_music_if_video_finished()
+            return "advanced"
+
     status_script = """
         const v = document.querySelector('video');
         const player = document.querySelector('.bpx-player-container, .bilibili-player');
@@ -1199,6 +1210,14 @@ async def monitor_video_end(bv, session_generation=None):
                 return
 
             if driver is None:
+                # 首次恢复失败后等待 5 秒再进行最后一次尝试，避免紧密重试。
+                now = time.monotonic()
+                if now - last_browser_recovery_at >= 5.0:
+                    recovery_result = await recover_current_video()
+                    if recovery_result == "stale":
+                        return
+                    if recovery_result == "advanced":
+                        return
                 continue
 
             try:
@@ -1227,40 +1246,32 @@ async def monitor_video_end(bv, session_generation=None):
                         last_obs_visible = False
                     continue
             except (NoSuchWindowException, InvalidSessionIdException) as exc:
-                # 当前视频标签页被用户手动关闭，或关闭标签页时导致 WebDriver 会话失效。
-                # 将当前视频从播放状态中清除，再恢复浏览器并播放队列下一条。
-                logger.warning("检测到当前视频标签页/浏览器会话已关闭（%s）：%s", bv, exc)
+                logger.warning("检测到 Selenium 标签页/会话已关闭，准备恢复当前视频（%s）：%s", bv, exc)
                 await set_obs_visibility_async(False)
-                if current_bv == bv and is_playing:
-                    is_playing = False
-                    current_bv = None
-                    try:
-                        await run_blocking(ensure_browser_window)
-                        logger.info("浏览器已恢复，准备播放队列中的下一条视频")
-                    except Exception as recovery_exc:
-                        logger.exception("恢复浏览器失败：%s", recovery_exc)
-                    await play_next()
-                    await _resume_music_if_video_finished()
-                return
+                last_obs_visible = False
+                recovery_result = await recover_current_video()
+                if recovery_result in ("stale", "advanced"):
+                    return
+                continue
             except Exception as exc:
                 # 某些 Selenium 版本会把标签页关闭报告为通用 WebDriver 异常。
                 # 只在错误文本明显指向窗口/会话已关闭时执行恢复，避免把普通短暂错误误判为关闭。
                 error_text = str(exc).lower()
-                closed_markers = ("no such window", "target window already closed", "invalid session id", "web view not found")
+                closed_markers = (
+                    "no such window", "target window already closed", "invalid session id",
+                    "web view not found", "disconnected: not connected to devtools",
+                    "chrome not reachable", "chrome failed to start", "session deleted",
+                    "connection refused", "max retries exceeded",
+                    "failed to establish a new connection", "remote end closed connection",
+                )
                 if any(marker in error_text for marker in closed_markers):
-                    logger.warning("检测到视频标签页/浏览器会话已关闭（%s）：%s", bv, exc)
+                    logger.warning("检测到 Selenium/Chrome 会话已关闭，准备恢复当前视频（%s）：%s", bv, exc)
                     await set_obs_visibility_async(False)
-                    if current_bv == bv and is_playing:
-                        is_playing = False
-                        current_bv = None
-                        try:
-                            await run_blocking(ensure_browser_window)
-                            logger.info("浏览器已恢复，准备播放队列中的下一条视频")
-                        except Exception as recovery_exc:
-                            logger.exception("恢复浏览器失败：%s", recovery_exc)
-                        await play_next()
-                        await _resume_music_if_video_finished()
-                    return
+                    last_obs_visible = False
+                    recovery_result = await recover_current_video()
+                    if recovery_result in ("stale", "advanced"):
+                        return
+                    continue
                 logger.debug("读取视频播放状态失败（%s）：%s", bv, exc)
                 continue
 
@@ -1306,6 +1317,7 @@ async def monitor_video_end(bv, session_generation=None):
 
             duration = status.get("duration") or 0
             current_time = status.get("currentTime") or 0
+            current_video_position = max(0.0, float(current_time or 0))
             ready_state = status.get("readyState") or 0
             if ready_state < 2 or duration <= 0:
                 if last_obs_visible:
@@ -1374,7 +1386,7 @@ async def monitor_video_end(bv, session_generation=None):
 async def play_next():
     """取出队列第一条视频并打开页面。"""
 
-    global is_playing, current_bv, driver, playback_monitor_task, playback_state
+    global is_playing, current_bv, driver, playback_monitor_task, playback_state, current_video_position
 
     async with play_lock:
 
@@ -1396,6 +1408,7 @@ async def play_next():
 
         is_playing = True
         current_bv = bv
+        current_video_position = 0.0
         playback_state = "unknown"
 
         url = f"https://www.bilibili.com/video/{bv}"
@@ -1843,9 +1856,12 @@ async def on_dan_mu(msg_json):
             return
 
         finally:
-            pending_video_bvs.discard(bv)
-            if not is_admin:
-                pending_video_uids.discard(uid)
+            # 代数变化时旧会话的占用标记已由生命周期切换清理。
+            # 旧请求不得释放新会话对相同 BV/UID 建立的占用标记。
+            if request_generation == video_request_generation:
+                pending_video_bvs.discard(bv)
+                if not is_admin:
+                    pending_video_uids.discard(uid)
 
     # ---------- 3. 查看队列 ----------
 
@@ -1870,9 +1886,10 @@ async def on_dan_mu(msg_json):
 class VideoModuleFacade:
     """视频模块生命周期与统一事件总线适配器。"""
 
-    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None):
-        global music_controller
+    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None, obs_visibility_callback=None):
+        global music_controller, OBS_VISIBILITY_CALLBACK
         self.event_bus = event_bus
+        OBS_VISIBILITY_CALLBACK = obs_visibility_callback
         music_controller = music_module
         self.config = dict(config)
         self.cookie_provider = cookie_provider
@@ -1893,6 +1910,8 @@ class VideoModuleFacade:
             return
         video_session_generation += 1
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         await set_obs_visibility_async(False)
         await run_blocking(create_browser)
         with VIDEO_LIFECYCLE_LOCK:
@@ -1910,6 +1929,8 @@ class VideoModuleFacade:
         # 先标记暂停，阻止事件和播放任务继续启动下一条视频。
         module_paused = True
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         try:
             if current_bv and driver is not None:
                 await run_blocking(
@@ -1927,6 +1948,8 @@ class VideoModuleFacade:
             return
         # 暂停期间尚未完成的旧弹幕请求不应在恢复后重新入队。
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         # 断线重连后刷新统一登录态，避免粉丝牌查询继续使用失效 Cookie。
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if current_bv and driver is not None:
@@ -1952,6 +1975,8 @@ class VideoModuleFacade:
             module_paused = False
             video_session_generation += 1
             video_request_generation += 1
+            pending_video_uids.clear()
+            pending_video_bvs.clear()
         cleanup_thread = threading.Thread(
             target=emergency_close_browser_sync,
             name="video-emergency-browser-cleanup",
@@ -1989,10 +2014,12 @@ class VideoModuleFacade:
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
-        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
+        global driver, chrome_service, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         module_enabled = False
         module_paused = False
         monitor_task = playback_monitor_task
@@ -2015,8 +2042,10 @@ class VideoModuleFacade:
             except Exception as exc:
                 logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
         old_driver = driver if cleanup_browser else None
+        old_service = chrome_service if cleanup_browser else None
         if not cleanup_browser:
             driver = None
+            chrome_service = None
         if old_driver is not None:
             # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
             driver = None
@@ -2031,14 +2060,25 @@ class VideoModuleFacade:
                 if still_alive:
                     logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
                     closed = await run_blocking(_force_terminate_browser_sync, old_driver)
+                    if not closed and old_service is not None:
+                        closed = await run_blocking(_force_terminate_service_sync, old_service)
                     if not closed:
-                        logger.error("按 WebDriver PID 清理 Chrome 未能确认成功。")
+                        logger.error("按 WebDriver/Service PID 清理 Chrome 未能确认成功。")
                 else:
                     logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
             except Exception as exc:
                 logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
-                if not await run_blocking(_force_terminate_browser_sync, old_driver):
-                    logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+                closed = await run_blocking(_force_terminate_browser_sync, old_driver)
+                if not closed and old_service is not None:
+                    closed = await run_blocking(_force_terminate_service_sync, old_service)
+                if not closed:
+                    logger.warning("按 WebDriver/Service PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+
+        if old_driver is None and old_service is not None:
+            await run_blocking(_force_terminate_service_sync, old_service)
+        with VIDEO_LIFECYCLE_LOCK:
+            if chrome_service is old_service:
+                chrome_service = None
 
         # 普通手动关闭时再次核验 Profile；程序退出的快速路径已在 shutdown() 开头完成。
         try:
@@ -2049,6 +2089,8 @@ class VideoModuleFacade:
                     roots, remaining,
                 )
                 await run_blocking(_force_terminate_browser_sync, old_driver)
+                if old_service is not None:
+                    await run_blocking(_force_terminate_service_sync, old_service)
                 roots, remaining = await run_blocking(_terminate_chrome_profile_processes_sync)
             if remaining:
                 logger.error("Chrome 专用 Profile 仍有残留进程，PID=%s。", remaining)
@@ -2068,6 +2110,7 @@ class VideoModuleFacade:
         is_playing = False
         playback_state = "stopped"
         current_bv = None
+        current_video_position = 0.0
         if restore_music:
             await _resume_music_if_video_finished()
             logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
@@ -2087,10 +2130,6 @@ class VideoModuleFacade:
             raise RuntimeError("请先关闭视频模块，再修改视频配置。")
         self.config = dict(config)
         configure_video_module(self.config, None, self.room_id)
-
-    def reload_obs_settings(self) -> None:
-        global OBS_CONFIG
-        OBS_CONFIG = load_obs_config()
 
     async def queue_snapshot(self) -> dict[str, Any]:
         # Flask 线程通过 ApplicationRuntime 调用本方法；快照在修改队列的

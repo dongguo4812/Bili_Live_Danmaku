@@ -97,6 +97,7 @@
   let currentSpeech = null;
   let speechSequence = 0;
   let speaking = false;
+  let voicePlaybackEpoch = 0;
   let audioUnlocked = false;
   let audioContext = null;
   let speechStatePostInFlight = false;
@@ -638,6 +639,7 @@
     if (canvas) canvas.style.visibility = showLive2D && live2dModuleState !== "stopped" ? "visible" : "hidden";
 
     if (voiceModuleActive && !nextVoice) {
+      voicePlaybackEpoch += 1;
       speechQueue.length = 0;
       currentSpeech = null;
       publishSpeechState();
@@ -703,7 +705,7 @@
     }
   }
 
-  async function playSpeechText(text) {
+  async function playSpeechText(text, playbackEpoch) {
     
     await unlockSpeechAudio();
     const response = await fetch("/api/voice/tts/synthesize", {
@@ -714,13 +716,15 @@
     const data = await response.json();
     
     if (!response.ok || !data.ok) throw new Error(data.error || "语音生成失败。");
+    if (!voiceModuleActive || playbackEpoch !== voicePlaybackEpoch) return;
 
     const audioResponse = await fetch(data.url, { cache: "no-store" });
     
     if (!audioResponse.ok) throw new Error("无法读取生成的语音文件。");
     const encodedAudio = await audioResponse.arrayBuffer();
     const decodedAudio = await audioContext.decodeAudioData(encodedAudio);
-    
+    if (!voiceModuleActive || playbackEpoch !== voicePlaybackEpoch) return;
+
     const source = audioContext.createBufferSource();
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 1024;
@@ -760,10 +764,8 @@
   }
 
   async function processSpeechQueue() {
-    if (!voiceModuleActive || speaking || !speechQueue.length) {
-      if (showTts && speechQueue.length && !voiceModuleActive) 
-      return;
-    }
+    if (!voiceModuleActive || speaking || !speechQueue.length) return;
+    const playbackEpoch = voicePlaybackEpoch;
     speaking = true;
     
     publishSpeechState();
@@ -772,12 +774,12 @@
         const ready = await unlockSpeechAudio({ silent: true });
         if (!ready) return;
       }
-      while (speechQueue.length) {
+      while (speechQueue.length && voiceModuleActive && playbackEpoch === voicePlaybackEpoch) {
         const next = speechQueue.shift();
         currentSpeech = next;
         publishSpeechState();
         try {
-          await playSpeechText(next.text);
+          await playSpeechText(next.text, playbackEpoch);
           currentSpeech = null;
           publishSpeechState();
         } catch (error) {
@@ -801,6 +803,10 @@
       speaking = false;
       currentSpeech = null;
       publishSpeechState();
+      // 若模块在旧请求尚未结束时重新启用，接着处理新一轮入队的语音。
+      if (voiceModuleActive && speechQueue.length && playbackEpoch !== voicePlaybackEpoch) {
+        processSpeechQueue();
+      }
     }
   }
 

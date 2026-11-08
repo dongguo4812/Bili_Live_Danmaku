@@ -40,6 +40,15 @@ class BilibiliClientError(RuntimeError):
     pass
 
 
+def _close_http_session(session: requests.Session | None) -> None:
+    if session is None:
+        return
+    try:
+        session.close()
+    except Exception:
+        logger.debug("关闭 B 站 HTTP Session 时发生异常", exc_info=True)
+
+
 def _cookie_values(session: requests.Session) -> dict[str, str]:
     cookies = session.cookies.get_dict()
     return {
@@ -101,6 +110,7 @@ def _dpapi_transform(data: bytes, protect: bool) -> bytes:
 def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
     if not path.is_file():
         return False, "尚未登录，请使用 B 站二维码登录。", None
+    session: requests.Session | None = None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -140,6 +150,8 @@ def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
     except Exception as exc:
         logger.warning("验证 B 站登录凭据失败：%s", exc)
         return False, f"无法验证登录凭据：{exc}", None
+    finally:
+        _close_http_session(session)
 
 
 class QRLogin:
@@ -155,19 +167,33 @@ class QRLogin:
         self.expires_at = 0.0
         self._generation = 0
         self._poll_lock = threading.Lock()
+        self._active_poll_session: requests.Session | None = None
+        self._sessions: set[requests.Session] = set()
+        self._shutting_down = False
 
     def start(self) -> dict[str, Any]:
         # 立即使旧二维码的轮询结果失效，避免旧请求晚返回时覆盖新二维码状态。
         with self.lock:
+            if self._shutting_down:
+                return {"ok": False, "error": "程序正在退出，无法申请登录二维码。"}
             self._generation += 1
             generation = self._generation
+            old_session = self.session
             self.session = None
             self.qrcode_key = ""
             self.state = "starting"
             self.message = "正在申请 B 站登录二维码。"
             self.expires_at = 0.0
+            close_old_session = old_session is not None and old_session is not self._active_poll_session
+        if close_old_session:
+            self._close_session(old_session)
         try:
             session = requests.Session()
+            with self.lock:
+                if self._shutting_down:
+                    self._close_session(session)
+                    return {"ok": False, "error": "程序正在退出，已取消二维码申请。"}
+                self._sessions.add(session)
             session.headers.update({
                 "User-Agent": USER_AGENT,
                 "Referer": "https://www.bilibili.com/",
@@ -185,14 +211,17 @@ class QRLogin:
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
         except Exception as exc:
+            if "session" in locals():
+                self._close_session(session)
             with self.lock:
                 if generation == self._generation:
                     self.state = "error"
                     self.message = f"申请 B 站登录二维码失败：{exc}"
             raise
         with self.lock:
-            if generation != self._generation:
-                return {"ok": False, "error": "二维码申请已被新的请求替代，请使用最新二维码。"}
+            if self._shutting_down or generation != self._generation:
+                self._close_session(session)
+                return {"ok": False, "error": "二维码申请已被新的请求替代或程序正在退出。"}
             self.session = session
             self.qrcode_key = str(key)
             self.state = "waiting"
@@ -208,11 +237,34 @@ class QRLogin:
 
     def poll(self) -> dict[str, Any]:
         # 管理页面可能因多次打开或网络延迟产生重叠轮询；同一 Session 只允许一个 poll。
+        with self.lock:
+            if self._shutting_down:
+                return self.status()
         if not self._poll_lock.acquire(blocking=False):
             return self.status()
+        with self.lock:
+            if self._shutting_down:
+                self._poll_lock.release()
+                return self.status()
+            session = self.session
+            self._active_poll_session = session
         try:
             return self._poll_once()
         finally:
+            close_session = None
+            with self.lock:
+                active_session = self._active_poll_session
+                self._active_poll_session = None
+                if active_session is not None and (
+                    self.session is not active_session
+                    or self.state not in {"waiting", "scanned"}
+                ):
+                    if self.session is active_session:
+                        self.session = None
+                        self.qrcode_key = ""
+                    close_session = active_session
+            if close_session is not None:
+                self._close_session(close_session)
             self._poll_lock.release()
 
     def _poll_once(self) -> dict[str, Any]:
@@ -307,9 +359,37 @@ class QRLogin:
             self._set_state_if_current(generation, "error", f"扫码登录失败：{exc}")
         return self.status()
 
+    def _close_session(self, session: requests.Session) -> None:
+        """关闭并登记 HTTP Session，避免退出与轮询清理重复关闭。"""
+        with self.lock:
+            if session not in self._sessions:
+                return
+            self._sessions.discard(session)
+            if self.session is session:
+                self.session = None
+            if self._active_poll_session is session:
+                self._active_poll_session = None
+        _close_http_session(session)
+
+    def shutdown(self) -> None:
+        """封锁新的二维码请求并关闭所有已登记的 HTTP Session，不等待网络请求返回。"""
+        with self.lock:
+            if self._shutting_down:
+                return
+            self._shutting_down = True
+            self._generation += 1
+            self.state = "closed"
+            self.message = "程序正在退出，二维码登录已停止。"
+            self.expires_at = 0.0
+            self.qrcode_key = ""
+            self.session = None
+            sessions = tuple(self._sessions)
+        for session in sessions:
+            self._close_session(session)
+
     def _set_state_if_current(self, generation: int, state: str | None, message: str) -> bool:
         with self.lock:
-            if generation != self._generation:
+            if self._shutting_down or generation != self._generation:
                 return False
             if state is not None:
                 self.state = state

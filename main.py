@@ -31,6 +31,7 @@ from core.paths import get_base_dir
 from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
+from core.coalescing_worker import CoalescingWorker
 from core.extension_manager import LolHexExtensionManager
 from core.logger_manager import setup_logging
 from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
@@ -44,6 +45,7 @@ DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "da
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 TTS_CACHE_MAX_AGE_SECONDS = 3600
 TTS_CACHE_MAX_FILES = 300
+TTS_SYNTHESIS_TIMEOUT_SECONDS = 10.0
 TTS_CACHE_LOCK = threading.RLock()
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
@@ -636,32 +638,52 @@ def synthesize_tts():
         return jsonify({"ok": False, "error": "单条语音内容不能超过 1000 个字符。"}), 400
     with SETTINGS_LOCK:
         preferences = _tts_preferences(_load_user_settings())
+
+    deadline = time.monotonic() + TTS_SYNTHESIS_TIMEOUT_SECONDS
+    lock_wait = max(0.0, deadline - time.monotonic())
+    lock_acquired = lock_wait > 0 and TTS_CACHE_LOCK.acquire(timeout=lock_wait)
+    if not lock_acquired:
+        return jsonify({"ok": False, "error": "TTS 合成超时，已跳过当前语音。"}), 504
+
+    target: Path | None = None
+    completed = False
     try:
         import edge_tts
 
-        # 合成过程也持有锁：并发请求必须先看到前一个请求创建的文件，
-        # 否则多个请求同时预留名额可能突破缓存数量上限。
-        with TTS_CACHE_LOCK:
-            _cleanup_tts_cache(reserve_slots=1)
-            filename = uuid.uuid4().hex + ".mp3"
-            target = TTS_CACHE_DIR / filename
+        _cleanup_tts_cache(reserve_slots=1)
+        filename = uuid.uuid4().hex + ".mp3"
+        target = TTS_CACHE_DIR / filename
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise asyncio.TimeoutError()
 
-            async def generate() -> None:
-                communicate = edge_tts.Communicate(
-                    text,
-                    preferences["voice"],
-                    rate=f'{preferences["rate"]:+d}%',
-                    volume=f'{preferences["volume"]:+d}%',
-                )
-                await communicate.save(str(target))
+        async def generate() -> None:
+            communicate = edge_tts.Communicate(
+                text,
+                preferences["voice"],
+                rate=f'{preferences["rate"]:+d}%',
+                volume=f'{preferences["volume"]:+d}%',
+            )
+            await asyncio.wait_for(communicate.save(str(target)), timeout=remaining)
 
-            asyncio.run(generate())
-            if not target.is_file() or target.stat().st_size <= 0:
-                raise RuntimeError("Edge TTS 未生成有效音频文件。")
-            return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
+        asyncio.run(generate())
+        if not target.is_file() or target.stat().st_size <= 0:
+            raise RuntimeError("Edge TTS 未生成有效音频文件。")
+        completed = True
+        return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
+    except asyncio.TimeoutError:
+        logger.warning("Edge TTS 合成超过 %.1f 秒，已跳过当前语音。", TTS_SYNTHESIS_TIMEOUT_SECONDS)
+        return jsonify({"ok": False, "error": "TTS 合成超时，已跳过当前语音。"}), 504
     except Exception as exc:
         logger.exception("Edge TTS 语音生成失败")
         return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
+    finally:
+        if target is not None and not completed:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+        TTS_CACHE_LOCK.release()
 
 
 @app.get("/api/voice/tts/audio/<filename>")
@@ -777,6 +799,120 @@ def _read_obs_password() -> str:
         return ""
 
 
+OBS_CONNECTION_STATUS_LOCK = threading.RLock()
+OBS_CONNECTION_STATUS: dict[str, Any] = {
+    "state": "connecting",
+    "connected": False,
+    "message": "正在检查 OBS WebSocket 连接。",
+    "error": "",
+    "last_checked_at": 0.0,
+}
+OBS_CONNECTION_MONITOR_STOP = threading.Event()
+OBS_CONNECTION_MONITOR_WAKE = threading.Event()
+OBS_CONNECTION_MONITOR_THREAD: threading.Thread | None = None
+OBS_CONNECTION_MONITOR_INTERVAL_SECONDS = 5.0
+OBS_CONNECTION_RETRY_INTERVAL_SECONDS = 5.0
+
+
+def _set_obs_connection_status(
+    state: str, message: str, error: str = "", checked: bool = False,
+) -> None:
+    with OBS_CONNECTION_STATUS_LOCK:
+        OBS_CONNECTION_STATUS.update({
+            "state": state,
+            "connected": state == "connected",
+            "message": message,
+            "error": error[:240],
+        })
+        if checked:
+            OBS_CONNECTION_STATUS["last_checked_at"] = time.time()
+
+
+def _obs_connection_status_snapshot() -> dict[str, Any]:
+    with OBS_CONNECTION_STATUS_LOCK:
+        return dict(OBS_CONNECTION_STATUS)
+
+
+def _request_obs_connection_recheck() -> None:
+    """OBS 地址或凭据变化后，唤醒独立状态连接进行重新认证。"""
+    OBS_CONNECTION_MONITOR_WAKE.set()
+
+
+def _obs_connection_ping(ws: Any) -> None:
+    """使用 RFC 6455 WebSocket 控制帧 Ping/Pong 检查连接，不发送 OBS RPC。"""
+    payload = str(time.time_ns()).encode("ascii")
+    ws.ping(payload)
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        opcode, frame = ws.recv_data(control_frame=True)
+        if opcode == websocket.ABNF.OPCODE_PONG and frame == payload:
+            return
+    raise TimeoutError("等待 OBS WebSocket 控制帧 Pong 超时。")
+
+
+def _obs_connection_monitor() -> None:
+    """维护专用状态连接；业务 OBS 操作仍使用各自的短连接。"""
+    attempted = False
+    while not OBS_CONNECTION_MONITOR_STOP.is_set():
+        ws = None
+        reconnect_requested = False
+        try:
+            _set_obs_connection_status(
+                "reconnecting" if attempted else "connecting",
+                "正在重新连接 OBS WebSocket。" if attempted else "正在连接 OBS WebSocket。",
+            )
+            ws = _open_obs_websocket()
+            ws.settimeout(2.5)
+            _obs_connection_ping(ws)
+            _set_obs_connection_status(
+                "connected", "OBS WebSocket 已认证，连接状态正常。", checked=True,
+            )
+            attempted = True
+
+            while not OBS_CONNECTION_MONITOR_STOP.is_set():
+                if OBS_CONNECTION_MONITOR_WAKE.wait(OBS_CONNECTION_MONITOR_INTERVAL_SECONDS):
+                    OBS_CONNECTION_MONITOR_WAKE.clear()
+                    if OBS_CONNECTION_MONITOR_STOP.is_set():
+                        break
+                    reconnect_requested = True
+                    break
+                _obs_connection_ping(ws)
+                _set_obs_connection_status(
+                    "connected", "OBS WebSocket 连接正常。", checked=True,
+                )
+        except Exception as exc:
+            attempted = True
+            if not OBS_CONNECTION_MONITOR_STOP.is_set():
+                error = str(exc).strip() or type(exc).__name__
+                _set_obs_connection_status(
+                    "reconnecting", "OBS WebSocket 连接断开，正在重连。", error,
+                    checked=True,
+                )
+                logger.warning("OBS WebSocket 状态连接异常，将在稍后重试：%s", error)
+        finally:
+            if ws is not None:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+        if not OBS_CONNECTION_MONITOR_STOP.is_set() and not reconnect_requested:
+            OBS_CONNECTION_MONITOR_WAKE.wait(OBS_CONNECTION_RETRY_INTERVAL_SECONDS)
+            OBS_CONNECTION_MONITOR_WAKE.clear()
+
+    _set_obs_connection_status("disconnected", "OBS WebSocket 状态监测已停止。")
+
+
+def _stop_obs_connection_monitor(timeout: float = 1.0) -> None:
+    OBS_CONNECTION_MONITOR_STOP.set()
+    OBS_CONNECTION_MONITOR_WAKE.set()
+    worker = OBS_CONNECTION_MONITOR_THREAD
+    if worker is not None and worker is not threading.current_thread() and worker.is_alive():
+        worker.join(timeout=max(0.0, timeout))
+        if worker.is_alive():
+            logger.warning("OBS WebSocket 状态监测线程未在 %.1f 秒内退出；保留 daemon 状态。", timeout)
+
+
 def _open_obs_websocket() -> Any:
     """按统一 OBS 配置和凭据完成 WebSocket v5 握手并返回已认证连接。"""
     obs_config = CONFIG.get("obs_websocket", {})
@@ -867,6 +1003,69 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
                 pass
 
 
+def _set_video_obs_source_visible(visible: bool) -> bool:
+    """由主程序统一控制视频播放器来源显隐，共用 OBS WebSocket 和请求锁。"""
+    config = ConfigManager().load("obs", {})
+    video_config = ConfigManager().load("video", {})
+    video_obs = video_config.get("obs", {}) if isinstance(video_config.get("obs"), dict) else {}
+    source_name = str(config.get("source_name") or video_obs.get("source_name") or "b站视频播放器").strip()
+    obs_connection = CONFIG.get("obs_websocket", {})
+    if not isinstance(obs_connection, dict) or not str(obs_connection.get("host", "")).strip() or not source_name:
+        return False
+
+    ws = None
+    try:
+        with OBS_DISPLAY_LOCK:
+            ws = _open_obs_websocket()
+            scenes = _obs_ws_request(ws, "GetSceneList").get("scenes", [])
+            if not isinstance(scenes, list) or not scenes:
+                logger.warning("控制 OBS 视频来源失败：OBS 未返回任何场景。")
+                return False
+            matched_count = 0
+            changed_count = 0
+            changed_scenes = []
+            for scene in scenes:
+                scene_name = scene.get("sceneName") if isinstance(scene, dict) else None
+                if not scene_name:
+                    continue
+                items = _obs_ws_request(ws, "GetSceneItemList", {"sceneName": scene_name}).get("sceneItems", [])
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict) or item.get("sourceName") != source_name:
+                        continue
+                    item_id = item.get("sceneItemId")
+                    if item_id is None:
+                        continue
+                    matched_count += 1
+                    if item.get("sceneItemEnabled") is not None and bool(item["sceneItemEnabled"]) == bool(visible):
+                        continue
+                    _obs_ws_request(ws, "SetSceneItemEnabled", {
+                        "sceneName": scene_name,
+                        "sceneItemId": int(item_id),
+                        "sceneItemEnabled": bool(visible),
+                    })
+                    changed_count += 1
+                    if scene_name not in changed_scenes:
+                        changed_scenes.append(scene_name)
+            if matched_count == 0:
+                logger.warning("OBS 中未找到名为“%s”的视频来源场景项目。", source_name)
+                return False
+            if changed_count:
+                logger.info("OBS 视频来源已%s：来源=%s；本次修改 %s 个场景项目（场景：%s）",
+                            "显示" if visible else "隐藏", source_name, changed_count, "、".join(changed_scenes))
+            return True
+    except Exception as exc:
+        logger.warning("控制 OBS 视频来源失败：source=%s；错误类型=%s。", source_name, type(exc).__name__)
+        return False
+    finally:
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+
 
 # OBS WebSocket 连接后只刷新综合展示源，不改变任何场景项的可见状态。
 OBS_DISPLAY_LOCK = threading.RLock()
@@ -875,6 +1074,7 @@ OBS_COMBINED_DISPLAY_REFRESHED = False
 CREDENTIAL_WATCHDOG_STOP = threading.Event()
 CREDENTIAL_WATCHDOG_THREAD: threading.Thread | None = None
 OBS_COMBINED_REFRESH_THREAD: threading.Thread | None = None
+OBS_REFRESH_WORKER: CoalescingWorker | None = None
 APPLICATION_SHUTDOWN_STARTED = threading.Event()
 APPLICATION_SHUTDOWN_LOCK = threading.RLock()
 APPLICATION_SHUTDOWN_FINISHED = threading.Event()
@@ -1144,17 +1344,20 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
                     pass
 
 
+OBS_REFRESH_WORKER = CoalescingWorker(
+    _refresh_obs_combined_display_sources,
+    name="obs-display-refresh-worker",
+)
+
+
 def _start_obs_refresh_thread(name: str) -> None:
-    """启动短时 OBS 刷新任务；与统一关闭入口串行化，避免最终刷新后又启动新任务。"""
+    """请求合并后的 OBS 刷新；同一时刻最多运行一个任务，连续请求只补一次刷新。"""
     with APPLICATION_SHUTDOWN_LOCK:
         if APPLICATION_SHUTDOWN_STARTED.is_set():
             return
-        worker = threading.Thread(
-            target=_refresh_obs_combined_display_sources,
-            name=name,
-            daemon=True,
-        )
-        worker.start()
+        worker = OBS_REFRESH_WORKER
+        if worker is not None:
+            worker.request()
 
 
 def _obs_combined_display_refresh_watchdog() -> None:
@@ -1185,7 +1388,15 @@ def _shutdown_application_and_refresh_obs() -> None:
         logger.warning("开始有序退出：封锁新事件 -> 停止后台来源 -> 关闭子进程和业务模块 -> 最终刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
         CREDENTIAL_WATCHDOG_STOP.set()
+        _stop_obs_connection_monitor(timeout=1.0)
+        if OBS_REFRESH_WORKER is not None:
+            if not OBS_REFRESH_WORKER.stop(timeout=remaining_budget(1.0)):
+                logger.warning("OBS 刷新工作线程未在 1 秒内退出；继续执行其他退出清理。")
         APPLICATION_RUNTIME.begin_shutdown()
+        try:
+            QR_LOGIN.shutdown()
+        except Exception:
+            logger.exception("停止 B 站二维码登录时发生异常，仍将继续执行其他退出清理。")
 
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
@@ -1505,10 +1716,19 @@ VIDEO_MODULE = VideoModuleFacade(
     cookie_provider=_music_cookie_provider,
     room_id=int(_load_user_settings()["bilibili"]["room_id"]),
     music_module=MUSIC_MODULE.bot,
+    obs_visibility_callback=_set_video_obs_source_visible,
 )
 APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
 
 
+
+
+def _start_live_client_if_application_active(room_id: int, cookies: dict[str, str]) -> None:
+    """与统一退出锁同步，避免退出流程开始后又创建直播连接线程。"""
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_STARTED.is_set() or APPLICATION_SHUTDOWN_FINISHED.is_set():
+            raise BilibiliClientError("程序正在退出，无法启动直播间连接。")
+        LIVE_CLIENT.start(room_id, cookies)
 
 
 def _connect_saved_room(source: str) -> tuple[bool, str]:
@@ -1529,7 +1749,7 @@ def _connect_saved_room(source: str) -> tuple[bool, str]:
     if not valid or not cookies:
         return False, message
     try:
-        LIVE_CLIENT.start(room_id, cookies)
+        _start_live_client_if_application_active(room_id, cookies)
     except BilibiliClientError as exc:
         return False, str(exc)
 
@@ -2033,7 +2253,7 @@ def connect_live_room():
     if not valid or not cookies:
         return jsonify({"ok": False, "error": message, "need_login": True}), 401
     try:
-        LIVE_CLIENT.start(room_id, cookies)
+        _start_live_client_if_application_active(room_id, cookies)
     except BilibiliClientError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
     with BILIBILI_STATE_LOCK:
@@ -2724,7 +2944,7 @@ def save_obs_settings():
         CONFIG["obs_websocket"] = {
             "host": host, "port": port, "timeout": timeout,
         }
-        VIDEO_MODULE.reload_obs_settings()
+        _request_obs_connection_recheck()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
@@ -2740,7 +2960,7 @@ def save_obs_credential():
         return jsonify({"ok": False, "error": "OBS WebSocket 密码不能为空。"}), 400
     try:
         CredentialStore().save("obs", {"password": password})
-        VIDEO_MODULE.reload_obs_settings()
+        _request_obs_connection_recheck()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
@@ -2926,6 +3146,7 @@ def api_status():
         "application": "Bili Live Danmaku",
         "web_server": "running",
         "bilibili": bili,
+        "obs_websocket": _obs_connection_status_snapshot(),
         "live2d": live2d,
         "features": {
             "danmaku": True,
@@ -3039,6 +3260,73 @@ _initialize_login_state()
 _CONSOLE_CTRL_HANDLER = None
 
 
+def _shutdown_application_for_console_close() -> None:
+    """在 Windows 控制台关闭事件的短时限内尽力清理关键资源；不执行 OBS 最终刷新。"""
+    if not APPLICATION_SHUTDOWN_LOCK.acquire(timeout=0.05):
+        logger.warning("已有退出流程正在执行，控制台关闭清理不再重复等待。")
+        return
+
+    try:
+        if APPLICATION_SHUTDOWN_FINISHED.is_set():
+            return
+
+        APPLICATION_SHUTDOWN_STARTED.set()
+        deadline = time.monotonic() + 4.0
+
+        def remaining_budget(maximum: float) -> float:
+            return max(0.0, min(maximum, deadline - time.monotonic()))
+
+        OBS_COMBINED_REFRESH_STOP.set()
+        CREDENTIAL_WATCHDOG_STOP.set()
+        OBS_CONNECTION_MONITOR_STOP.set()
+        OBS_CONNECTION_MONITOR_WAKE.set()
+        if OBS_REFRESH_WORKER is not None:
+            OBS_REFRESH_WORKER.stop(timeout=remaining_budget(0.2))
+
+        APPLICATION_RUNTIME.begin_shutdown()
+        try:
+            QR_LOGIN.shutdown()
+        except Exception:
+            logger.exception("控制台关闭时停止 B 站二维码登录失败。")
+
+        # 控制台关闭事件的系统等待窗口很短：优先断开直播连接、停止托管扩展，
+        # 再用剩余时间关闭业务模块；不等待 OBS 刷新或 watchdog 完全退出。
+        try:
+            LIVE_CLIENT.stop(timeout=remaining_budget(1.0))
+        except Exception:
+            logger.exception("控制台关闭时停止 B 站连接失败。")
+
+        try:
+            LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(1.0))
+        except Exception:
+            logger.exception("控制台关闭时停止托管扩展失败。")
+
+        shutdown_future = None
+        try:
+            module_budget = remaining_budget(1.2)
+            if module_budget > 0:
+                shutdown_future = APPLICATION_RUNTIME.async_runtime.submit(
+                    APPLICATION_RUNTIME.modules.shutdown_all(
+                        timeout=module_budget,
+                        per_module_timeout=min(0.6, module_budget),
+                    )
+                )
+                shutdown_future.result(timeout=remaining_budget(1.3))
+        except Exception:
+            if shutdown_future is not None:
+                shutdown_future.cancel()
+            logger.warning("控制台关闭时业务模块未能在剩余时间内全部完成清理。", exc_info=True)
+
+        try:
+            APPLICATION_RUNTIME.async_runtime.stop(timeout=remaining_budget(0.2))
+        except Exception:
+            logger.warning("控制台关闭时异步运行时未能及时停止。", exc_info=True)
+
+        APPLICATION_SHUTDOWN_FINISHED.set()
+    finally:
+        APPLICATION_SHUTDOWN_LOCK.release()
+
+
 def _install_console_close_handler() -> None:
     """捕获 Windows CMD 右上角关闭事件；该事件不保证执行 Python finally/atexit。"""
     global _CONSOLE_CTRL_HANDLER
@@ -3051,21 +3339,19 @@ def _install_console_close_handler() -> None:
         # CTRL_CLOSE_EVENT=2，CTRL_LOGOFF_EVENT=5，CTRL_SHUTDOWN_EVENT=6。
         if event_type not in {2, 5, 6}:
             return False
-        logger.warning("检测到 Windows 控制台关闭事件，开始执行紧急资源清理。")
+        logger.warning("检测到 Windows 控制台关闭事件，开始执行限时紧急资源清理。")
 
-        # 退出时只清理本程序启动的 Chrome；不向洛雪发送任何控制请求，
-        # 不恢复、不暂停、不停止，也不关闭洛雪播放器。
         task = threading.Thread(
-            target=_shutdown_application_and_refresh_obs,
+            target=_shutdown_application_for_console_close,
             name="emergency-application-shutdown",
             daemon=True,
         )
         task.start()
-        # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
-        task.join(65.0)
+        # Windows 对控制台关闭处理程序有严格的等待期限，预留时间后主动返回。
+        task.join(4.0)
         logger.warning(
-            "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
-            task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
+            "控制台关闭清理结束：退出清理线程存活=%s。",
+            task.is_alive(),
         )
         return True
 
@@ -3119,6 +3405,12 @@ if __name__ == "__main__":
     )
     CREDENTIAL_WATCHDOG_THREAD.start()
     atexit.register(_shutdown_application_and_refresh_obs)
+    OBS_CONNECTION_MONITOR_THREAD = threading.Thread(
+        target=_obs_connection_monitor,
+        name="obs-websocket-status-monitor",
+        daemon=True,
+    )
+    OBS_CONNECTION_MONITOR_THREAD.start()
     _restore_saved_live_connection()
     OBS_COMBINED_REFRESH_THREAD = threading.Thread(
         target=_obs_combined_display_refresh_watchdog,

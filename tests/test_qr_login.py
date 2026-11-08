@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,12 +32,16 @@ class BlockingPollSession:
         self.entered = threading.Event()
         self.release = threading.Event()
         self.calls = 0
+        self.close_calls = 0
 
     def get(self, *_args, **_kwargs):
         self.calls += 1
         self.entered.set()
         self.release.wait(2)
         return self.response
+
+    def close(self):
+        self.close_calls += 1
 
 
 class FakeImage:
@@ -48,6 +54,7 @@ class QRLoginConcurrencyTests(unittest.TestCase):
         login = QRLogin(Path("credentials/bilibili.json"))
         with login.lock:
             login.session = session
+            login._sessions.add(session)
             login.qrcode_key = "old-key"
             login.state = "waiting"
             login.expires_at = time.time() + 60
@@ -69,6 +76,98 @@ class QRLoginConcurrencyTests(unittest.TestCase):
             worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
         self.assertEqual(first_result[0]["state"], "waiting")
+
+    def test_expired_qr_closes_its_http_session(self):
+        session = BlockingPollSession(FakeResponse({"data": {"code": 86101}}))
+        login = self.make_waiting_login(session)
+        login.expires_at = time.time() - 1
+
+        result = login.poll()
+
+        self.assertEqual(result["state"], "expired")
+        self.assertIsNone(login.session)
+        self.assertEqual(session.close_calls, 1)
+
+    def test_failed_qr_start_closes_new_http_session(self):
+        class FailingSession:
+            def __init__(self):
+                self.headers = {}
+                self.close_calls = 0
+
+            def get(self, *_args, **_kwargs):
+                raise RuntimeError("network failure")
+
+            def close(self):
+                self.close_calls += 1
+
+        session = FailingSession()
+        login = QRLogin(Path("credentials/bilibili.json"))
+        with patch("bilibili_client.requests.Session", return_value=session):
+            with self.assertRaisesRegex(RuntimeError, "network failure"):
+                login.start()
+
+        self.assertEqual(session.close_calls, 1)
+        self.assertEqual(login.status()["state"], "error")
+
+    def test_shutdown_closes_waiting_session_and_rejects_new_requests(self):
+        session = BlockingPollSession(FakeResponse({"data": {"code": 86101}}))
+        login = self.make_waiting_login(session)
+
+        login.shutdown()
+
+        self.assertEqual(session.close_calls, 1)
+        self.assertIsNone(login.session)
+        self.assertEqual(login.status()["state"], "closed")
+        self.assertEqual(login.poll()["state"], "closed")
+        self.assertFalse(login.start()["ok"])
+        self.assertEqual(session.close_calls, 1)
+
+    def test_shutdown_invalidates_inflight_poll_without_waiting(self):
+        session = BlockingPollSession(FakeResponse({"data": {"code": 86090}}))
+        login = self.make_waiting_login(session)
+        worker = threading.Thread(target=login.poll, daemon=True)
+        worker.start()
+        self.assertTrue(session.entered.wait(1))
+
+        login.shutdown()
+
+        self.assertEqual(session.close_calls, 1)
+        self.assertEqual(login.status()["state"], "closed")
+        session.release.set()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(login.status()["state"], "closed")
+
+    def test_cookie_validation_closes_temporary_http_session(self):
+        class FakeCookies:
+            def set(self, *_args, **_kwargs):
+                return None
+
+            def get_dict(self):
+                return {}
+
+        class FakeValidationSession:
+            def __init__(self):
+                self.headers = {}
+                self.cookies = FakeCookies()
+                self.close_calls = 0
+
+            def get(self, *_args, **_kwargs):
+                return FakeResponse({"code": -101, "data": {"isLogin": False}})
+
+            def close(self):
+                self.close_calls += 1
+
+        session = FakeValidationSession()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bilibili.json"
+            path.write_text(json.dumps({"cookies": {"sessdata": "test"}}), encoding="utf-8")
+            with patch("bilibili_client.requests.Session", return_value=session):
+                from bilibili_client import validate_cookie_file
+                result = validate_cookie_file(path)
+
+        self.assertFalse(result[0])
+        self.assertEqual(session.close_calls, 1)
 
     def test_old_poll_cannot_overwrite_new_qr_state(self):
         old_session = BlockingPollSession(FakeResponse({"data": {"code": 86090}}))
@@ -99,6 +198,7 @@ class QRLoginConcurrencyTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertEqual(login.status()["state"], "waiting")
         self.assertEqual(login.qrcode_key, "new-key")
+        self.assertEqual(old_session.close_calls, 1)
 
 
 if __name__ == "__main__":

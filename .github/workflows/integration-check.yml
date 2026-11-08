@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - dev
       - integration/unified-control-center
       - "feat/live2d-moc3-runtime"
       - "feature/lol-hex-extension"

@@ -104,6 +104,16 @@ class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
         self.assertIn("flushSpeechStatePost();", publish)
         self.assertNotIn('fetch("/api/voice/tts/state"', publish)
 
+    def test_tts_playback_is_single_flight_and_invalidated_when_voice_stops(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("let voicePlaybackEpoch = 0;", script)
+        self.assertIn("if (!voiceModuleActive || speaking || !speechQueue.length) return;", script)
+        self.assertIn("voicePlaybackEpoch += 1;", script)
+        self.assertIn("while (speechQueue.length && voiceModuleActive && playbackEpoch === voicePlaybackEpoch)", script)
+        self.assertIn("if (!voiceModuleActive || playbackEpoch !== voicePlaybackEpoch) return;", script)
+        self.assertIn("await playSpeechText(next.text, playbackEpoch);", script)
+        self.assertIn("if (voiceModuleActive && speechQueue.length && playbackEpoch !== voicePlaybackEpoch)", script)
+
     def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
         start = script.index("async function pollTtsTestQueue()")
@@ -168,9 +178,16 @@ class CombinedDisplayContractTests(unittest.TestCase):
         helper_start = main.index("def _start_obs_refresh_thread")
         helper_end = main.index("def _obs_combined_display_refresh_watchdog", helper_start)
         helper = main[helper_start:helper_end]
-        self.assertIn("target=_refresh_obs_combined_display_sources", helper)
-        self.assertIn("name=name", helper)
-        self.assertIn("daemon=True", helper)
+        self.assertIn("worker = OBS_REFRESH_WORKER", helper)
+        self.assertIn("worker.request()", helper)
+        self.assertIn("APPLICATION_SHUTDOWN_STARTED.is_set()", helper)
+        self.assertIn("with APPLICATION_SHUTDOWN_LOCK:", helper)
+
+        worker_start = main.index("OBS_REFRESH_WORKER = CoalescingWorker(")
+        worker_end = main.index("\n)", worker_start) + 2
+        worker = main[worker_start:worker_end]
+        self.assertIn("_refresh_obs_combined_display_sources", worker)
+        self.assertIn('name="obs-display-refresh-worker"', worker)
         self.assertLess(route.index("_save_display_layout_store(store)"), route.index("_start_obs_refresh_thread"))
 
 
@@ -956,7 +973,7 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
         connect_end = main.index("\n\ndef _restore_saved_live_connection", connect_start)
         connect_flow = main[connect_start:connect_end]
         self.assertIn("validate_cookie_file", main)
-        self.assertIn("LIVE_CLIENT.start(room_id, cookies)", connect_flow)
+        self.assertIn("_start_live_client_if_application_active(room_id, cookies)", connect_flow)
         self.assertIn("if room_id <= 0:", connect_flow)
         self.assertIn('current_state in {"connected", "connecting", "reconnecting"}', connect_flow)
 

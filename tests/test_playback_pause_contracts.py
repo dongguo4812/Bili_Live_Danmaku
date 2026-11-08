@@ -15,7 +15,8 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def get_lx_playback_state(", source)
         self.assertIn('return "paused"', source)
         self.assertIn('"playback_state": playback_state', source)
-        self.assertIn('"module_paused" if current and self.paused', source)
+        self.assertIn('"module_paused" if current and module_paused', source)
+        self.assertIn("needs_lx_status = bool(current and lx_playback_active and not module_paused)", source)
         self.assertIn("歌曲点播当前已暂停", source)
 
     def test_video_snapshot_tracks_html5_paused_state_and_module_pause_separately(self):
@@ -118,9 +119,17 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertNotIn("emergency_resume_video_paused_music_sync", main)
         console_handler = main[main.index("def _install_console_close_handler()"):]
         console_handler = console_handler[:console_handler.index('\n\nif __name__ == "__main__"')]
-        self.assertIn("_shutdown_application_and_refresh_obs", console_handler)
+        self.assertIn("_shutdown_application_for_console_close", console_handler)
+        self.assertNotIn("_shutdown_application_and_refresh_obs", console_handler)
         self.assertNotIn("emergency_close_browser_sync", console_handler)
-        self.assertIn("task.join(65.0)", console_handler)
+        self.assertIn("task.join(4.0)", console_handler)
+        console_shutdown = main[main.index("def _shutdown_application_for_console_close()"):]
+        console_shutdown = console_shutdown[:console_shutdown.index("\ndef _install_console_close_handler", 1)]
+        self.assertIn("deadline = time.monotonic() + 4.0", console_shutdown)
+        self.assertIn("OBS_COMBINED_REFRESH_STOP.set()", console_shutdown)
+        self.assertIn("LIVE_CLIENT.stop(timeout=remaining_budget(1.0))", console_shutdown)
+        self.assertIn("LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(1.0))", console_shutdown)
+        self.assertNotIn("ensure_voice_engine", console_shutdown)
         self.assertIn("def _shutdown_application_and_refresh_obs()", main)
         shutdown_flow = main[main.index("def _shutdown_application_and_refresh_obs()"):]
         shutdown_flow = shutdown_flow[:shutdown_flow.index("\ndef _available_models", 1)]
