@@ -132,7 +132,8 @@ class CombinedDisplayContractTests(unittest.TestCase):
 
 
     def test_obs_settings_and_credential_refreshes_use_shared_lock(self):
-        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text(encoding="utf-8")
         for route_name in ("def save_obs_settings", "def save_obs_credential"):
             start = main.index(route_name)
             end = main.find("\n@app.", start + 1)
