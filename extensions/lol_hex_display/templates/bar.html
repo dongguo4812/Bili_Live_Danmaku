@@ -425,11 +425,14 @@ loadBar().finally(() => {
     lobbyEvents.addEventListener('lobby-change', () => {
         loadBar();
     });
-    // EventSource 会自动重连；重连后服务端会发送一次同步事件。
+    lobbyEvents.addEventListener('shutdown', () => {
+        lobbyEvents.close();
+        clearInterval(barRefreshTimer);
+    });
 });
 
 // 定时刷新作为兜底；组队人数变化仍由 SSE 即时触发。
-setInterval(loadBar, 10000);
+const barRefreshTimer = setInterval(loadBar, 10000);
 </script>
 </body>
 </html>
