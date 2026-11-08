@@ -219,19 +219,21 @@ OBS WebSocket 普通配置保存在 `config/local/obs.json`，包含地址、端
 
 ### LOL Hex 扩展
 
-LOL Hex 以独立进程方式运行，由接入中心的「功能启停控制」统一启动和停止；这里仅管理启停，不把 Hex 的内部设置、截图或识别操作混入主项目模块控制。
+LOL Hex 以独立进程方式运行，由接入中心的「功能启停控制」统一启动和停止；扩展负责英雄联盟客户端识别、F1 截图、本地 OCR、海克斯数据管理、海克斯展示和战绩条。
 
 - Windows 下启动 Hex 会请求管理员权限。F1 全局截图依赖管理员权限，因此需要在 UAC 提示中允许启动；取消授权会导致启动失败。
-- 主项目负责 Hex 进程生命周期和页面入口；Hex 负责英雄联盟客户端识别、F1 截图、本地 OCR、海克斯数据与战绩条展示。
 - 主项目托管模式下，OBS WebSocket 连接、重连和浏览器源刷新由主项目统一负责；Hex 不另行建立 OBS WebSocket 连接。
 - 接入中心可打开 Hex 管理页：`/extensions/lol-hex/`；海克斯展示页：`/extensions/lol-hex/display`；战绩条：`/extensions/lol-hex/bar`。独立运行 Hex 时，默认服务端口为 `8767`，页面分别为 `http://127.0.0.1:8767/`、`/display` 和 `/bar`。
+- 管理页提供扩展运行状态、截图与数据管理、海克斯索引维护等操作。游戏中按 **F1** 冻结画面并框选截图区域；再次按 **F1** 或按 **Esc** 可取消框选。
+- 截图与数据管理区域会显示当前截图目录，并提供清空卡片和截图的操作。海克斯索引支持检查并更新、重置；页面显示的索引条数以当前实际数据为准。
+- 截图通过本地 OCR 和海克斯索引进行名称识别。无法可靠匹配名称时仍可保留截图供人工查看，不会凭空生成海克斯名称。
+- 扩展会定期检查英雄联盟客户端及账号/对局状态；战绩截图采集、卡片处理和展示均由扩展内部负责。
 - Hex 默认配置模板为 `config/default/lol_hex_display.json`，本机实际配置为 `config/local/lol_hex_display.json`。首次升级时，如果本机 JSON 尚不存在且旧版 `extensions/lol_hex_display/config.txt` 存在，程序会将可识别字段迁移到 JSON；JSON 已存在时不会被旧文件覆盖。
-- 默认配置包含服务地址/端口、截图目录、截图扫描间隔、资源与版本检查间隔、游戏客户端状态检查间隔和英雄联盟客户端路径。请在本机 JSON 中修改，不要编辑默认模板来保存个人路径。
 - 本机运行数据位于 `extensions/lol_hex_display/data/`、`screenshots/` 和 `logs/`；进程号记录在 `lol_hex_display.pid`。这些目录和 PID 文件由 `.gitignore` 排除，不作为源码提交。Python 运行时生成的 `__pycache__/` 同样会被忽略。
 - 扩展单独打包脚本不会打包本机数据；主项目 `build.bat` 会在生成扩展后，将当前电脑上已经存在的 Hex `data/`、`screenshots/`、`logs/` 复制到文件夹版输出中。这是本机打包行为，与 GitHub 是否跟踪这些文件相互独立。
 - 在综合展示编辑器中，`LOL 战绩条` 和 `LOL 海克斯展示` 是两个独立组件，可分别添加、移动、缩放和移除。
-
-独立扩展说明见 [LOL Hex 扩展文档](extensions/lol_hex_display/README.md)。\n\n歌曲和视频展示页的待播列表显示数量可分别在 `/music/settings` 与 `/video/settings` 配置，范围为 1～1000，默认各显示 10 条；页面同时显示完整待播总数，不会因展示条数限制而改变实际队列。
+- 独立扩展说明见 [LOL Hex 扩展文档](extensions/lol_hex_display/README.md)。
+- 歌曲和视频展示页的待播列表显示数量可分别在 `/music/settings` 与 `/video/settings` 配置，范围为 1～1000，默认各显示 10 条；页面同时显示完整待播总数，不会因展示条数限制而改变实际队列。
 
 GitHub Actions 会在 Ubuntu 环境执行 Python 编译、配置与离线回归测试，并在 Windows 环境额外执行真实 DPAPI 加解密和配置退役测试。CI 通过不等于所有设备上的人工联调均已完成；歌曲和视频模块仍需结合洛雪音乐、Chrome、OBS WebSocket 和实际直播间环境进行本机验证。
 
