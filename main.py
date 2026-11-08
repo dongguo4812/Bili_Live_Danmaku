@@ -1540,6 +1540,14 @@ APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
 
 
 
+def _start_live_client_if_application_active(room_id: int, cookies: dict[str, str]) -> None:
+    """与统一退出锁同步，避免退出流程开始后又创建直播连接线程。"""
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_STARTED.is_set() or APPLICATION_SHUTDOWN_FINISHED.is_set():
+            raise BilibiliClientError("程序正在退出，无法启动直播间连接。")
+        LIVE_CLIENT.start(room_id, cookies)
+
+
 def _connect_saved_room(source: str) -> tuple[bool, str]:
     """使用已保存的有效 Cookie 连接已保存的直播间；绝不匿名连接。"""
     with SETTINGS_LOCK:
@@ -1558,7 +1566,7 @@ def _connect_saved_room(source: str) -> tuple[bool, str]:
     if not valid or not cookies:
         return False, message
     try:
-        LIVE_CLIENT.start(room_id, cookies)
+        _start_live_client_if_application_active(room_id, cookies)
     except BilibiliClientError as exc:
         return False, str(exc)
 
@@ -2062,7 +2070,7 @@ def connect_live_room():
     if not valid or not cookies:
         return jsonify({"ok": False, "error": message, "need_login": True}), 401
     try:
-        LIVE_CLIENT.start(room_id, cookies)
+        _start_live_client_if_application_active(room_id, cookies)
     except BilibiliClientError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
     with BILIBILI_STATE_LOCK:
