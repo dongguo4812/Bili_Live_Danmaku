@@ -120,16 +120,34 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertTrue(state["external"])
             self.assertFalse(state["owned"])
 
-    def test_can_stop_an_independently_running_extension_on_explicit_request(self):
+    def test_can_stop_an_independently_running_extension_when_worker_identity_is_available(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
-            health = iter([True, False])
+            manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+            manager.pid_file.write_text(
+                json.dumps({"pid": 987654321, "creation_time": 123}),
+                encoding="utf-8",
+            )
+            process_states = iter(["running", "exited"])
             calls = []
-            manager._is_healthy = lambda: next(health, False)
+            manager._is_healthy = lambda: False
+
+            def process_identity_state(pid, creation_time=None):
+                state = next(process_states, "exited")
+                if state == "exited":
+                    # 模拟 Hex 工作进程在正常退出时清理自己创建的 PID 文件。
+                    manager.pid_file.unlink(missing_ok=True)
+                return state
+
+            manager._process_identity_state = process_identity_state
             manager._request = lambda path, payload=None, timeout=1.0: calls.append((path, payload)) or {}
+
             state = manager.stop()
-            self.assertEqual(calls[0], ("/api/action", {"action": "shutdown"}))
+
+            self.assertEqual(calls, [("/api/action", {"action": "shutdown"})])
             self.assertFalse(state["running"])
+            self.assertIsNone(manager._worker_pid)
+            self.assertFalse(manager.pid_file.exists())
 
 
 class LolHexIntegrationContractTests(unittest.TestCase):
@@ -155,16 +173,17 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         launcher = (root / "extensions" / "lol_hex_display" / "launcher.py").read_text(encoding="utf-8")
         self.assertIn('self.extension_dir / "launcher.py"', manager)
         self.assertIn("import main as hex_main", launcher)
-        self.assertIn("traceback.format_exc()", launcher)
-        self.assertIn('root / "logs" / "startup-error.log"', launcher)
-        self.assertIn("code not in (None, 0, 17)", launcher)
+        self.assertIn("hex_main.check_admin_privileges()", launcher)
+        self.assertIn("result = hex_main.main()", launcher)
+        self.assertIn("return int(result or 0)", launcher)
+        self.assertIn("raise SystemExit(main())", launcher)
         self.assertIn("GetExitCodeProcess", manager)
         self.assertIn("self._launcher_process_state() == \"exited\"", manager)
         self.assertIn("if os.name == 'nt' and not start_hotkey():", hex_main)
         self.assertIn("str(ROOT), 0", hex_main)
         self.assertIn('@app.get("/extensions/lol-hex/logs")', main)
         self.assertIn('env["LOL_HEX_MANAGED_BY_BILI"] = "1"', manager)
-        self.assertIn('str(self.extension_dir), 0', manager)
+        self.assertIn('info.lpDirectory = str(self.extension_dir)', manager)
         self.assertIn('self.config_path', manager)
         self.assertIn('"--config"', manager)
         self.assertIn('config/local/lol_hex_display.json', manager)
