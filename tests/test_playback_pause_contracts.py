@@ -55,7 +55,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         manager = (ROOT / "core" / "module_manager.py").read_text(encoding="utf-8")
         music = (ROOT / "modules" / "music" / "service.py").read_text(encoding="utf-8")
         video = (ROOT / "modules" / "video" / "service.py").read_text(encoding="utf-8")
-        self.assertIn("self.modules.shutdown_all()", application)
+        self.assertIn("self.modules.shutdown_all(timeout=module_timeout)", application)
         self.assertIn('getattr(instance, "shutdown", None)', manager)
         self.assertIn("async def shutdown(self):", music)
         self.assertIn("await self.bot.close(stop_playback=False)", music)
