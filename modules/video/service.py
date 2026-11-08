@@ -44,6 +44,7 @@ MAX_VIDEO_DURATION_SEC = int(VIDEO_CONFIG.get("requests", {}).get("max_video_dur
 COOLDOWN_SEC = int(VIDEO_CONFIG.get("requests", {}).get("cooldown_seconds", 60))
 MAX_QUEUE_SIZE = int(VIDEO_CONFIG.get("requests", {}).get("queue_limit", 30))
 PAGE_LOAD_TIMEOUT = int(VIDEO_CONFIG.get("chrome", {}).get("page_load_timeout_seconds", 45))
+BROWSER_STARTUP_TIMEOUT = 30.0
 CHROME_PROFILE = BASE_DIR / str(VIDEO_CONFIG.get("chrome", {}).get("profile_dir", "data/video/chrome_profile"))
 COOKIE_VALUES: dict[str, str] = {}
 ADMIN_UIDS: set[int] = set()
@@ -559,8 +560,11 @@ class ManagedChromeService(ChromeService):
     """在 ChromeDriver 启动时保留可清理的进程句柄。"""
 
     def _start_process(self, path):
+        startup_timed_out = getattr(self, "startup_timeout_event", None)
         if VIDEO_SHUTDOWN_REQUESTED.is_set():
             raise RuntimeError("程序正在退出，拒绝启动 ChromeDriver。")
+        if startup_timed_out is not None and startup_timed_out.is_set():
+            raise TimeoutError("ChromeDriver 启动超过 30 秒，已取消浏览器创建。")
         super()._start_process(path)
         # Service._start_process 返回时 process 已经创建；退出线程可通过
         # 已登记的 Service 立即取得 PID，不必等待 webdriver.Chrome() 返回。
@@ -569,6 +573,9 @@ class ManagedChromeService(ChromeService):
         if shutting_down:
             _force_terminate_service_sync(self)
             raise RuntimeError("程序正在退出，已终止新启动的 ChromeDriver。")
+        if startup_timed_out is not None and startup_timed_out.is_set():
+            _force_terminate_service_sync(self)
+            raise TimeoutError("ChromeDriver 启动超过 30 秒，已终止浏览器创建。")
 
 
 @selenium_locked
@@ -795,20 +802,46 @@ def create_browser():
     browser = None
     service = None
     cleaned_for_shutdown = False
+    startup_timed_out = threading.Event()
+    startup_completed = threading.Event()
+    startup_timer = None
     try:
         if VIDEO_SHUTDOWN_REQUESTED.is_set():
             raise RuntimeError("程序正在退出，拒绝创建新的视频浏览器。")
         service = ManagedChromeService()
+        service.startup_timeout_event = startup_timed_out
         with VIDEO_LIFECYCLE_LOCK:
             if VIDEO_SHUTDOWN_REQUESTED.is_set():
                 raise RuntimeError("程序正在退出，拒绝登记 ChromeDriver。")
             chrome_service = service
+
+        def timeout_browser_startup():
+            # 与成功登记 driver 使用同一把锁，避免超时回调误杀已完成的会话。
+            with VIDEO_LIFECYCLE_LOCK:
+                if startup_completed.is_set():
+                    return
+                startup_timed_out.set()
+            logger.error("Chrome 浏览器创建超过 %s 秒，正在终止 ChromeDriver 并清理专用 Profile。", BROWSER_STARTUP_TIMEOUT)
+            _force_terminate_service_sync(service)
+            _terminate_chrome_profile_processes_sync()
+
+        startup_timer = threading.Timer(BROWSER_STARTUP_TIMEOUT, timeout_browser_startup)
+        startup_timer.daemon = True
+        startup_timer.start()
+
         browser = webdriver.Chrome(service=service, options=chrome_options)
+        if startup_timed_out.is_set():
+            raise TimeoutError(f"Chrome 浏览器创建超过 {BROWSER_STARTUP_TIMEOUT:g} 秒，已终止启动。")
         browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
         with VIDEO_LIFECYCLE_LOCK:
             shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
-            if not shutting_down:
+            timed_out = startup_timed_out.is_set()
+            if not shutting_down and not timed_out:
+                startup_completed.set()
+                startup_timer.cancel()
                 driver = browser
+        if timed_out:
+            raise TimeoutError(f"Chrome 浏览器创建超过 {BROWSER_STARTUP_TIMEOUT:g} 秒，已终止启动。")
         if shutting_down:
             _force_terminate_service_sync(service)
             roots, remaining = _terminate_chrome_profile_processes_sync()
@@ -818,6 +851,8 @@ def create_browser():
             raise RuntimeError("程序正在退出，已拒绝登记新的视频浏览器。")
         return browser
     except Exception:
+        if startup_timer is not None:
+            startup_timer.cancel()
         logger.exception("创建视频点播 Chrome 会话失败，正在清理 ChromeDriver 与专用 Profile。")
         # 即使 WebDriver 会话尚未建立，全局 Service 也已登记，可直接按 PID
         # 回收 ChromeDriver 及其子进程；专用 Profile 扫描继续作为兜底。
