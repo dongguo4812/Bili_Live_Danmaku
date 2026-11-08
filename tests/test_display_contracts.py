@@ -112,6 +112,7 @@ class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
         self.assertIn("while (speechQueue.length && voiceModuleActive && playbackEpoch === voicePlaybackEpoch)", script)
         self.assertIn("if (!voiceModuleActive || playbackEpoch !== voicePlaybackEpoch) return;", script)
         self.assertIn("await playSpeechText(next.text, playbackEpoch);", script)
+        self.assertIn("if (voiceModuleActive && speechQueue.length && playbackEpoch !== voicePlaybackEpoch)", script)
 
     def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
