@@ -22,7 +22,7 @@ class AsyncRuntime:
         self._ready = threading.Event()
         self._stopped = threading.Event()
         self._lock = threading.RLock()
-        self._blocking_executor = DaemonExecutor(max_workers=4, max_pending=32)
+        self._blocking_executor: DaemonExecutor | None = None
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop | None:
@@ -34,6 +34,7 @@ class AsyncRuntime:
                 return
             self._ready.clear()
             self._stopped.clear()
+            self._blocking_executor = DaemonExecutor(max_workers=4, max_pending=32)
             self._thread = threading.Thread(target=self._thread_main, name=self.name, daemon=True)
             self._thread.start()
         if not self._ready.wait(timeout):
@@ -45,7 +46,10 @@ class AsyncRuntime:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
-        tokens = install_blocking_executor(self._blocking_executor)
+        executor = self._blocking_executor
+        if executor is None:
+            raise RuntimeError("阻塞任务执行器尚未初始化。")
+        tokens = install_blocking_executor(executor)
         self._ready.set()
         try:
             loop.run_forever()
@@ -73,7 +77,7 @@ class AsyncRuntime:
             except Exception:
                 logger.warning("异步生成器清理超时或失败。", exc_info=True)
             finally:
-                self._blocking_executor.shutdown(wait=True, cancel_futures=True, timeout=1.0)
+                executor.shutdown(wait=True, cancel_futures=True, timeout=1.0)
                 reset_blocking_executor(tokens)
                 loop.close()
                 self._loop = None
