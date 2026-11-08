@@ -803,6 +803,10 @@
       speaking = false;
       currentSpeech = null;
       publishSpeechState();
+      // 若模块在旧请求尚未结束时重新启用，接着处理新一轮入队的语音。
+      if (voiceModuleActive && speechQueue.length && playbackEpoch !== voicePlaybackEpoch) {
+        processSpeechQueue();
+      }
     }
   }
 
