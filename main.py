@@ -1171,7 +1171,7 @@ def _shutdown_application_and_refresh_obs() -> None:
 
         # Hex 是独立子进程；只停止本主程序托管且身份核验通过的实例。
         try:
-            LOL_HEX_EXTENSION.stop_if_owned(timeout=6.0)
+            LOL_HEX_EXTENSION.stop_if_owned()
         except Exception:
             logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行其他退出清理。")
 
