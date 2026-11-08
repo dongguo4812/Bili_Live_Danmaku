@@ -1885,7 +1885,7 @@ def _api_action_impl(data):
             atomic_json(STATE_PATH, new_state)
             state.clear()
             state.update(new_state)
-        else:
+        elif action != 'clear':
             return jsonify({'ok':False,'error':'未知操作'}),400
     deleted=[]; failures=[]
     if action=='clear':
