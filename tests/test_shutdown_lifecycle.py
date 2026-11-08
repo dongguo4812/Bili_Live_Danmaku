@@ -274,10 +274,12 @@ class OBSConnectionMonitorContractTests(unittest.TestCase):
     def function_source(self, name):
         return ast.get_source_segment(self.source, self.functions[name]) or ""
 
-    def test_status_connection_uses_only_obs_ping_pong(self):
+    def test_status_connection_uses_websocket_control_ping_pong(self):
         source = self.function_source("_obs_connection_ping")
-        self.assertIn('"op": 3', source)
-        self.assertIn('message.get("op") == 4', source)
+        self.assertIn("ws.ping(payload)", source)
+        self.assertIn("ws.recv_data(control_frame=True)", source)
+        self.assertIn("websocket.ABNF.OPCODE_PONG", source)
+        self.assertNotIn('"op": 3', source)
         self.assertNotIn("_obs_ws_request", source)
 
     def test_monitor_uses_dedicated_connection_without_business_operations(self):
