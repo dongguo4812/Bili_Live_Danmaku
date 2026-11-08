@@ -1283,6 +1283,8 @@ async def monitor_video_end(bv, session_generation=None):
                     "no such window", "target window already closed", "invalid session id",
                     "web view not found", "disconnected: not connected to devtools",
                     "chrome not reachable", "chrome failed to start", "session deleted",
+                    "connection refused", "max retries exceeded",
+                    "failed to establish a new connection", "remote end closed connection",
                 )
                 if any(marker in error_text for marker in closed_markers):
                     logger.warning("检测到 Selenium/Chrome 会话已关闭，准备恢复当前视频（%s）：%s", bv, exc)
