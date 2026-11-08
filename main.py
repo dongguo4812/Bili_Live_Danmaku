@@ -1125,15 +1125,16 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
 
 
 def _start_obs_refresh_thread(name: str) -> None:
-    """启动短时 OBS 刷新任务；退出封锁后拒绝创建新的后台刷新线程。"""
-    if APPLICATION_SHUTDOWN_STARTED.is_set():
-        return
-    worker = threading.Thread(
-        target=_refresh_obs_combined_display_sources,
-        name=name,
-        daemon=True,
-    )
-    worker.start()
+    """启动短时 OBS 刷新任务；与统一关闭入口串行化，避免最终刷新后又启动新任务。"""
+    with APPLICATION_SHUTDOWN_LOCK:
+        if APPLICATION_SHUTDOWN_STARTED.is_set():
+            return
+        worker = threading.Thread(
+            target=_refresh_obs_combined_display_sources,
+            name=name,
+            daemon=True,
+        )
+        worker.start()
 
 
 def _obs_combined_display_refresh_watchdog() -> None:
