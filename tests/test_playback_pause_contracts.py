@@ -118,9 +118,9 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("def _shutdown_application_and_refresh_obs()", main)
         shutdown_flow = main[main.index("def _shutdown_application_and_refresh_obs()"):]
         shutdown_flow = shutdown_flow[:shutdown_flow.index("\ndef _available_models", 1)]
-        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=30.0)"),
+        self.assertLess(shutdown_flow.index("APPLICATION_RUNTIME.shutdown(timeout=37.0)"),
                         shutdown_flow.index("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"))
-        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop()"),
+        self.assertLess(shutdown_flow.index("LIVE_CLIENT.stop(timeout=6.0)"),
                         shutdown_flow.index("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"))
         self.assertEqual(shutdown_flow.count("_refresh_obs_combined_display_sources(ensure_voice_engine=False)"), 1)
         self.assertIn("不再重试", shutdown_flow)
