@@ -78,7 +78,7 @@ class AsyncRuntime:
                 logger.warning("异步生成器清理超时或失败。", exc_info=True)
             finally:
                 executor.shutdown(wait=True, cancel_futures=True, timeout=1.0)
-                reset_blocking_executor(tokens)
+                reset_blocking_executor(loop)
                 loop.close()
                 self._loop = None
                 self._stopped.set()
