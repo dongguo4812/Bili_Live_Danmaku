@@ -35,6 +35,15 @@
 	}
 
 	/* 截图与数据管理工具栏 */
+	/* 截图与数据管理工具栏：三行纵向排列，每行内部横向排列 */
+	main:has(#barAdminPanel) > .toolbar {
+	  display: flex;
+	  flex-direction: column;
+	  align-items: stretch;
+	  justify-content: flex-start;
+	  gap: 10px;
+	}
+
 	main:has(#barAdminPanel) > .toolbar {
 	  width: 100% !important;
 	  max-width: none !important;
@@ -43,6 +52,7 @@
 
 	.toolbar .toolbar-row {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -57,6 +67,7 @@
 
 .toolbar .toolbar-row > div {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
