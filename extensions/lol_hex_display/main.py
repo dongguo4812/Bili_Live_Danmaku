@@ -45,6 +45,8 @@ LOG_LEVEL = logging.INFO
 LOG_RETENTION_DAYS = 7
 log_listener = None
 file_handler = None
+_log_stop_lock = threading.Lock()
+_log_stop_started = False
 
 
 def initialize_runtime_resources():
@@ -203,16 +205,36 @@ class SecretRedactionFilter(logging.Filter):
         return True
 
 
-# 程序退出时停止日志监听线程；重复启动实例不会创建该线程。
-def stop_async_logging():
+# 程序退出时有限等待日志监听线程；磁盘写入卡住时不拖延主程序退出。
+def stop_async_logging(timeout=0.2):
+    global _log_stop_started
+
+    with _log_stop_lock:
+        if _log_stop_started:
+            return
+        _log_stop_started = True
+
+    listener = log_listener
+    if listener is None:
+        return
+
+    thread = getattr(listener, "_thread", None)
+    if thread is None:
+        return
+
     try:
-        if log_listener is not None:
-            log_listener.stop()
+        # QueueListener.stop() 会无限期 join；这里保留哨兵和队列排空行为，
+        # 但只等待有限时间。监听线程本身是守护线程，超时不阻止进程退出。
+        listener.enqueue_sentinel()
+        thread.join(timeout=max(0.0, float(timeout)))
+        if thread.is_alive():
+            return
+        listener._thread = None
     except Exception:
         pass
 
-atexit.register(stop_async_logging)
 
+atexit.register(stop_async_logging)
 
 
 DEFAULT_CONFIG = {
@@ -2596,12 +2618,8 @@ def main():
         remove_pid_file()
         log.info('Hex 管理员进程退出清理完成')
 
-        # 初始化过程可能在 QueueListener.start() 之前失败，因此先确认监听线程已启动。
-        if log_listener is not None and getattr(log_listener, '_thread', None) is not None:
-            try:
-                log_listener.stop()
-            except Exception:
-                log.exception('停止日志监听线程失败')
+        # 日志监听线程只等待有限时间，避免磁盘写入异常拖延退出。
+        stop_async_logging(timeout=0.2)
 
 if __name__ == "__main__":
     if check_admin_privileges():
