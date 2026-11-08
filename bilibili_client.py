@@ -153,50 +153,79 @@ class QRLogin:
         self.state = "idle"
         self.message = "尚未开始扫码登录。"
         self.expires_at = 0.0
+        self._generation = 0
+        self._poll_lock = threading.Lock()
 
     def start(self) -> dict[str, Any]:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": USER_AGENT,
-            "Referer": "https://www.bilibili.com/",
-            "Accept": "application/json, text/plain, */*",
-        })
-        response = session.get(QR_GENERATE_URL, timeout=15)
-        response.raise_for_status()
-        payload = response.json()
-        data = payload.get("data") or {}
-        key = data.get("qrcode_key")
-        url = data.get("url")
-        if payload.get("code") != 0 or not key or not url:
-            raise BilibiliClientError(payload.get("message") or "B 站二维码申请失败。")
-        image = qrcode.make(url)
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
+        # 立即使旧二维码的轮询结果失效，避免旧请求晚返回时覆盖新二维码状态。
         with self.lock:
+            self._generation += 1
+            generation = self._generation
+            self.session = None
+            self.qrcode_key = ""
+            self.state = "starting"
+            self.message = "正在申请 B 站登录二维码。"
+            self.expires_at = 0.0
+        try:
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": USER_AGENT,
+                "Referer": "https://www.bilibili.com/",
+                "Accept": "application/json, text/plain, */*",
+            })
+            response = session.get(QR_GENERATE_URL, timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or {}
+            key = data.get("qrcode_key")
+            url = data.get("url")
+            if payload.get("code") != 0 or not key or not url:
+                raise BilibiliClientError(payload.get("message") or "B 站二维码申请失败。")
+            image = qrcode.make(url)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+        except Exception as exc:
+            with self.lock:
+                if generation == self._generation:
+                    self.state = "error"
+                    self.message = f"申请 B 站登录二维码失败：{exc}"
+            raise
+        with self.lock:
+            if generation != self._generation:
+                return {"ok": False, "error": "二维码申请已被新的请求替代，请使用最新二维码。"}
             self.session = session
             self.qrcode_key = str(key)
             self.state = "waiting"
             self.message = "请使用 B 站手机客户端扫描二维码。"
             self.expires_at = time.time() + 175
+            message = self.message
         return {
             "ok": True,
             "image": "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii"),
             "expires_in": 175,
-            "message": self.message,
+            "message": message,
         }
 
     def poll(self) -> dict[str, Any]:
+        # 管理页面可能因多次打开或网络延迟产生重叠轮询；同一 Session 只允许一个 poll。
+        if not self._poll_lock.acquire(blocking=False):
+            return self.status()
+        try:
+            return self._poll_once()
+        finally:
+            self._poll_lock.release()
+
+    def _poll_once(self) -> dict[str, Any]:
         with self.lock:
             session = self.session
             key = self.qrcode_key
             state = self.state
             expires_at = self.expires_at
+            generation = self._generation
         if state not in {"waiting", "scanned"} or session is None or not key:
             return self.status()
         if time.time() >= expires_at:
-            with self.lock:
-                self.state = "expired"
-                self.message = "二维码已过期，请重新获取。"
+            self._set_state_if_current(generation, "expired", "二维码已过期，请重新获取。")
             return self.status()
         try:
             response = session.get(QR_POLL_URL, params={"qrcode_key": key}, timeout=12)
@@ -207,13 +236,9 @@ class QRLogin:
             if code == 86101:
                 pass
             elif code == 86090:
-                with self.lock:
-                    self.state = "scanned"
-                    self.message = "已扫码，请在手机上确认登录。"
+                self._set_state_if_current(generation, "scanned", "已扫码，请在手机上确认登录。")
             elif code == 86038:
-                with self.lock:
-                    self.state = "expired"
-                    self.message = "二维码已过期，请重新获取。"
+                self._set_state_if_current(generation, "expired", "二维码已过期，请重新获取。")
             elif code == 0:
                 ticket_url = data.get("url")
                 if not ticket_url:
@@ -264,8 +289,11 @@ class QRLogin:
                 nav_data = nav.json()
                 if nav_data.get("code") != 0 or not nav_data.get("data", {}).get("isLogin"):
                     raise BilibiliClientError("扫码返回的 Cookie 未通过 B 站登录验证。")
-                self._save(cookies)
                 with self.lock:
+                    if generation != self._generation:
+                        return {"state": self.state, "message": self.message}
+                    # 在同一把锁内校验 generation 并保存凭据，防止旧二维码覆盖新登录流程。
+                    self._save(cookies)
                     self.state = "success"
                     self.message = "扫码登录成功，Cookie 已安全保存。"
                     self.session = None
@@ -273,14 +301,20 @@ class QRLogin:
             else:
                 message = payload.get("message") or f"二维码轮询返回未知状态：{code}"
                 logger.warning("B 站二维码轮询状态异常：%s", message)
-                with self.lock:
-                    self.message = str(message)
+                self._set_state_if_current(generation, None, str(message))
         except Exception as exc:
             logger.exception("B 站二维码登录轮询失败")
-            with self.lock:
-                self.state = "error"
-                self.message = f"扫码登录失败：{exc}"
+            self._set_state_if_current(generation, "error", f"扫码登录失败：{exc}")
         return self.status()
+
+    def _set_state_if_current(self, generation: int, state: str | None, message: str) -> bool:
+        with self.lock:
+            if generation != self._generation:
+                return False
+            if state is not None:
+                self.state = state
+            self.message = message
+            return True
 
     def _save(self, cookies: dict[str, str]) -> None:
         """通过统一凭据存储写入 B 站 Cookie；不向普通配置写入秘密值。"""
