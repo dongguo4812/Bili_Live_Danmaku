@@ -973,7 +973,7 @@ class BilibiliStartupAutoConnectTests(unittest.TestCase):
         connect_end = main.index("\n\ndef _restore_saved_live_connection", connect_start)
         connect_flow = main[connect_start:connect_end]
         self.assertIn("validate_cookie_file", main)
-        self.assertIn("LIVE_CLIENT.start(room_id, cookies)", connect_flow)
+        self.assertIn("_start_live_client_if_application_active(room_id, cookies)", connect_flow)
         self.assertIn("if room_id <= 0:", connect_flow)
         self.assertIn('current_state in {"connected", "connecting", "reconnecting"}', connect_flow)
 
