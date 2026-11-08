@@ -845,7 +845,7 @@ def _obs_connection_ping(ws: Any) -> None:
     deadline = time.monotonic() + 2.5
     while time.monotonic() < deadline:
         opcode, frame = ws.recv_data(control_frame=True)
-        if opcode == websocket.ABNF.OPCODE_PONG and frame.data == payload:
+        if opcode == websocket.ABNF.OPCODE_PONG and frame == payload:
             return
     raise TimeoutError("等待 OBS WebSocket 控制帧 Pong 超时。")
 
