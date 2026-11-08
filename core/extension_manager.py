@@ -731,7 +731,7 @@ class LolHexExtensionManager:
                 f"LOL Hex 托管进程仍在运行或无法核验退出（PID：{pid or '未知'}），请检查 Hex 日志。"
             )
 
-    def stop_if_owned(self, timeout: float = 12.0) -> None:
+    def stop_if_owned(self, timeout: float = 6.0) -> None:
         try:
             if (self._process is not None and self._owned) or self._elevated_managed:
                 self.stop(timeout=timeout)
