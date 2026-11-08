@@ -1877,7 +1877,19 @@ class VideoModuleFacade:
         module_paused = False
         video_session_generation += 1
         video_request_generation += 1
-        await run_blocking(emergency_close_browser_sync)
+        try:
+            closed = await asyncio.wait_for(
+                run_blocking(emergency_close_browser_sync),
+                timeout=9.0,
+            )
+            if not closed:
+                logger.error("程序退出时专用 Chrome 清理未能确认无残留进程。")
+        except asyncio.TimeoutError:
+            # 同步清理函数仍在 daemon worker 中继续执行；不让 Selenium/系统进程查询
+            # 无限拖住模块生命周期，后续 close 仍会完成状态与 OBS 收尾。
+            logger.error("程序退出时专用 Chrome 清理超过 9 秒；后台清理任务继续运行。")
+        except Exception:
+            logger.exception("程序退出时专用 Chrome 清理发生异常，仍将继续模块状态收尾。")
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
