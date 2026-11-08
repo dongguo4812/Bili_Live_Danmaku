@@ -1195,41 +1195,45 @@ def _shutdown_application_and_refresh_obs() -> None:
         # 所有模块 shutdown 完成后最后刷新综合展示源；独立 daemon 线程最多等待 5 秒，
         # 防止 OBS 无响应或此前刷新锁未释放时拖住主程序退出。
         try:
-            refresh_result: dict[str, Any] = {}
-
-            def refresh_final_obs() -> None:
-                try:
-                    refresh_result["result"] = _refresh_obs_combined_display_sources(
-                        ensure_voice_engine=False
-                    )
-                except Exception as exc:
-                    refresh_result["error"] = exc
-                    logger.exception("程序退出阶段最终刷新 OBS 综合展示源失败。")
-
-            final_refresh_thread = threading.Thread(
-                target=refresh_final_obs,
-                name="obs-final-shutdown-refresh",
-                daemon=True,
-            )
-            final_refresh_thread.start()
-            final_refresh_thread.join(timeout=remaining_budget(5.0))
-            if final_refresh_thread.is_alive():
-                logger.warning("OBS 最终刷新超过 5 秒仍未完成；不再阻塞主程序退出。")
-            elif "error" in refresh_result:
-                logger.warning("程序退出阶段最终 OBS 综合展示源刷新失败。")
+            refresh_timeout = remaining_budget(5.0)
+            if refresh_timeout <= 0:
+                logger.warning("退出总时间预算已耗尽，跳过 OBS 最终刷新。")
             else:
-                result = refresh_result.get("result", {})
-                if result.get("ok") and result.get("refreshed", 0) > 0:
-                    OBS_COMBINED_DISPLAY_REFRESHED = True
-                    logger.info(
-                        "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
-                        result["refreshed"],
-                    )
+                refresh_result: dict[str, Any] = {}
+
+                def refresh_final_obs() -> None:
+                    try:
+                        refresh_result["result"] = _refresh_obs_combined_display_sources(
+                            ensure_voice_engine=False
+                        )
+                    except Exception as exc:
+                        refresh_result["error"] = exc
+                        logger.exception("程序退出阶段最终刷新 OBS 综合展示源失败。")
+
+                final_refresh_thread = threading.Thread(
+                    target=refresh_final_obs,
+                    name="obs-final-shutdown-refresh",
+                    daemon=True,
+                )
+                final_refresh_thread.start()
+                final_refresh_thread.join(timeout=refresh_timeout)
+                if final_refresh_thread.is_alive():
+                    logger.warning("OBS 最终刷新超过剩余 %.1f 秒仍未完成；不再阻塞主程序退出。", refresh_timeout)
+                elif "error" in refresh_result:
+                    logger.warning("程序退出阶段最终 OBS 综合展示源刷新失败。")
                 else:
-                    logger.warning(
-                        "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
-                        result.get("message", "未知错误"),
-                    )
+                    result = refresh_result.get("result", {})
+                    if result.get("ok") and result.get("refreshed", 0) > 0:
+                        OBS_COMBINED_DISPLAY_REFRESHED = True
+                        logger.info(
+                            "程序退出阶段 OBS 综合展示源刷新成功：刷新 %s 个浏览器源。",
+                            result["refreshed"],
+                        )
+                    else:
+                        logger.warning(
+                            "程序退出阶段 OBS 综合展示源刷新未成功，不再重试：%s",
+                            result.get("message", "未知错误"),
+                        )
         finally:
             APPLICATION_SHUTDOWN_FINISHED.set()
 
