@@ -1157,6 +1157,11 @@ def _shutdown_application_and_refresh_obs() -> None:
             return
 
         APPLICATION_SHUTDOWN_STARTED.set()
+        shutdown_deadline = time.monotonic() + 65.0
+
+        def remaining_budget(maximum: float) -> float:
+            return max(0.0, min(maximum, shutdown_deadline - time.monotonic()))
+
         logger.warning("开始有序退出：封锁新事件 -> 停止后台来源 -> 关闭子进程和业务模块 -> 最终刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
         CREDENTIAL_WATCHDOG_STOP.set()
@@ -1164,26 +1169,26 @@ def _shutdown_application_and_refresh_obs() -> None:
 
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
-            if not LIVE_CLIENT.stop(timeout=6.0):
+            if not LIVE_CLIENT.stop(timeout=remaining_budget(6.0)):
                 logger.error("B站连接线程在 6 秒内未退出；保留其 daemon 状态并继续清理其他资源。")
         except Exception:
             logger.exception("停止 B 站连接时发生异常，仍将继续执行其他退出清理。")
 
         # Hex 是独立子进程；只停止本主程序托管且身份核验通过的实例。
         try:
-            LOL_HEX_EXTENSION.stop_if_owned()
+            LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(6.0))
         except Exception:
             logger.exception("停止 LOL Hex 扩展时发生异常，仍将继续执行其他退出清理。")
 
         try:
-            APPLICATION_RUNTIME.shutdown(timeout=37.0)
+            APPLICATION_RUNTIME.shutdown(timeout=max(0.1, remaining_budget(37.0)))
         except Exception:
             logger.exception("关闭业务模块时发生异常，仍将继续执行退出刷新。")
 
         # watchdog 已收到停止信号；有界等待它们退出，不等待已结束或尚未创建的线程。
         for worker in (CREDENTIAL_WATCHDOG_THREAD, OBS_COMBINED_REFRESH_THREAD):
             if worker is not None and worker is not threading.current_thread() and worker.is_alive():
-                worker.join(timeout=1.0)
+                worker.join(timeout=remaining_budget(1.0))
                 if worker.is_alive():
                     logger.warning("后台 watchdog 未在 1 秒内退出：%s", worker.name)
 
@@ -1207,7 +1212,7 @@ def _shutdown_application_and_refresh_obs() -> None:
                 daemon=True,
             )
             final_refresh_thread.start()
-            final_refresh_thread.join(timeout=5.0)
+            final_refresh_thread.join(timeout=remaining_budget(5.0))
             if final_refresh_thread.is_alive():
                 logger.warning("OBS 最终刷新超过 5 秒仍未完成；不再阻塞主程序退出。")
             elif "error" in refresh_result:
@@ -3031,7 +3036,7 @@ def _install_console_close_handler() -> None:
         )
         task.start()
         # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
-        task.join(40.0)
+        task.join(65.0)
         logger.warning(
             "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
             task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
