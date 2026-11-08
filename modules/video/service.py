@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+
+from core.blocking import run_blocking
 import base64
 import json
 import logging
@@ -186,7 +188,7 @@ async def ensure_video_info(bv):
         return video_titles[bv], video_durations[bv]
 
     try:
-        title, duration = await asyncio.to_thread(fetch_video_info_sync, bv)
+        title, duration = await run_blocking(fetch_video_info_sync, bv)
         video_titles[bv] = title
         video_durations[bv] = duration
         logger.info("已获取视频信息：%s - %s（%s 秒）", bv, title, duration)
@@ -379,7 +381,7 @@ def set_obs_source_visible(visible):
 
 async def set_obs_visibility_async(visible):
     """在线程中执行 OBS 请求，避免阻塞弹幕事件循环。"""
-    return await asyncio.to_thread(set_obs_source_visible, visible)
+    return await run_blocking(set_obs_source_visible, visible)
 
 
 def fetch_streamer_uid_sync():
@@ -514,7 +516,7 @@ def check_fan_medal_sync(viewer_uid):
 
 async def verify_fan_medal(viewer_uid):
     """在线程中查询勋章墙，避免网络请求阻塞弹幕事件循环。"""
-    return await asyncio.to_thread(check_fan_medal_sync, viewer_uid)
+    return await run_blocking(check_fan_medal_sync, viewer_uid)
 
 
 
@@ -1140,7 +1142,7 @@ async def monitor_video_end(bv, session_generation=None):
                 # asyncio.wait 不会取消后台线程；若 WebDriver 卡住，只允许这一条状态读取继续等待。
                 if status_task is None:
                     status_task = asyncio.create_task(
-                        asyncio.to_thread(execute_script_sync, status_script)
+                        run_blocking(execute_script_sync, status_script)
                     )
 
                 wait_limit = 5.0 if status_timeout_count == 0 else 1.0
@@ -1169,7 +1171,7 @@ async def monitor_video_end(bv, session_generation=None):
                     is_playing = False
                     current_bv = None
                     try:
-                        await asyncio.to_thread(ensure_browser_window)
+                        await run_blocking(ensure_browser_window)
                         logger.info("浏览器已恢复，准备播放队列中的下一条视频")
                     except Exception as recovery_exc:
                         logger.exception("恢复浏览器失败：%s", recovery_exc)
@@ -1188,7 +1190,7 @@ async def monitor_video_end(bv, session_generation=None):
                         is_playing = False
                         current_bv = None
                         try:
-                            await asyncio.to_thread(ensure_browser_window)
+                            await run_blocking(ensure_browser_window)
                             logger.info("浏览器已恢复，准备播放队列中的下一条视频")
                         except Exception as recovery_exc:
                             logger.exception("恢复浏览器失败：%s", recovery_exc)
@@ -1218,7 +1220,7 @@ async def monitor_video_end(bv, session_generation=None):
                     if not video_queue and driver is not None:
                         try:
                             await asyncio.wait_for(
-                                asyncio.to_thread(
+                                run_blocking(
                                     execute_script_sync,
                                     "const v = document.querySelector('video'); if (v) v.pause(); window.stop();",
                                 ),
@@ -1262,7 +1264,7 @@ async def monitor_video_end(bv, session_generation=None):
                 if saw_progress and not fullscreen_attempted and not module_paused:
                     fullscreen_attempted = True
                     try:
-                        await asyncio.to_thread(try_enter_video_fullscreen, bv, 5)
+                        await run_blocking(try_enter_video_fullscreen, bv, 5)
                     except Exception as fullscreen_exc:
                         logger.warning("播放开始后自动网页全屏失败（不影响队列）：%s", type(fullscreen_exc).__name__)
 
@@ -1339,7 +1341,7 @@ async def play_next():
 
             # Selenium 的 driver.get / window_handles 等均为同步调用。
             # 必须放到工作线程，避免 Chrome 无响应时堵住 asyncio 事件循环。
-            await asyncio.to_thread(open_video_page, bv, url)
+            await run_blocking(open_video_page, bv, url)
 
             # 关闭并重新启动可能发生在 driver.get() 的工作线程执行期间。
             # 旧任务不得操作新会话的 driver、播放状态或 OBS 显隐。
@@ -1350,7 +1352,7 @@ async def play_next():
             # 并继续创建监控任务，确保恢复后仍能监测当前视频结束。
             if module_paused:
                 try:
-                    await asyncio.to_thread(
+                    await run_blocking(
                         execute_script_sync,
                         "const v=document.querySelector('video'); if(v){v.pause();}",
                     )
@@ -1454,7 +1456,7 @@ async def skip_current_video():
 
         # 停止当前视频页面，不关闭 Chrome 或标签页。
         try:
-            await asyncio.to_thread(stop_current_page_sync)
+            await run_blocking(stop_current_page_sync)
         except Exception:
             logger.warning(
                 "手动切换时停止旧视频失败",
@@ -1824,7 +1826,7 @@ class VideoModuleFacade:
         video_session_generation += 1
         video_request_generation += 1
         await set_obs_visibility_async(False)
-        driver = await asyncio.to_thread(create_browser)
+        driver = await run_blocking(create_browser)
         module_enabled = True
         module_paused = False
         playback_state = "stopped"
@@ -1839,7 +1841,7 @@ class VideoModuleFacade:
         video_request_generation += 1
         try:
             if current_bv and driver is not None:
-                await asyncio.to_thread(
+                await run_blocking(
                     execute_script_sync,
                     "const v=document.querySelector('video'); if(v){v.pause();}",
                 )
@@ -1857,7 +1859,7 @@ class VideoModuleFacade:
         # 断线重连后刷新统一登录态，避免粉丝牌查询继续使用失效 Cookie。
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if current_bv and driver is not None:
-            await asyncio.to_thread(
+            await run_blocking(
                 execute_script_sync,
                 "const v=document.querySelector('video'); if(v){const p=v.play(); if(p&&p.catch)p.catch(()=>{});}",
             )
@@ -1876,7 +1878,7 @@ class VideoModuleFacade:
         module_paused = False
         video_session_generation += 1
         video_request_generation += 1
-        await asyncio.to_thread(emergency_close_browser_sync)
+        await run_blocking(emergency_close_browser_sync)
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
@@ -1900,7 +1902,7 @@ class VideoModuleFacade:
             try:
                 # Selenium 锁可能被卡住；暂停动作必须有超时，不能挡住后续浏览器强制清理。
                 await asyncio.wait_for(
-                    asyncio.to_thread(_pause_video_for_close_sync),
+                    run_blocking(_pause_video_for_close_sync),
                     timeout=1.5,
                 )
             except Exception as exc:
@@ -1914,33 +1916,33 @@ class VideoModuleFacade:
             try:
                 # quit 可能因 Selenium 锁/Chrome 无响应而卡住，必须设置硬超时。
                 await asyncio.wait_for(
-                    asyncio.to_thread(_quit_browser_sync, old_driver),
+                    run_blocking(_quit_browser_sync, old_driver),
                     timeout=4.0,
                 )
                 await asyncio.sleep(0.5)
-                still_alive = await asyncio.to_thread(_browser_process_alive_sync, old_driver)
+                still_alive = await run_blocking(_browser_process_alive_sync, old_driver)
                 if still_alive:
                     logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
-                    closed = await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
+                    closed = await run_blocking(_force_terminate_browser_sync, old_driver)
                     if not closed:
                         logger.error("按 WebDriver PID 清理 Chrome 未能确认成功。")
                 else:
                     logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
             except Exception as exc:
                 logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
-                if not await asyncio.to_thread(_force_terminate_browser_sync, old_driver):
+                if not await run_blocking(_force_terminate_browser_sync, old_driver):
                     logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
 
         # 普通手动关闭时再次核验 Profile；程序退出的快速路径已在 shutdown() 开头完成。
         try:
-            roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync) if cleanup_browser else ([], [])
+            roots, remaining = await run_blocking(_terminate_chrome_profile_processes_sync) if cleanup_browser else ([], [])
             if (not roots or remaining) and old_driver is not None:
                 logger.warning(
                     "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
                     roots, remaining,
                 )
-                await asyncio.to_thread(_force_terminate_browser_sync, old_driver)
-                roots, remaining = await asyncio.to_thread(_terminate_chrome_profile_processes_sync)
+                await run_blocking(_force_terminate_browser_sync, old_driver)
+                roots, remaining = await run_blocking(_terminate_chrome_profile_processes_sync)
             if remaining:
                 logger.error("Chrome 专用 Profile 仍有残留进程，PID=%s。", remaining)
             elif roots:
