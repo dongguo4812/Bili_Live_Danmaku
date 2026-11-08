@@ -2017,9 +2017,12 @@ async def on_dan_mu(msg_json):
             return
 
         finally:
-            pending_video_bvs.discard(bv)
-            if not is_admin:
-                pending_video_uids.discard(uid)
+            # 代数变化时旧会话的占用标记已由生命周期切换清理。
+            # 旧请求不得释放新会话对相同 BV/UID 建立的占用标记。
+            if request_generation == video_request_generation:
+                pending_video_bvs.discard(bv)
+                if not is_admin:
+                    pending_video_uids.discard(uid)
 
     # ---------- 3. 查看队列 ----------
 
@@ -2067,6 +2070,8 @@ class VideoModuleFacade:
             return
         video_session_generation += 1
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         await set_obs_visibility_async(False)
         await run_blocking(create_browser)
         with VIDEO_LIFECYCLE_LOCK:
@@ -2084,6 +2089,8 @@ class VideoModuleFacade:
         # 先标记暂停，阻止事件和播放任务继续启动下一条视频。
         module_paused = True
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         try:
             if current_bv and driver is not None:
                 await run_blocking(
@@ -2101,6 +2108,8 @@ class VideoModuleFacade:
             return
         # 暂停期间尚未完成的旧弹幕请求不应在恢复后重新入队。
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         # 断线重连后刷新统一登录态，避免粉丝牌查询继续使用失效 Cookie。
         configure_video_module(self.config, self.cookie_provider, self.room_id)
         if current_bv and driver is not None:
@@ -2126,6 +2135,8 @@ class VideoModuleFacade:
             module_paused = False
             video_session_generation += 1
             video_request_generation += 1
+            pending_video_uids.clear()
+            pending_video_bvs.clear()
         cleanup_thread = threading.Thread(
             target=emergency_close_browser_sync,
             name="video-emergency-browser-cleanup",
@@ -2167,6 +2178,8 @@ class VideoModuleFacade:
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
+        pending_video_uids.clear()
+        pending_video_bvs.clear()
         module_enabled = False
         module_paused = False
         monitor_task = playback_monitor_task
