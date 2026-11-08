@@ -96,6 +96,8 @@ class ApplicationRuntimeEventBackpressureTests(unittest.TestCase):
 
             runtime.async_runtime.call_soon(release_holder[0].set)
             self.assertTrue(handler_finished.wait(2))
+            self.assertTrue(runtime._event_slots.acquire(timeout=2))
+            runtime._event_slots.release()
 
             # The completion callback must return the capacity for later events.
             handler_finished.clear()
