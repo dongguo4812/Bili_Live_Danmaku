@@ -92,7 +92,7 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await run_blocking(_terminate_chrome_profile_processes_sync)", video)
         self.assertIn("run_blocking(emergency_close_browser_sync)", video)
         self.assertIn("timeout=9.0", video)
-        video_begin_shutdown_body = video[video.index("def begin_shutdown(self):", video.index("class VideoModuleFacade")):]
+        video_begin_shutdown_body = video[video.index("def begin_shutdown(self) -> None:", video.index("class VideoModuleFacade")):]
         video_begin_shutdown_body = video_begin_shutdown_body[:video_begin_shutdown_body.index("\n    async def shutdown", 1)]
         self.assertLess(video_begin_shutdown_body.index("VIDEO_SHUTDOWN_REQUESTED.set()"), video_begin_shutdown_body.index("target=emergency_close_browser_sync"))
         self.assertIn("module_enabled = False", video_begin_shutdown_body)
