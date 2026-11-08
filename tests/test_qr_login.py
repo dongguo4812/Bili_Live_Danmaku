@@ -54,6 +54,7 @@ class QRLoginConcurrencyTests(unittest.TestCase):
         login = QRLogin(Path("credentials/bilibili.json"))
         with login.lock:
             login.session = session
+            login._sessions.add(session)
             login.qrcode_key = "old-key"
             login.state = "waiting"
             login.expires_at = time.time() + 60
@@ -107,6 +108,35 @@ class QRLoginConcurrencyTests(unittest.TestCase):
 
         self.assertEqual(session.close_calls, 1)
         self.assertEqual(login.status()["state"], "error")
+
+    def test_shutdown_closes_waiting_session_and_rejects_new_requests(self):
+        session = BlockingPollSession(FakeResponse({"data": {"code": 86101}}))
+        login = self.make_waiting_login(session)
+
+        login.shutdown()
+
+        self.assertEqual(session.close_calls, 1)
+        self.assertIsNone(login.session)
+        self.assertEqual(login.status()["state"], "closed")
+        self.assertEqual(login.poll()["state"], "closed")
+        self.assertFalse(login.start()["ok"])
+        self.assertEqual(session.close_calls, 1)
+
+    def test_shutdown_invalidates_inflight_poll_without_waiting(self):
+        session = BlockingPollSession(FakeResponse({"data": {"code": 86090}}))
+        login = self.make_waiting_login(session)
+        worker = threading.Thread(target=login.poll, daemon=True)
+        worker.start()
+        self.assertTrue(session.entered.wait(1))
+
+        login.shutdown()
+
+        self.assertEqual(session.close_calls, 1)
+        self.assertEqual(login.status()["state"], "closed")
+        session.release.set()
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(login.status()["state"], "closed")
 
     def test_cookie_validation_closes_temporary_http_session(self):
         class FakeCookies:
