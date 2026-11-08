@@ -296,6 +296,7 @@ class ModuleManager:
                         done, _ = await asyncio.wait({task}, timeout=max(0.0, module_budget))
                         if not done:
                             task.cancel()
+                            await asyncio.wait({task}, timeout=0.25)
                             raise TimeoutError(
                                 f"模块关闭超过 {module_budget:.1f} 秒，已请求取消并继续其他模块。"
                             )
