@@ -1169,7 +1169,8 @@ async def monitor_video_end(bv, session_generation=None):
 
     async def recover_current_video():
         """恢复当前 BV；最多失败两次，之后放弃当前视频并推进队列。"""
-        nonlocal recovery_attempts, saw_video, last_time, saw_progress
+        nonlocal recovery_attempts, last_browser_recovery_at
+        nonlocal saw_video, last_time, saw_progress
         nonlocal fullscreen_attempted, last_obs_visible, status_timeout_count
         global driver, is_playing, current_bv, current_video_position
 
