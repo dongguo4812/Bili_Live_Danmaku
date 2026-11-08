@@ -2,9 +2,11 @@
 """Regression tests for bounded application shutdown primitives."""
 from __future__ import annotations
 
+import ast
 import asyncio
 import threading
 import unittest
+from pathlib import Path
 
 from core.application import ApplicationRuntime
 from core.async_runtime import AsyncRuntime
@@ -12,6 +14,49 @@ from core.blocking import DaemonExecutor, run_blocking
 from core.coalescing_worker import CoalescingWorker
 from core.event_bus import EventBus
 from core.module_manager import ModuleManager
+
+
+class LiveConnectionShutdownGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        source_path = Path(__file__).resolve().parents[1] / "main.py"
+        cls.main_tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        cls.functions = {
+            node.name: node
+            for node in cls.main_tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+    def test_live_connection_start_is_serialized_with_application_shutdown(self):
+        helper = self.functions["_start_live_client_if_application_active"]
+        lock_guarded = any(
+            isinstance(node, ast.With)
+            and any(
+                isinstance(item.context_expr, ast.Name)
+                and item.context_expr.id == "APPLICATION_SHUTDOWN_LOCK"
+                for item in node.items
+            )
+            for node in ast.walk(helper)
+        )
+        self.assertTrue(lock_guarded)
+        helper_source = ast.get_source_segment(
+            (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8"),
+            helper,
+        )
+        self.assertIn("APPLICATION_SHUTDOWN_STARTED.is_set()", helper_source)
+        self.assertIn("APPLICATION_SHUTDOWN_FINISHED.is_set()", helper_source)
+        self.assertIn("LIVE_CLIENT.start(room_id, cookies)", helper_source)
+
+    def test_manual_and_qr_auto_connect_use_the_guarded_start(self):
+        for function_name in ("connect_live_room", "_connect_saved_room"):
+            function = self.functions[function_name]
+            calls = [
+                node for node in ast.walk(function)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_start_live_client_if_application_active"
+            ]
+            self.assertEqual(len(calls), 1, function_name)
 
 
 class CoalescingWorkerTests(unittest.TestCase):
