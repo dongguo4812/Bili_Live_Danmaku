@@ -100,6 +100,7 @@ def register_bar_routes(
     # SSE 订阅者只在人数变化时收到通知，不进行浏览器定时轮询。
     lobby_event_lock = threading.Lock()
     lobby_event_subscribers = set()
+    SSE_SHUTDOWN = object()
 
     def notify_lobby_member_count_changed(count):
         payload = json.dumps({"lobby_member_count": count}, ensure_ascii=False)
@@ -138,6 +139,20 @@ def register_bar_routes(
         """通知刷新线程退出；有限等待当前缓存提交完成后再等待线程收尾。"""
         # 先发出停止信号，避免新刷新进入缓存提交区。
         stop_event.set()
+
+        # 主动通知所有 SSE 订阅者结束连接，避免关闭期间继续保留长连接。
+        with lobby_event_lock:
+            subscribers = list(lobby_event_subscribers)
+            for subscriber in subscribers:
+                try:
+                    while True:
+                        subscriber.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    subscriber.put_nowait(SSE_SHUTDOWN)
+                except queue.Full:
+                    log.debug("[战绩条] SSE 结束通知队列已满")
 
         # 尝试等待已开始的本地缓存提交完成，但绝不让锁等待拖住主程序关闭。
         # 若超时，当前提交可能仍在执行；它结束后，后续提交会被停止检查拦截。
@@ -1163,16 +1178,25 @@ def register_bar_routes(
         @stream_with_context
         def event_stream():
             with lobby_event_lock:
-                lobby_event_subscribers.add(subscriber)
+                shutting_down = stop_event.is_set()
+                if not shutting_down:
+                    lobby_event_subscribers.add(subscriber)
             try:
+                if shutting_down:
+                    yield "event: shutdown\\ndata: {}\\n\\n"
+                    return
+
                 # 连接建立后先同步一次，避免页面断线期间错过最后一次变更。
-                yield "event: lobby-change\ndata: {}\n\n"
+                yield "event: lobby-change\\ndata: {}\\n\\n"
                 while True:
                     try:
                         payload = subscriber.get(timeout=15)
-                        yield f"event: lobby-change\ndata: {payload}\n\n"
+                        if payload is SSE_SHUTDOWN:
+                            yield "event: shutdown\\ndata: {}\\n\\n"
+                            return
+                        yield f"event: lobby-change\\ndata: {payload}\\n\\n"
                     except queue.Empty:
-                        yield ": keep-alive\n\n"
+                        yield ": keep-alive\\n\\n"
             except GeneratorExit:
                 raise
             finally:
