@@ -1165,7 +1165,7 @@ def _shutdown_application_and_refresh_obs() -> None:
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
             if not LIVE_CLIENT.stop(timeout=6.0):
-                logger.error("B站连接线程在 8 秒内未退出；保留其 daemon 状态并继续清理其他资源。")
+                logger.error("B站连接线程在 6 秒内未退出；保留其 daemon 状态并继续清理其他资源。")
         except Exception:
             logger.exception("停止 B 站连接时发生异常，仍将继续执行其他退出清理。")
 
