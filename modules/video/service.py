@@ -994,8 +994,8 @@ def try_enter_video_fullscreen(bv, timeout=10):
 
 
 @selenium_locked
-def open_video_page(bv, url):
-    """打开视频页面并重置进度；网页全屏由监控在确认播放进度后触发。"""
+def open_video_page(bv, url, resume_time=0.0):
+    """打开视频页面；新视频从头播放，浏览器恢复时尽可能恢复原进度。"""
     global driver
 
     # 首先处理最常见的情况：视频标签页被手动关闭，但其他标签页仍在。
@@ -1022,7 +1022,8 @@ def open_video_page(bv, url):
                 return {ok: false, reason: 'metadata_not_ready', readyState: v.readyState};
             }
             try {
-                v.currentTime = 0;
+                const target = Math.max(0, Number(arguments[0]) || 0);
+                v.currentTime = Math.min(target, Math.max(0, v.duration - 1));
                 return {ok: true, currentTime: v.currentTime, duration: v.duration};
             } catch (e) {
                 return {ok: false, reason: String(e)};
@@ -1031,17 +1032,17 @@ def open_video_page(bv, url):
         reset_deadline = time.monotonic() + 10.0
         reset_result = None
         while time.monotonic() < reset_deadline:
-            reset_result = driver.execute_script(reset_script)
+            reset_result = driver.execute_script(reset_script, resume_time)
             if isinstance(reset_result, dict) and reset_result.get("ok"):
                 logger.info(
-                    "已将点播视频播放位置重置到开头：%s（当前 %.2f 秒）",
-                    bv, float(reset_result.get("currentTime") or 0),
+                    "已设置点播视频恢复位置：%s（目标 %.2f 秒，实际 %.2f 秒）",
+                    bv, max(0.0, float(resume_time or 0)), float(reset_result.get("currentTime") or 0),
                 )
                 break
             time.sleep(0.5)
         else:
             reason = reset_result.get("reason", "unknown") if isinstance(reset_result, dict) else "no_result"
-            logger.warning("未能确认视频播放位置已重置为 0 秒：%s（原因：%s）", bv, reason)
+            logger.warning("未能确认视频播放位置已设置：%s（目标 %.2f 秒，原因：%s）", bv, max(0.0, float(resume_time or 0)), reason)
     except Exception as exc:
         logger.warning("重置视频播放位置失败（不影响点播队列）：%s；%s", bv, exc)
 
@@ -1054,6 +1055,8 @@ video_queue = []
 
 # 当前打开的视频
 current_bv = None
+# 最近一次成功读取的 HTML5 播放进度；浏览器被手动关闭后用于恢复。
+current_video_position = 0.0
 
 # 是否正在处理播放任务
 is_playing = False
@@ -1142,7 +1145,7 @@ async def _resume_music_if_video_finished():
 
 async def monitor_video_end(bv, session_generation=None):
     """监控当前 B 站视频是否播放结束，结束后自动清状态并播放队列下一条。"""
-    global is_playing, current_bv, playback_monitor_task, playback_state
+    global is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
     if session_generation is None:
         session_generation = video_session_generation
     if not module_enabled or session_generation != video_session_generation:
@@ -1160,6 +1163,7 @@ async def monitor_video_end(bv, session_generation=None):
     last_obs_visible = False
     status_task = None
     status_timeout_count = 0
+    last_browser_recovery_at = 0.0
     status_script = """
         const v = document.querySelector('video');
         const player = document.querySelector('.bpx-player-container, .bilibili-player');
@@ -1199,6 +1203,27 @@ async def monitor_video_end(bv, session_generation=None):
                 return
 
             if driver is None:
+                # 浏览器已被手动关闭且恢复尝试失败时，保留当前 BV，并间隔重试创建会话。
+                now = time.monotonic()
+                if now - last_browser_recovery_at >= 5.0:
+                    last_browser_recovery_at = now
+                    try:
+                        await run_blocking(
+                            open_video_page, bv,
+                            f"https://www.bilibili.com/video/{bv}",
+                            current_video_position,
+                        )
+                        if not module_enabled or session_generation != video_session_generation:
+                            return
+                        saw_video = False
+                        last_time = -1.0
+                        saw_progress = False
+                        fullscreen_attempted = False
+                        last_obs_visible = False
+                        status_timeout_count = 0
+                        logger.info("Selenium 已重新创建，当前视频已恢复：%s（%.2f 秒）", bv, current_video_position)
+                    except Exception as recovery_exc:
+                        logger.warning("重新创建 Selenium 或恢复当前视频失败，将稍后重试：%s；%s", bv, type(recovery_exc).__name__)
                 continue
 
             try:
@@ -1227,40 +1252,61 @@ async def monitor_video_end(bv, session_generation=None):
                         last_obs_visible = False
                     continue
             except (NoSuchWindowException, InvalidSessionIdException) as exc:
-                # 当前视频标签页被用户手动关闭，或关闭标签页时导致 WebDriver 会话失效。
-                # 将当前视频从播放状态中清除，再恢复浏览器并播放队列下一条。
-                logger.warning("检测到当前视频标签页/浏览器会话已关闭（%s）：%s", bv, exc)
+                # 用户手动关闭 Chrome/当前标签页后，保留当前 BV 和播放进度，重建浏览器后继续当前视频。
+                logger.warning("检测到 Selenium 标签页/会话已关闭，准备恢复当前视频（%s）：%s", bv, exc)
                 await set_obs_visibility_async(False)
-                if current_bv == bv and is_playing:
-                    is_playing = False
-                    current_bv = None
-                    try:
-                        await run_blocking(ensure_browser_window)
-                        logger.info("浏览器已恢复，准备播放队列中的下一条视频")
-                    except Exception as recovery_exc:
-                        logger.exception("恢复浏览器失败：%s", recovery_exc)
-                    await play_next()
-                    await _resume_music_if_video_finished()
-                return
+                last_obs_visible = False
+                try:
+                    await run_blocking(
+                        open_video_page, bv,
+                        f"https://www.bilibili.com/video/{bv}",
+                        current_video_position,
+                    )
+                    if not module_enabled or session_generation != video_session_generation:
+                        return
+                    saw_video = False
+                    last_time = -1.0
+                    saw_progress = False
+                    fullscreen_attempted = False
+                    status_timeout_count = 0
+                    logger.info("Selenium 已重新创建，继续播放当前视频：%s（恢复位置 %.2f 秒）", bv, current_video_position)
+                    continue
+                except Exception as recovery_exc:
+                    logger.warning("恢复当前视频失败，将保留当前点播并稍后重试：%s；%s", bv, type(recovery_exc).__name__)
+                    last_browser_recovery_at = time.monotonic()
+                    continue
             except Exception as exc:
                 # 某些 Selenium 版本会把标签页关闭报告为通用 WebDriver 异常。
                 # 只在错误文本明显指向窗口/会话已关闭时执行恢复，避免把普通短暂错误误判为关闭。
                 error_text = str(exc).lower()
-                closed_markers = ("no such window", "target window already closed", "invalid session id", "web view not found")
+                closed_markers = (
+                    "no such window", "target window already closed", "invalid session id",
+                    "web view not found", "disconnected: not connected to devtools",
+                    "chrome not reachable", "chrome failed to start", "session deleted",
+                )
                 if any(marker in error_text for marker in closed_markers):
-                    logger.warning("检测到视频标签页/浏览器会话已关闭（%s）：%s", bv, exc)
+                    logger.warning("检测到 Selenium/Chrome 会话已关闭，准备恢复当前视频（%s）：%s", bv, exc)
                     await set_obs_visibility_async(False)
-                    if current_bv == bv and is_playing:
-                        is_playing = False
-                        current_bv = None
-                        try:
-                            await run_blocking(ensure_browser_window)
-                            logger.info("浏览器已恢复，准备播放队列中的下一条视频")
-                        except Exception as recovery_exc:
-                            logger.exception("恢复浏览器失败：%s", recovery_exc)
-                        await play_next()
-                        await _resume_music_if_video_finished()
-                    return
+                    last_obs_visible = False
+                    try:
+                        await run_blocking(
+                            open_video_page, bv,
+                            f"https://www.bilibili.com/video/{bv}",
+                            current_video_position,
+                        )
+                        if not module_enabled or session_generation != video_session_generation:
+                            return
+                        saw_video = False
+                        last_time = -1.0
+                        saw_progress = False
+                        fullscreen_attempted = False
+                        status_timeout_count = 0
+                        logger.info("Selenium 已重新创建，继续播放当前视频：%s（恢复位置 %.2f 秒）", bv, current_video_position)
+                        continue
+                    except Exception as recovery_exc:
+                        logger.warning("恢复当前视频失败，将保留当前点播并稍后重试：%s；%s", bv, type(recovery_exc).__name__)
+                        last_browser_recovery_at = time.monotonic()
+                        continue
                 logger.debug("读取视频播放状态失败（%s）：%s", bv, exc)
                 continue
 
@@ -1306,6 +1352,7 @@ async def monitor_video_end(bv, session_generation=None):
 
             duration = status.get("duration") or 0
             current_time = status.get("currentTime") or 0
+            current_video_position = max(0.0, float(current_time or 0))
             ready_state = status.get("readyState") or 0
             if ready_state < 2 or duration <= 0:
                 if last_obs_visible:
@@ -1374,7 +1421,7 @@ async def monitor_video_end(bv, session_generation=None):
 async def play_next():
     """取出队列第一条视频并打开页面。"""
 
-    global is_playing, current_bv, driver, playback_monitor_task, playback_state
+    global is_playing, current_bv, driver, playback_monitor_task, playback_state, current_video_position
 
     async with play_lock:
 
@@ -1396,6 +1443,7 @@ async def play_next():
 
         is_playing = True
         current_bv = bv
+        current_video_position = 0.0
         playback_state = "unknown"
 
         url = f"https://www.bilibili.com/video/{bv}"
@@ -1989,7 +2037,7 @@ class VideoModuleFacade:
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
-        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state
+        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
@@ -2068,6 +2116,7 @@ class VideoModuleFacade:
         is_playing = False
         playback_state = "stopped"
         current_bv = None
+        current_video_position = 0.0
         if restore_music:
             await _resume_music_if_video_finished()
             logger.info("视频模块已关闭，Chrome 清理流程已执行，待播队列已清空。")
