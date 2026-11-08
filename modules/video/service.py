@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-
-from core.blocking import run_blocking
 import base64
 import json
 import logging
@@ -30,6 +28,7 @@ except ImportError:
 from core.config_manager import ConfigManager
 from core.paths import get_base_dir
 from core.credential_store import CredentialStore
+from core.blocking import run_blocking
 
 logger = logging.getLogger("bili_live_danmaku.video")
 BASE_DIR = get_base_dir()
