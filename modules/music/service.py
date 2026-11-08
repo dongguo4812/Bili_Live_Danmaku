@@ -1331,10 +1331,15 @@ class MusicModule:
                 for i, item in enumerate(self.queue, 1)
             ]
             queue_count = len(waiting)
-        lx_status = await run_blocking(get_lx_status)
+            module_paused = self.paused
+            lx_playback_active = self._lx_playback_active
+        # 空队列、模块暂停或当前歌曲并非由本模块实际启动时，
+        # 无需访问洛雪状态接口；避免控制台轮询占用共享阻塞执行器。
+        needs_lx_status = bool(current and lx_playback_active and not module_paused)
+        lx_status = await run_blocking(get_lx_status) if needs_lx_status else None
         playback_state = (
-            "module_paused" if current and self.paused
-            else get_lx_playback_state(lx_status) if current and self._lx_playback_active
+            "module_paused" if current and module_paused
+            else get_lx_playback_state(lx_status) if needs_lx_status
             else "stopped"
         )
         now = time.time()
