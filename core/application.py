@@ -15,10 +15,14 @@ logger = logging.getLogger("bili_live_danmaku.application")
 
 
 class ApplicationRuntime:
-    def __init__(self) -> None:
+    def __init__(self, max_pending_events: int = 256) -> None:
         self.async_runtime = AsyncRuntime()
         self.events = EventBus()
         self.modules = ModuleManager()
+        self._max_pending_events = max(1, int(max_pending_events))
+        self._event_slots = threading.BoundedSemaphore(self._max_pending_events)
+        self._event_overflow_count = 0
+        self._event_overflow_lock = threading.Lock()
         self._started = False
         self._shutting_down = False
         self._shutdown_complete = False
@@ -42,11 +46,31 @@ class ApplicationRuntime:
             requires_connection=requires_connection,
         )
 
-    def publish_event(self, event: dict[str, Any]) -> None:
+    def publish_event(self, event: dict[str, Any]) -> bool:
+        """有界投递直播事件，避免突发弹幕无限创建待执行协程。"""
+        if not isinstance(event, dict):
+            return False
         if not self._started or self._shutting_down:
             logger.warning("统一运行时尚未启动或正在关闭，忽略直播事件：%s", event.get("type", "unknown"))
-            return
-        self.async_runtime.submit(self.events.publish(event))
+            return False
+        if not self._event_slots.acquire(blocking=False):
+            with self._event_overflow_lock:
+                self._event_overflow_count += 1
+                dropped = self._event_overflow_count
+            if dropped == 1 or dropped % 100 == 0:
+                logger.warning(
+                    "直播事件待处理数量达到上限 %s，已拒绝新事件；累计拒绝 %s 条。",
+                    self._max_pending_events,
+                    dropped,
+                )
+            return False
+        try:
+            future = self.async_runtime.submit(self.events.publish(dict(event)))
+        except Exception:
+            self._event_slots.release()
+            raise
+        future.add_done_callback(lambda _future: self._event_slots.release())
+        return True
 
     def connection_lost(self) -> None:
         if self._started and not self._shutting_down:
