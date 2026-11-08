@@ -141,13 +141,12 @@ def register_bar_routes(
 
         # 尝试等待已开始的本地缓存提交完成，但绝不让锁等待拖住主程序关闭。
         # 若超时，当前提交可能仍在执行；它结束后，后续提交会被停止检查拦截。
-        cache_lock_acquired = cache_lock.acquire(timeout=1.0)
+        cache_lock_acquired = cache_lock.acquire(timeout=0.1)
         if cache_lock_acquired:
             cache_lock.release()
         else:
-            log.warning(
-                "[战绩条] 等待缓存提交锁超过1秒；主程序继续关闭，"
-                "正在执行的本次提交可能尚未完成"
+            log.debug(
+                "[战绩条] 缓存提交仍在执行；不等待其完成，主程序继续关闭"
             )
 
         game_end_event.set()
@@ -161,14 +160,12 @@ def register_bar_routes(
         ):
             return
 
-        # LCU 请求本身有超时；这里再设置有限等待，避免关闭流程无限阻塞。
-        current_worker.join(timeout=15)
+        # 不等待正在进行的网络请求或缓存刷新；线程为守护线程，不会阻塞进程退出。
+        current_worker.join(timeout=0.2)
 
         if current_worker.is_alive():
-            log.warning(
-                "[战绩条] 后台自动刷新线程在 %s 秒内未能退出，"
-                "主程序将继续关闭；线程结束后不会再启动新的刷新任务",
-                15,
+            log.debug(
+                "[战绩条] 后台自动刷新仍在收尾；主程序不再等待"
             )
 
     def notify_game_ended():
