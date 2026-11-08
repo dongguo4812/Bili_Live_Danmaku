@@ -3068,6 +3068,67 @@ _initialize_login_state()
 _CONSOLE_CTRL_HANDLER = None
 
 
+def _shutdown_application_for_console_close() -> None:
+    """在 Windows 控制台关闭事件的短时限内尽力清理关键资源；不执行 OBS 最终刷新。"""
+    if not APPLICATION_SHUTDOWN_LOCK.acquire(timeout=0.05):
+        logger.warning("已有退出流程正在执行，控制台关闭清理不再重复等待。")
+        return
+
+    try:
+        if APPLICATION_SHUTDOWN_FINISHED.is_set():
+            return
+
+        APPLICATION_SHUTDOWN_STARTED.set()
+        deadline = time.monotonic() + 4.0
+
+        def remaining_budget(maximum: float) -> float:
+            return max(0.0, min(maximum, deadline - time.monotonic()))
+
+        OBS_COMBINED_REFRESH_STOP.set()
+        CREDENTIAL_WATCHDOG_STOP.set()
+        if OBS_REFRESH_WORKER is not None:
+            OBS_REFRESH_WORKER.stop(timeout=remaining_budget(0.2))
+
+        APPLICATION_RUNTIME.begin_shutdown()
+
+        # 控制台关闭事件的系统等待窗口很短：优先断开直播连接、停止托管扩展，
+        # 再用剩余时间关闭业务模块；不等待 OBS 刷新或 watchdog 完全退出。
+        try:
+            LIVE_CLIENT.stop(timeout=remaining_budget(1.0))
+        except Exception:
+            logger.exception("控制台关闭时停止 B 站连接失败。")
+
+        try:
+            LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(1.0))
+        except Exception:
+            logger.exception("控制台关闭时停止托管扩展失败。")
+
+        shutdown_future = None
+        try:
+            module_budget = remaining_budget(1.2)
+            if module_budget > 0:
+                shutdown_future = APPLICATION_RUNTIME.async_runtime.submit(
+                    APPLICATION_RUNTIME.modules.shutdown_all(
+                        timeout=module_budget,
+                        per_module_timeout=min(0.6, module_budget),
+                    )
+                )
+                shutdown_future.result(timeout=remaining_budget(1.3))
+        except Exception:
+            if shutdown_future is not None:
+                shutdown_future.cancel()
+            logger.warning("控制台关闭时业务模块未能在剩余时间内全部完成清理。", exc_info=True)
+
+        try:
+            APPLICATION_RUNTIME.async_runtime.stop(timeout=remaining_budget(0.2))
+        except Exception:
+            logger.warning("控制台关闭时异步运行时未能及时停止。", exc_info=True)
+
+        APPLICATION_SHUTDOWN_FINISHED.set()
+    finally:
+        APPLICATION_SHUTDOWN_LOCK.release()
+
+
 def _install_console_close_handler() -> None:
     """捕获 Windows CMD 右上角关闭事件；该事件不保证执行 Python finally/atexit。"""
     global _CONSOLE_CTRL_HANDLER
@@ -3080,21 +3141,19 @@ def _install_console_close_handler() -> None:
         # CTRL_CLOSE_EVENT=2，CTRL_LOGOFF_EVENT=5，CTRL_SHUTDOWN_EVENT=6。
         if event_type not in {2, 5, 6}:
             return False
-        logger.warning("检测到 Windows 控制台关闭事件，开始执行紧急资源清理。")
+        logger.warning("检测到 Windows 控制台关闭事件，开始执行限时紧急资源清理。")
 
-        # 退出时只清理本程序启动的 Chrome；不向洛雪发送任何控制请求，
-        # 不恢复、不暂停、不停止，也不关闭洛雪播放器。
         task = threading.Thread(
-            target=_shutdown_application_and_refresh_obs,
+            target=_shutdown_application_for_console_close,
             name="emergency-application-shutdown",
             daemon=True,
         )
         task.start()
-        # 退出处理线程负责：关闭全部模块 -> 停止直播连接 -> 最后刷新 OBS 综合展示源。
-        task.join(65.0)
+        # Windows 对控制台关闭处理程序有严格的等待期限，预留时间后主动返回。
+        task.join(4.0)
         logger.warning(
-            "控制台关闭事件清理结束：退出清理线程存活=%s；OBS最终刷新=%s。",
-            task.is_alive(), APPLICATION_SHUTDOWN_FINISHED.is_set(),
+            "控制台关闭清理结束：退出清理线程存活=%s。",
+            task.is_alive(),
         )
         return True
 
