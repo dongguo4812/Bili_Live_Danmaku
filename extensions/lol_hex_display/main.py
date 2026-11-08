@@ -50,7 +50,7 @@ file_handler = None
 def initialize_runtime_resources():
     """单实例锁取得后再创建目录、配置日志并加载/迁移本地数据。"""
     global LOG_LEVEL, LOG_RETENTION_DAYS, log_listener, file_handler
-    global assets, state, icon_sources
+    global assets, state
 
     for path in (DATA, ICON_DIR, SHOTS, LOG_DIR):
         path.mkdir(parents=True, exist_ok=True)
@@ -108,9 +108,6 @@ def initialize_runtime_resources():
     if state_changed:
         state['updated_at'] = time.time()
         atomic_json(STATE_PATH, state)
-    icon_sources = read_json(ICON_SOURCE_PATH, {})
-    if not isinstance(icon_sources, dict):
-        icon_sources = {}
 
 def cleanup_old_logs():
     """按主项目的 retention_days 规则清理日期日志；0 表示不自动清理。"""
@@ -434,11 +431,10 @@ def merge_cdragon_assets(tencent_assets,payload):
 
 assets_lock=threading.RLock(); assets={}
 state_lock=threading.RLock(); state={'cards':[],'updated_at':0}
-icon_sources={}
 
 
 def _update_assets_impl(force=False):
-    global assets, icon_sources
+    global assets
     try:
         r=requests.get(AUGMENTS_URL,timeout=20,headers={'User-Agent':'Mozilla/5.0'}); r.raise_for_status()
         new=normalize_assets(r.json())
@@ -469,7 +465,7 @@ def _update_assets_impl(force=False):
             log.info('海克斯索引更新：%d 条', len(new))
         else:
             log.debug('海克斯索引无变化：%d 条', len(new))
-        # 先使用局部副本；持久化成功后再更新全局来源记录。
+        # 每次更新都从磁盘读取来源记录副本，避免依赖过期的进程内缓存。
         new_icon_sources=read_json(ICON_SOURCE_PATH,{})
         if not isinstance(new_icon_sources, dict):
             new_icon_sources = {}
@@ -522,7 +518,6 @@ def _update_assets_impl(force=False):
                     break
         if icon_sources_changed:
             atomic_json(ICON_SOURCE_PATH,new_icon_sources)
-        icon_sources = new_icon_sources
         return True
     except Exception as e:
         log.warning('海克斯索引更新失败，保留本地缓存：%s',e); return False
