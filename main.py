@@ -1215,6 +1215,10 @@ def _shutdown_application_and_refresh_obs() -> None:
             if not OBS_REFRESH_WORKER.stop(timeout=remaining_budget(1.0)):
                 logger.warning("OBS 刷新工作线程未在 1 秒内退出；继续执行其他退出清理。")
         APPLICATION_RUNTIME.begin_shutdown()
+        try:
+            QR_LOGIN.shutdown()
+        except Exception:
+            logger.exception("停止 B 站二维码登录时发生异常，仍将继续执行其他退出清理。")
 
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
         try:
@@ -3098,6 +3102,10 @@ def _shutdown_application_for_console_close() -> None:
             OBS_REFRESH_WORKER.stop(timeout=remaining_budget(0.2))
 
         APPLICATION_RUNTIME.begin_shutdown()
+        try:
+            QR_LOGIN.shutdown()
+        except Exception:
+            logger.exception("控制台关闭时停止 B 站二维码登录失败。")
 
         # 控制台关闭事件的系统等待窗口很短：优先断开直播连接、停止托管扩展，
         # 再用剩余时间关闭业务模块；不等待 OBS 刷新或 watchdog 完全退出。
