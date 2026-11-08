@@ -168,9 +168,16 @@ class CombinedDisplayContractTests(unittest.TestCase):
         helper_start = main.index("def _start_obs_refresh_thread")
         helper_end = main.index("def _obs_combined_display_refresh_watchdog", helper_start)
         helper = main[helper_start:helper_end]
-        self.assertIn("target=_refresh_obs_combined_display_sources", helper)
-        self.assertIn("name=name", helper)
-        self.assertIn("daemon=True", helper)
+        self.assertIn("worker = OBS_REFRESH_WORKER", helper)
+        self.assertIn("worker.request()", helper)
+        self.assertIn("APPLICATION_SHUTDOWN_STARTED.is_set()", helper)
+        self.assertIn("with APPLICATION_SHUTDOWN_LOCK:", helper)
+
+        worker_start = main.index("OBS_REFRESH_WORKER = CoalescingWorker(")
+        worker_end = main.index("\n)", worker_start) + 2
+        worker = main[worker_start:worker_end]
+        self.assertIn("_refresh_obs_combined_display_sources", worker)
+        self.assertIn('name="obs-display-refresh-worker"', worker)
         self.assertLess(route.index("_save_display_layout_store(store)"), route.index("_start_obs_refresh_thread"))
 
 
