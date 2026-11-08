@@ -97,7 +97,7 @@ class ApplicationRuntime:
                 module_timeout = min(32.0, max(0.1, float(timeout) - 5.0))
                 future = self.async_runtime.submit(self._shutdown_async(module_timeout))
                 try:
-                    future.result(timeout=module_timeout + 1.0)
+                    future.result(timeout=module_timeout + 4.0)
                 except concurrent.futures.TimeoutError:
                     logger.error(
                         "业务模块清理超过 %.1f 秒；请求取消清理协程后进入运行时兜底关闭。",
