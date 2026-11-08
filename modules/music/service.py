@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-
-from core.blocking import run_blocking
 import ast
 import html
 import json
@@ -25,6 +23,7 @@ import requests
 
 from core.config_manager import ConfigManager
 from core.paths import get_base_dir
+from core.blocking import run_blocking
 
 log = logging.getLogger("bili_live_danmaku.music")
 BASE_DIR = get_base_dir()
