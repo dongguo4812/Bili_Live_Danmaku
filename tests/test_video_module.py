@@ -29,7 +29,9 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "max_queue": video_service.MAX_QUEUE_SIZE,
             "session_generation": video_service.video_session_generation,
             "request_generation": video_service.video_request_generation,
+            "obs_visibility_callback": video_service.OBS_VISIBILITY_CALLBACK,
         }
+        video_service.OBS_VISIBILITY_CALLBACK = None
         video_service.module_enabled = False
         video_service.module_paused = False
         video_service.driver = None
@@ -76,6 +78,7 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.MAX_QUEUE_SIZE = self.old_state["max_queue"]
         video_service.video_session_generation = self.old_state["session_generation"]
         video_service.video_request_generation = self.old_state["request_generation"]
+        video_service.OBS_VISIBILITY_CALLBACK = self.old_state["obs_visibility_callback"]
 
     async def test_create_browser_registers_service_before_webdriver_creation(self):
         class FakeService:
@@ -369,12 +372,9 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "roomid": video_service.roomid,
             "profile": video_service.CHROME_PROFILE,
             "admin_uids": set(video_service.ADMIN_UIDS),
-            "obs": dict(video_service.OBS_CONFIG),
         }
         try:
-            with tempfile.TemporaryDirectory() as tmp, \
-                 patch.object(video_service, "BASE_DIR", Path(tmp)), \
-                 patch.object(video_service, "load_obs_config", return_value={"enabled": False}):
+            with tempfile.TemporaryDirectory() as tmp, patch.object(video_service, "BASE_DIR", Path(tmp)):
                 (Path(tmp) / "legacy-uid.txt").write_text("999999\\n", encoding="utf-8")
                 video_service.configure_video_module(
                     {"chrome": {"profile_dir": "profile"}, "requests": {},
@@ -399,7 +399,25 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             video_service.roomid = old["roomid"]
             video_service.CHROME_PROFILE = old["profile"]
             video_service.ADMIN_UIDS = old["admin_uids"]
-            video_service.OBS_CONFIG = old["obs"]
+
+    async def test_obs_visibility_uses_injected_main_application_callback(self):
+        calls = []
+
+        def main_obs_controller(visible):
+            calls.append(visible)
+            return True
+
+        video_service.OBS_VISIBILITY_CALLBACK = main_obs_controller
+        with patch.object(
+            video_service, "run_blocking",
+            new=AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)),
+        ) as run:
+            self.assertTrue(await video_service.set_obs_visibility_async(True))
+            self.assertTrue(await video_service.set_obs_visibility_async(False))
+
+        self.assertEqual(calls, [True, False])
+        self.assertEqual(run.await_count, 2)
+
 
     async def test_inflight_order_is_discarded_after_pause_and_resume(self):
         import asyncio
