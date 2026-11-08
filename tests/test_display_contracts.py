@@ -104,6 +104,15 @@ class VoiceTestQueuePollingRegressionTests(unittest.TestCase):
         self.assertIn("flushSpeechStatePost();", publish)
         self.assertNotIn('fetch("/api/voice/tts/state"', publish)
 
+    def test_tts_playback_is_single_flight_and_invalidated_when_voice_stops(self):
+        script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
+        self.assertIn("let voicePlaybackEpoch = 0;", script)
+        self.assertIn("if (!voiceModuleActive || speaking || !speechQueue.length) return;", script)
+        self.assertIn("voicePlaybackEpoch += 1;", script)
+        self.assertIn("while (speechQueue.length && voiceModuleActive && playbackEpoch === voicePlaybackEpoch)", script)
+        self.assertIn("if (!voiceModuleActive || playbackEpoch !== voicePlaybackEpoch) return;", script)
+        self.assertIn("await playSpeechText(next.text, playbackEpoch);", script)
+
     def test_tts_test_queue_is_polled_independently_of_danmaku_api(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "display.js").read_text(encoding="utf-8")
         start = script.index("async function pollTtsTestQueue()")
