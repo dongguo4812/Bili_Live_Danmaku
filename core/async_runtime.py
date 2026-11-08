@@ -73,7 +73,7 @@ class AsyncRuntime:
                 except Exception:
                     logger.exception("等待异步任务取消时发生异常。")
             try:
-                loop.run_until_complete(asyncio.wait_for(loop.shutdown_asyncgens(), timeout=2.0))
+                loop.run_until_complete(asyncio.wait_for(loop.shutdown_asyncgens(), timeout=1.0))
             except Exception:
                 logger.warning("异步生成器清理超时或失败。", exc_info=True)
             finally:
