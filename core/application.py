@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import threading
 from typing import Any
 
 from core.async_runtime import AsyncRuntime
@@ -21,7 +22,7 @@ class ApplicationRuntime:
         self._started = False
         self._shutting_down = False
         self._shutdown_complete = False
-        self._shutdown_lock = __import__("threading").RLock()
+        self._shutdown_lock = threading.RLock()
 
     def start(self) -> None:
         if self._started:
