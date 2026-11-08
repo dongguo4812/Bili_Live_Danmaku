@@ -19,6 +19,7 @@ from typing import Any
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchWindowException, InvalidSessionIdException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 try:
     import obsws_python
@@ -548,9 +549,26 @@ chrome_options.add_argument("--profile-directory=Default")
 chrome_options.page_load_strategy = "eager"
 
 driver = None
+chrome_service = None
 VIDEO_SHUTDOWN_REQUESTED = threading.Event()
 VIDEO_LIFECYCLE_LOCK = threading.RLock()
 VIDEO_EMERGENCY_CLEANUP_LOCK = threading.Lock()
+
+
+class ManagedChromeService(ChromeService):
+    """在 ChromeDriver 启动时保留可清理的进程句柄。"""
+
+    def _start_process(self, path):
+        if VIDEO_SHUTDOWN_REQUESTED.is_set():
+            raise RuntimeError("程序正在退出，拒绝启动 ChromeDriver。")
+        super()._start_process(path)
+        # Service._start_process 返回时 process 已经创建；退出线程可通过
+        # 已登记的 Service 立即取得 PID，不必等待 webdriver.Chrome() 返回。
+        with VIDEO_LIFECYCLE_LOCK:
+            shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
+        if shutting_down:
+            _force_terminate_service_sync(self)
+            raise RuntimeError("程序正在退出，已终止新启动的 ChromeDriver。")
 
 
 @selenium_locked
@@ -570,6 +588,52 @@ def _pause_video_for_close_sync():
 def _quit_browser_sync(browser):
     if browser is not None:
         browser.quit()
+
+
+def _service_process_id(service) -> int:
+    try:
+        process = getattr(service, "process", None)
+        pid = int(getattr(process, "pid", 0) or 0)
+        return pid if pid > 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _force_terminate_service_sync(service) -> bool:
+    """按已登记的 ChromeDriver PID 有界清理其进程树。"""
+    pid = _service_process_id(service)
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0:
+                logger.warning("已通过 Windows 进程树清理 ChromeDriver：PID=%s", pid)
+                return True
+            logger.warning(
+                "清理 ChromeDriver 进程树未确认成功：PID=%s，returncode=%s",
+                pid, result.returncode,
+            )
+            return False
+
+        process = getattr(service, "process", None)
+        process.terminate()
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1.0)
+        logger.warning("已终止 ChromeDriver：PID=%s", pid)
+        return True
+    except Exception as exc:
+        logger.warning("强制清理 ChromeDriver 失败：PID=%s，错误=%s", pid, type(exc).__name__)
+        return False
 
 
 def _browser_process_ids(browser) -> list[int]:
@@ -615,12 +679,17 @@ def _browser_process_alive_sync(browser) -> bool:
     return False
 
 
-def _force_terminate_browser_sync(browser) -> bool:
-    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
-    if browser is None or os.name != "nt":
+def _force_terminate_browser_sync(browser, service=None) -> bool:
+    """Selenium quit 超时或锁被卡住时，按 WebDriver/Service PID 清理专属进程树。"""
+    if os.name != "nt":
         return False
 
     pids = _browser_process_ids(browser)
+    service_pid = _service_process_id(service)
+    if service_pid and service_pid not in pids:
+        pids.insert(0, service_pid)
+    if not pids:
+        return False
 
     closed = False
     for pid in pids:
@@ -698,15 +767,19 @@ def _terminate_chrome_profile_processes_sync() -> tuple[list[int], list[int]]:
 
 
 def emergency_close_browser_sync() -> bool:
-    """程序退出时优先按 WebDriver PID、再按独立 chrome_profile 清理 Chrome。"""
-    global driver
+    """程序退出时优先按 ChromeDriver PID、再按专用 Profile 清理浏览器进程。"""
+    global driver, chrome_service
     with VIDEO_EMERGENCY_CLEANUP_LOCK:
         with VIDEO_LIFECYCLE_LOCK:
             browser = driver
+            service = chrome_service
             driver = None
-        # 先按已知 PID 关闭浏览器主进程树，避免 Selenium quit/锁等待拖延退出。
-        if browser is not None:
-            _force_terminate_browser_sync(browser)
+            chrome_service = None
+        # ChromeDriver 是 Chrome 的启动父进程；按其 PID 清理进程树，
+        # 即使 webdriver.Chrome() 尚未返回、全局 driver 仍为 None 也能执行。
+        service_closed = _force_terminate_service_sync(service) if service is not None else False
+        if browser is not None and not service_closed:
+            _force_terminate_browser_sync(browser, service)
         roots, remaining = _terminate_chrome_profile_processes_sync()
         if remaining:
             # Profile 查询仍发现残留时，再执行一次定向清理并回查。
@@ -720,24 +793,27 @@ def emergency_close_browser_sync() -> bool:
 
 @selenium_locked
 def create_browser():
-    """创建 Chrome 并登记所有权；退出封锁与登记使用同一把锁，避免关闭后复活。"""
-    global driver
+    """创建 Chrome 并提前登记 Service，确保启动中的 ChromeDriver 可被退出流程追踪。"""
+    global driver, chrome_service
     browser = None
+    service = None
     cleaned_for_shutdown = False
     try:
         if VIDEO_SHUTDOWN_REQUESTED.is_set():
             raise RuntimeError("程序正在退出，拒绝创建新的视频浏览器。")
-        browser = webdriver.Chrome(options=chrome_options)
+        service = ManagedChromeService()
+        with VIDEO_LIFECYCLE_LOCK:
+            if VIDEO_SHUTDOWN_REQUESTED.is_set():
+                raise RuntimeError("程序正在退出，拒绝登记 ChromeDriver。")
+            chrome_service = service
+        browser = webdriver.Chrome(service=service, options=chrome_options)
         browser.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
         with VIDEO_LIFECYCLE_LOCK:
             shutting_down = VIDEO_SHUTDOWN_REQUESTED.is_set()
             if not shutting_down:
                 driver = browser
         if shutting_down:
-            try:
-                browser.quit()
-            except Exception:
-                logger.warning("退出期间新建的 Chrome 会话无法正常 quit，改由专用 Profile 清理。")
+            _force_terminate_service_sync(service)
             roots, remaining = _terminate_chrome_profile_processes_sync()
             cleaned_for_shutdown = True
             if remaining:
@@ -745,11 +821,11 @@ def create_browser():
             raise RuntimeError("程序正在退出，已拒绝登记新的视频浏览器。")
         return browser
     except Exception:
-        # SessionNotCreated 等异常可能发生在 Chrome 已启动、WebDriver 会话
-        # 尚未建立时；此时全局 driver 仍可能为 None，常规 quit 无法回收孤儿进程。
-        # 仅按本程序独立的 user-data-dir 定向清理，绝不结束其他 Chrome。
+        # 即使 WebDriver 会话尚未建立，全局 Service 也已登记，可直接按 PID
+        # 回收 ChromeDriver 及其子进程；专用 Profile 扫描继续作为兜底。
         if not cleaned_for_shutdown:
-            logger.exception("创建视频点播 Chrome 会话失败，尝试清理专用 Profile 残留进程。")
+            if service is not None:
+                _force_terminate_service_sync(service)
             roots, remaining = _terminate_chrome_profile_processes_sync()
             if remaining:
                 logger.error(
@@ -761,6 +837,9 @@ def create_browser():
                 logger.warning("Chrome 创建失败后的专用 Profile 残留进程已清理：%s", roots)
             else:
                 logger.warning("Chrome 创建失败后未匹配到可清理的专用 Profile 浏览器主进程。")
+        with VIDEO_LIFECYCLE_LOCK:
+            if chrome_service is service:
+                chrome_service = None
         raise
 
 
@@ -2077,8 +2156,10 @@ class VideoModuleFacade:
             except Exception as exc:
                 logger.warning("暂停当前视频失败或超时：%s", type(exc).__name__)
         old_driver = driver if cleanup_browser else None
+        old_service = chrome_service if cleanup_browser else None
         if not cleanup_browser:
             driver = None
+            chrome_service = None
         if old_driver is not None:
             # 先从全局状态摘除，防止退出期间其他协程再次向旧会话发命令。
             driver = None
@@ -2092,15 +2173,26 @@ class VideoModuleFacade:
                 still_alive = await run_blocking(_browser_process_alive_sync, old_driver)
                 if still_alive:
                     logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
-                    closed = await run_blocking(_force_terminate_browser_sync, old_driver)
+                    closed = await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                    if not closed and old_service is not None:
+                        closed = await run_blocking(_force_terminate_service_sync, old_service)
                     if not closed:
-                        logger.error("按 WebDriver PID 清理 Chrome 未能确认成功。")
+                        logger.error("按 WebDriver/Service PID 清理 Chrome 未能确认成功。")
                 else:
                     logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
             except Exception as exc:
                 logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
-                if not await run_blocking(_force_terminate_browser_sync, old_driver):
-                    logger.warning("按 WebDriver PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+                closed = await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                if not closed and old_service is not None:
+                    closed = await run_blocking(_force_terminate_service_sync, old_service)
+                if not closed:
+                    logger.warning("按 WebDriver/Service PID 清理 Chrome 未能确认成功，继续执行 Profile 进程树清理。")
+
+        if old_driver is None and old_service is not None:
+            await run_blocking(_force_terminate_service_sync, old_service)
+        with VIDEO_LIFECYCLE_LOCK:
+            if chrome_service is old_service:
+                chrome_service = None
 
         # 普通手动关闭时再次核验 Profile；程序退出的快速路径已在 shutdown() 开头完成。
         try:

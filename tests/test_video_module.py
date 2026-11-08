@@ -14,6 +14,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             "module_enabled": video_service.module_enabled,
             "module_paused": video_service.module_paused,
             "driver": video_service.driver,
+            "chrome_service": video_service.chrome_service,
+            "shutdown_requested": video_service.VIDEO_SHUTDOWN_REQUESTED.is_set(),
             "current_bv": video_service.current_bv,
             "current_video_position": video_service.current_video_position,
             "is_playing": video_service.is_playing,
@@ -31,6 +33,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.module_enabled = False
         video_service.module_paused = False
         video_service.driver = None
+        video_service.chrome_service = None
+        video_service.VIDEO_SHUTDOWN_REQUESTED.clear()
         video_service.current_bv = None
         video_service.current_video_position = 0.0
         video_service.is_playing = False
@@ -50,6 +54,11 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.module_enabled = self.old_state["module_enabled"]
         video_service.module_paused = self.old_state["module_paused"]
         video_service.driver = self.old_state["driver"]
+        video_service.chrome_service = self.old_state["chrome_service"]
+        if self.old_state["shutdown_requested"]:
+            video_service.VIDEO_SHUTDOWN_REQUESTED.set()
+        else:
+            video_service.VIDEO_SHUTDOWN_REQUESTED.clear()
         video_service.current_bv = self.old_state["current_bv"]
         video_service.current_video_position = self.old_state["current_video_position"]
         video_service.is_playing = self.old_state["is_playing"]
@@ -67,6 +76,60 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         video_service.MAX_QUEUE_SIZE = self.old_state["max_queue"]
         video_service.video_session_generation = self.old_state["session_generation"]
         video_service.video_request_generation = self.old_state["request_generation"]
+
+    async def test_create_browser_registers_service_before_webdriver_creation(self):
+        class FakeService:
+            process = None
+
+        class FakeBrowser:
+            def __init__(self, service):
+                self.service = service
+                self.timeout = None
+
+            def set_page_load_timeout(self, timeout):
+                self.timeout = timeout
+
+        fake_service = FakeService()
+        fake_browser = FakeBrowser(fake_service)
+        original_driver = video_service.driver
+        original_service = video_service.chrome_service
+        try:
+            def create_driver(*, service, options):
+                self.assertIs(video_service.chrome_service, service)
+                return fake_browser
+
+            with patch.object(video_service, "ManagedChromeService", return_value=fake_service), \
+                 patch.object(video_service.webdriver, "Chrome", side_effect=create_driver):
+                result = video_service.create_browser()
+
+            self.assertIs(result, fake_browser)
+            self.assertIs(video_service.driver, fake_browser)
+            self.assertIs(video_service.chrome_service, fake_service)
+            self.assertEqual(fake_browser.timeout, video_service.PAGE_LOAD_TIMEOUT)
+        finally:
+            video_service.driver = original_driver
+            video_service.chrome_service = original_service
+
+    async def test_emergency_cleanup_can_find_service_before_driver_exists(self):
+        class FakeProcess:
+            pid = 43210
+
+        class FakeService:
+            process = FakeProcess()
+
+        original_driver = video_service.driver
+        original_service = video_service.chrome_service
+        video_service.driver = None
+        video_service.chrome_service = FakeService()
+        with patch.object(video_service, "_force_terminate_service_sync", return_value=True) as kill, \
+             patch.object(video_service, "_terminate_chrome_profile_processes_sync", return_value=([], [])):
+            try:
+                self.assertTrue(video_service.emergency_close_browser_sync())
+                kill.assert_called_once()
+                self.assertIsNone(video_service.chrome_service)
+            finally:
+                video_service.driver = original_driver
+                video_service.chrome_service = original_service
 
     async def test_disabled_module_ignores_danmaku(self):
         await video_service.on_dan_mu({
