@@ -110,6 +110,7 @@ def _dpapi_transform(data: bytes, protect: bool) -> bytes:
 def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
     if not path.is_file():
         return False, "尚未登录，请使用 B 站二维码登录。", None
+    session: requests.Session | None = None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
