@@ -181,7 +181,7 @@ class QRLogin:
             self.expires_at = 0.0
             close_old_session = old_session is not None and old_session is not self._active_poll_session
         if close_old_session:
-            old__close_http_session(session)
+            _close_http_session(old_session)
         try:
             session = requests.Session()
             session.headers.update({
@@ -248,7 +248,7 @@ class QRLogin:
                         self.qrcode_key = ""
                     close_session = active_session
             if close_session is not None:
-                close__close_http_session(session)
+                _close_http_session(close_session)
             self._poll_lock.release()
 
     def _poll_once(self) -> dict[str, Any]:
