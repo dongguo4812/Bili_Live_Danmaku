@@ -140,6 +140,8 @@ def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
     except Exception as exc:
         logger.warning("验证 B 站登录凭据失败：%s", exc)
         return False, f"无法验证登录凭据：{exc}", None
+    finally:
+        session.close()
 
 
 class QRLogin:
@@ -155,17 +157,22 @@ class QRLogin:
         self.expires_at = 0.0
         self._generation = 0
         self._poll_lock = threading.Lock()
+        self._active_poll_session: requests.Session | None = None
 
     def start(self) -> dict[str, Any]:
         # 立即使旧二维码的轮询结果失效，避免旧请求晚返回时覆盖新二维码状态。
         with self.lock:
             self._generation += 1
             generation = self._generation
+            old_session = self.session
             self.session = None
             self.qrcode_key = ""
             self.state = "starting"
             self.message = "正在申请 B 站登录二维码。"
             self.expires_at = 0.0
+            close_old_session = old_session is not None and old_session is not self._active_poll_session
+        if close_old_session:
+            old_session.close()
         try:
             session = requests.Session()
             session.headers.update({
@@ -185,6 +192,8 @@ class QRLogin:
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
         except Exception as exc:
+            if "session" in locals():
+                session.close()
             with self.lock:
                 if generation == self._generation:
                     self.state = "error"
@@ -192,6 +201,7 @@ class QRLogin:
             raise
         with self.lock:
             if generation != self._generation:
+                session.close()
                 return {"ok": False, "error": "二维码申请已被新的请求替代，请使用最新二维码。"}
             self.session = session
             self.qrcode_key = str(key)
@@ -210,9 +220,26 @@ class QRLogin:
         # 管理页面可能因多次打开或网络延迟产生重叠轮询；同一 Session 只允许一个 poll。
         if not self._poll_lock.acquire(blocking=False):
             return self.status()
+        with self.lock:
+            session = self.session
+            self._active_poll_session = session
         try:
             return self._poll_once()
         finally:
+            close_session = None
+            with self.lock:
+                active_session = self._active_poll_session
+                self._active_poll_session = None
+                if active_session is not None and (
+                    self.session is not active_session
+                    or self.state not in {"waiting", "scanned"}
+                ):
+                    if self.session is active_session:
+                        self.session = None
+                        self.qrcode_key = ""
+                    close_session = active_session
+            if close_session is not None:
+                close_session.close()
             self._poll_lock.release()
 
     def _poll_once(self) -> dict[str, Any]:
