@@ -39,8 +39,10 @@
       <div class="status-grid">
         <div><span class="muted">B站登录</span><strong id="login-state" data-state="unknown">检查中</strong></div>
         <div><span class="muted">直播连接</span><strong id="connection-state" data-state="unknown">未连接</strong></div>
+        <div><span class="muted">OBS WebSocket</span><strong id="obs-connection-state" data-state="unknown">检查中</strong></div>
       </div>
       <p id="status-message" class="muted">正在读取状态…</p>
+      <p id="obs-connection-message" class="muted">正在检查 OBS WebSocket 连接…</p>
     </section>
 
     <section class="panel">
@@ -562,6 +564,21 @@
         $("live2d-toggle").textContent = live2dEnabled ? "停用 Live2D" : "启用 Live2D";
         $("live2d-toggle").dataset.enabled = String(live2dEnabled);
         $("status-message").textContent = data.bilibili.message;
+        const obs = data.obs_websocket || { state: "unknown", connected: false, message: "暂时无法读取 OBS 状态。", error: "" };
+        const obsLabels = {
+          connected: "连接正常",
+          connecting: "连接中",
+          reconnecting: "正在重连",
+          disconnected: "未连接",
+          unknown: "状态未知"
+        };
+        $("obs-connection-state").textContent = obs.connected
+          ? "连接正常" : (obsLabels[obs.state] || "状态未知");
+        $("obs-connection-state").dataset.state = ["connected", "connecting", "reconnecting", "disconnected"].includes(obs.state)
+          ? obs.state : "unknown";
+        $("obs-connection-message").textContent = obs.error
+          ? (obs.message || "OBS WebSocket 连接异常。") + " 原因：" + obs.error
+          : (obs.message || "暂时无法读取 OBS 状态。");
         const music = (data.modules || {}).music || { state: "stopped" };
         const video = (data.modules || {}).video || { state: "stopped" };
         const live2d = (data.modules || {}).live2d || { state: "stopped" };
