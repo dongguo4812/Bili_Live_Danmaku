@@ -131,4 +131,6 @@ async def run_blocking(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> 
 
     future.add_done_callback(release_slot)
     wrapped = asyncio.wrap_future(future, loop=loop)
+    # 调用方取消后仍回收最终异常，避免无人等待的包装 Future 产生告警。
+    wrapped.add_done_callback(lambda item: item.exception() if not item.cancelled() else None)
     return await asyncio.shield(wrapped)
