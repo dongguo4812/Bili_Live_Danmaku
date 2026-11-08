@@ -159,7 +159,7 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         self.assertIn('from core.extension_manager import LolHexExtensionManager', main)
         self.assertIn('@app.post("/api/extensions/lol-hex/start")', main)
         self.assertIn('@app.post("/api/extensions/lol-hex/stop")', main)
-        self.assertIn("LOL_HEX_EXTENSION.stop_if_owned()", main)
+        self.assertIn("LOL_HEX_EXTENSION.stop_if_owned(timeout=remaining_budget(6.0))", main)
         self.assertIn('id="lol-hex-start"', page)
         self.assertIn('id="lol-hex-stop"', page)
         self.assertIn('id="lol-hex-module"', page)
