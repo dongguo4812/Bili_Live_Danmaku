@@ -250,38 +250,74 @@ class ModuleManager:
         with self._lock:
             self._disconnect_snapshot = None
 
-    async def shutdown_all(self) -> None:
-        """程序退出专用清理：优先调用模块的 shutdown，避免复用手动关闭语义。"""
+    async def shutdown_all(self, timeout: float = 32.0, per_module_timeout: float = 16.0) -> None:
+        """按依赖逆序清理模块；单个模块卡住时限时取消并继续处理其他模块。"""
         self.begin_shutdown()
+        deadline = asyncio.get_running_loop().time() + max(0.1, float(timeout))
         with self._lock:
-            # 按注册顺序逆序清理：后注册的依赖模块（如视频依赖歌曲模块）
-            # 先释放资源并完成必要恢复，再关闭其依赖模块。
+            # 视频后注册且依赖歌曲模块，故先关视频，再关歌曲。
             records = tuple(reversed(tuple(self._modules.values())))
 
         for record in records:
-            async with record.operation_lock:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                logger.error("应用退出模块清理总预算已耗尽，尚未处理模块：%s", record.name)
+                with self._lock:
+                    record.state = "error"
+                    record.error = "应用退出清理总时间预算已耗尽。"
+                continue
+
+            acquire_task = asyncio.create_task(record.operation_lock.acquire())
+            acquired, _ = await asyncio.wait({acquire_task}, timeout=remaining)
+            if not acquired:
+                acquire_task.cancel()
+                logger.error("等待模块当前操作结束超时，跳过其生命周期锁并继续其他模块：%s", record.name)
+                with self._lock:
+                    record.state = "error"
+                    record.error = "等待模块现有操作结束超时。"
+                continue
+
+            try:
                 with self._lock:
                     instance = record.instance
                     shutdown = getattr(instance, "shutdown", None)
-                    # shutdown 是资源兜底清理入口，即使管理器状态已经是 stopped
-                    # 也必须执行（例如状态不同步但 Selenium driver 仍然存在）。
-                    # 没有专用 shutdown 的普通模块则沿用 stopped 跳过行为。
                     if not callable(shutdown) and record.state == "stopped":
                         continue
                     record.state = "closing"
+
                 try:
                     result = shutdown() if callable(shutdown) else instance.close()
                     if inspect.isawaitable(result):
-                        await result
+                        task = asyncio.create_task(result, name=f"shutdown:{record.name}")
+                        module_budget = min(
+                            max(0.1, float(per_module_timeout)),
+                            deadline - asyncio.get_running_loop().time(),
+                        )
+                        done, _ = await asyncio.wait({task}, timeout=max(0.0, module_budget))
+                        if not done:
+                            task.cancel()
+                            raise TimeoutError(
+                                f"模块关闭超过 {module_budget:.1f} 秒，已请求取消并继续其他模块。"
+                            )
+                        exception = task.exception()
+                        if exception is not None:
+                            raise exception
+
                     with self._lock:
                         record.state = "stopped"
                         record.error = ""
+                except asyncio.CancelledError:
+                    with self._lock:
+                        record.state = "error"
+                        record.error = "模块关闭任务被取消。"
+                    logger.warning("程序退出时模块关闭任务被取消：%s", record.name)
                 except Exception as exc:
                     with self._lock:
                         record.state = "error"
                         record.error = str(exc)[:300]
                     logger.exception("程序退出时清理模块失败：%s", record.name)
-
+            finally:
+                record.operation_lock.release()
     async def close_all(self) -> None:
         with self._lock:
             self._connection_active = False
