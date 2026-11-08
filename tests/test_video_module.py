@@ -430,6 +430,65 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(video_service.pending_video_uids)
         self.assertFalse(video_service.pending_video_bvs)
 
+
+    async def test_close_restart_does_not_reuse_or_release_stale_pending_reservations(self):
+        import asyncio
+
+        video_service.module_enabled = True
+        old_entered = asyncio.Event()
+        old_release = asyncio.Event()
+        new_entered = asyncio.Event()
+        new_release = asyncio.Event()
+        call_count = 0
+
+        async def delayed_info(bv):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                old_entered.set()
+                await old_release.wait()
+            else:
+                new_entered.set()
+                await new_release.wait()
+            return ("title", 120)
+
+        event = {
+            "type": "danmaku", "uid": 1001, "nickname": "viewer",
+            "text": "点播 BV1xx411c7mD", "timestamp": 1,
+        }
+        with patch.object(video_service, "ensure_video_info", side_effect=delayed_info), \
+             patch.object(video_service, "configure_video_module"), \
+             patch.object(video_service, "set_obs_visibility_async", new=AsyncMock(return_value=True)), \
+             patch.object(video_service, "run_blocking", new=AsyncMock(return_value=object())), \
+             patch.object(video_service, "_pause_video_for_close_sync", return_value=True), \
+             patch.object(video_service, "_quit_browser_sync", return_value=None):
+            old_task = asyncio.create_task(video_service.on_dan_mu(event))
+            await asyncio.wait_for(old_entered.wait(), timeout=3)
+            self.assertIn(1001, video_service.pending_video_uids)
+            self.assertIn("BV1xx411c7mD", video_service.pending_video_bvs)
+
+            await self.module.close()
+            self.assertFalse(video_service.pending_video_uids)
+            self.assertFalse(video_service.pending_video_bvs)
+
+            await self.module.start()
+            new_task = asyncio.create_task(video_service.on_dan_mu(event))
+            await asyncio.wait_for(new_entered.wait(), timeout=3)
+
+            old_release.set()
+            await asyncio.wait_for(old_task, timeout=5)
+            # 旧请求的 finally 不能释放新会话相同 UID/BV 的占用标记。
+            self.assertIn(1001, video_service.pending_video_uids)
+            self.assertIn("BV1xx411c7mD", video_service.pending_video_bvs)
+            self.assertEqual(video_service.video_queue, [])
+
+            new_release.set()
+            await asyncio.wait_for(new_task, timeout=5)
+
+        self.assertEqual(video_service.video_queue, ["BV1xx411c7mD"])
+        self.assertFalse(video_service.pending_video_uids)
+        self.assertFalse(video_service.pending_video_bvs)
+
     async def test_stale_monitor_exits_before_touching_obs_or_new_browser(self):
         video_service.module_enabled = True
         video_service.video_session_generation = 8
