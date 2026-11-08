@@ -6,6 +6,7 @@ import asyncio
 import threading
 import unittest
 
+from core.application import ApplicationRuntime
 from core.async_runtime import AsyncRuntime
 from core.blocking import DaemonExecutor, run_blocking
 from core.event_bus import EventBus
@@ -68,6 +69,42 @@ class EventBusShutdownTests(unittest.IsolatedAsyncioTestCase):
         await bus.publish({"type": "danmaku", "text": "after"})
         await bus.shutdown(timeout=0.1)
         self.assertEqual(received, ["before"])
+
+
+
+class ApplicationRuntimeEventBackpressureTests(unittest.TestCase):
+    def test_pending_event_dispatches_are_bounded_and_slots_are_released(self):
+        runtime = ApplicationRuntime(max_pending_events=1)
+        handler_started = threading.Event()
+        handler_finished = threading.Event()
+        release_holder = []
+
+        async def handler(event):
+            if event.get("text") == "hold":
+                release = asyncio.Event()
+                release_holder.append(release)
+                handler_started.set()
+                await release.wait()
+            handler_finished.set()
+
+        runtime.events.subscribe("danmaku", handler)
+        runtime.start()
+        try:
+            self.assertTrue(runtime.publish_event({"type": "danmaku", "text": "hold"}))
+            self.assertTrue(handler_started.wait(2))
+            self.assertFalse(runtime.publish_event({"type": "danmaku", "text": "overflow"}))
+
+            runtime.async_runtime.call_soon(release_holder[0].set)
+            self.assertTrue(handler_finished.wait(2))
+
+            # The completion callback must return the capacity for later events.
+            handler_finished.clear()
+            self.assertTrue(runtime.publish_event({"type": "danmaku", "text": "after"}))
+            self.assertTrue(handler_finished.wait(2))
+        finally:
+            if release_holder:
+                runtime.async_runtime.call_soon(release_holder[0].set)
+            runtime.shutdown(timeout=5)
 
 
 class ModuleManagerShutdownTests(unittest.IsolatedAsyncioTestCase):
