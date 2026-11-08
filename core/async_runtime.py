@@ -80,6 +80,13 @@ class AsyncRuntime:
                 if unfinished_generators:
                     asyncgen_shutdown.cancel()
                     logger.warning("异步生成器清理超过 1 秒，已请求取消。")
+                elif asyncgen_shutdown.done():
+                    try:
+                        asyncgen_shutdown.result()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.warning("异步生成器清理任务失败。", exc_info=True)
             except Exception:
                 logger.warning("异步生成器清理失败。", exc_info=True)
             finally:
