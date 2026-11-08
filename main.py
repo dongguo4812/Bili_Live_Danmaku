@@ -31,6 +31,7 @@ from core.paths import get_base_dir
 from core.config_manager import ConfigManager
 from core.credential_store import CredentialStore
 from core.application import ApplicationRuntime
+from core.coalescing_worker import CoalescingWorker
 from core.extension_manager import LolHexExtensionManager
 from core.logger_manager import setup_logging
 from modules.music.service import MusicModuleFacade, get_lx_status, is_lx_playing
@@ -875,6 +876,7 @@ OBS_COMBINED_DISPLAY_REFRESHED = False
 CREDENTIAL_WATCHDOG_STOP = threading.Event()
 CREDENTIAL_WATCHDOG_THREAD: threading.Thread | None = None
 OBS_COMBINED_REFRESH_THREAD: threading.Thread | None = None
+OBS_REFRESH_WORKER: CoalescingWorker | None = None
 APPLICATION_SHUTDOWN_STARTED = threading.Event()
 APPLICATION_SHUTDOWN_LOCK = threading.RLock()
 APPLICATION_SHUTDOWN_FINISHED = threading.Event()
@@ -1144,17 +1146,20 @@ def _refresh_obs_combined_display_sources(ensure_voice_engine: bool = True) -> d
                     pass
 
 
+OBS_REFRESH_WORKER = CoalescingWorker(
+    _refresh_obs_combined_display_sources,
+    name="obs-display-refresh-worker",
+)
+
+
 def _start_obs_refresh_thread(name: str) -> None:
-    """启动短时 OBS 刷新任务；与统一关闭入口串行化，避免最终刷新后又启动新任务。"""
+    """请求合并后的 OBS 刷新；同一时刻最多运行一个任务，连续请求只补一次刷新。"""
     with APPLICATION_SHUTDOWN_LOCK:
         if APPLICATION_SHUTDOWN_STARTED.is_set():
             return
-        worker = threading.Thread(
-            target=_refresh_obs_combined_display_sources,
-            name=name,
-            daemon=True,
-        )
-        worker.start()
+        worker = OBS_REFRESH_WORKER
+        if worker is not None:
+            worker.request()
 
 
 def _obs_combined_display_refresh_watchdog() -> None:
@@ -1185,6 +1190,9 @@ def _shutdown_application_and_refresh_obs() -> None:
         logger.warning("开始有序退出：封锁新事件 -> 停止后台来源 -> 关闭子进程和业务模块 -> 最终刷新 OBS。")
         OBS_COMBINED_REFRESH_STOP.set()
         CREDENTIAL_WATCHDOG_STOP.set()
+        if OBS_REFRESH_WORKER is not None:
+            if not OBS_REFRESH_WORKER.stop(timeout=remaining_budget(1.0)):
+                logger.warning("OBS 刷新工作线程未在 1 秒内退出；继续执行其他退出清理。")
         APPLICATION_RUNTIME.begin_shutdown()
 
         # 先断开事件来源。begin_shutdown 已经同步封锁连接回调对模块的影响。
