@@ -73,9 +73,15 @@ class AsyncRuntime:
                 except Exception:
                     logger.exception("等待异步任务取消时发生异常。")
             try:
-                loop.run_until_complete(asyncio.wait_for(loop.shutdown_asyncgens(), timeout=1.0))
+                asyncgen_shutdown = loop.create_task(loop.shutdown_asyncgens())
+                _, unfinished_generators = loop.run_until_complete(
+                    asyncio.wait({asyncgen_shutdown}, timeout=1.0)
+                )
+                if unfinished_generators:
+                    asyncgen_shutdown.cancel()
+                    logger.warning("异步生成器清理超过 1 秒，已请求取消。")
             except Exception:
-                logger.warning("异步生成器清理超时或失败。", exc_info=True)
+                logger.warning("异步生成器清理失败。", exc_info=True)
             finally:
                 executor.shutdown(wait=True, cancel_futures=True, timeout=1.0)
                 reset_blocking_executor(loop)
