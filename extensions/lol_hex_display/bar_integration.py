@@ -103,21 +103,26 @@ def register_bar_routes(
     SSE_SHUTDOWN = object()
 
     def notify_lobby_member_count_changed(count):
+        if stop_event.is_set():
+            return
+
         payload = json.dumps({"lobby_member_count": count}, ensure_ascii=False)
         with lobby_event_lock:
-            subscribers = list(lobby_event_subscribers)
-        for subscriber in subscribers:
-            try:
-                if subscriber.full():
-                    try:
-                        subscriber.get_nowait()
-                    except queue.Empty:
-                        pass
-                subscriber.put_nowait(payload)
-            except queue.Full:
-                pass
-            except Exception:
-                log.debug("[战绩条] 推送组队人数变更失败", exc_info=True)
+            # 与关闭通知共用同一把锁，确保结束标记不会被并发人数事件覆盖。
+            if stop_event.is_set():
+                return
+            for subscriber in list(lobby_event_subscribers):
+                try:
+                    if subscriber.full():
+                        try:
+                            subscriber.get_nowait()
+                        except queue.Empty:
+                            pass
+                    subscriber.put_nowait(payload)
+                except queue.Full:
+                    pass
+                except Exception:
+                    log.debug("[战绩条] 推送组队人数变更失败", exc_info=True)
 
     def start_worker():
         """由主程序在取得单实例锁并完成初始化后启动自动刷新线程。"""
