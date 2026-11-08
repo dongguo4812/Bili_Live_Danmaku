@@ -99,6 +99,8 @@
   let speaking = false;
   let audioUnlocked = false;
   let audioContext = null;
+  let speechStatePostInFlight = false;
+  let pendingSpeechStatePost = null;
   let connectionTimer = null;
   let voiceStateTimer = null;
   let remoteVoiceStateInFlight = false;
@@ -215,6 +217,23 @@
     return String(n);
   }
 
+  function flushSpeechStatePost() {
+    if (!showTts || speechStatePostInFlight || !pendingSpeechStatePost) return;
+    const state = pendingSpeechStatePost;
+    pendingSpeechStatePost = null;
+    speechStatePostInFlight = true;
+    fetch("/api/voice/tts/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+      keepalive: true
+    }).catch(() => {}).finally(() => {
+      speechStatePostInFlight = false;
+      // 网络请求较慢时只保留最新状态，不让每 100ms 的嘴型采样累积成请求队列。
+      if (pendingSpeechStatePost) flushSpeechStatePost();
+    });
+  }
+
   function publishSpeechState(level) {
     const state = {
       current: currentSpeech ? currentSpeech.text : "",
@@ -225,12 +244,8 @@
       state.level = Math.max(0, Math.min(1, level));
     }
     if (showTts) {
-      fetch("/api/voice/tts/state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-        keepalive: true
-      }).catch(() => {});
+      pendingSpeechStatePost = state;
+      flushSpeechStatePost();
     }
     if (window.parent !== window) {
       try {

@@ -42,6 +42,9 @@ BASE_DIR = get_base_dir()
 MODEL_ROOT = BASE_DIR / "models"
 DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "danmaku", "lol_hex_bar", "lol_hex_display", "clock"}
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
+TTS_CACHE_MAX_AGE_SECONDS = 3600
+TTS_CACHE_MAX_FILES = 300
+TTS_CACHE_LOCK = threading.RLock()
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
     "zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural", "zh-CN-YunjianNeural",
@@ -576,13 +579,27 @@ def save_idle_tip_settings():
     return jsonify({"ok": True, "preferences": preferences})
 
 
-def _cleanup_tts_cache() -> None:
+def _cleanup_tts_cache(reserve_slots: int = 0) -> None:
+    """清理过期音频，并按最早修改时间淘汰文件，限制临时缓存磁盘占用。"""
     TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cutoff = time.time() - 3600
+    cutoff = time.time() - TTS_CACHE_MAX_AGE_SECONDS
+    retained: list[tuple[float, Path]] = []
     for path in TTS_CACHE_DIR.glob("*.mp3"):
         try:
-            if path.stat().st_mtime < cutoff:
+            modified_at = path.stat().st_mtime
+            if modified_at < cutoff:
                 path.unlink(missing_ok=True)
+            else:
+                retained.append((modified_at, path))
+        except OSError:
+            continue
+
+    # 合成前预留一个名额，保证新生成的文件也计入数量上限。
+    target_count = max(0, TTS_CACHE_MAX_FILES - max(0, int(reserve_slots)))
+    excess = max(0, len(retained) - target_count)
+    for _modified_at, path in sorted(retained, key=lambda item: item[0])[:excess]:
+        try:
+            path.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -622,23 +639,26 @@ def synthesize_tts():
     try:
         import edge_tts
 
-        _cleanup_tts_cache()
-        filename = uuid.uuid4().hex + ".mp3"
-        target = TTS_CACHE_DIR / filename
+        # 合成过程也持有锁：并发请求必须先看到前一个请求创建的文件，
+        # 否则多个请求同时预留名额可能突破缓存数量上限。
+        with TTS_CACHE_LOCK:
+            _cleanup_tts_cache(reserve_slots=1)
+            filename = uuid.uuid4().hex + ".mp3"
+            target = TTS_CACHE_DIR / filename
 
-        async def generate() -> None:
-            communicate = edge_tts.Communicate(
-                text,
-                preferences["voice"],
-                rate=f'{preferences["rate"]:+d}%',
-                volume=f'{preferences["volume"]:+d}%',
-            )
-            await communicate.save(str(target))
+            async def generate() -> None:
+                communicate = edge_tts.Communicate(
+                    text,
+                    preferences["voice"],
+                    rate=f'{preferences["rate"]:+d}%',
+                    volume=f'{preferences["volume"]:+d}%',
+                )
+                await communicate.save(str(target))
 
-        asyncio.run(generate())
-        if not target.is_file() or target.stat().st_size <= 0:
-            raise RuntimeError("Edge TTS 未生成有效音频文件。")
-        return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
+            asyncio.run(generate())
+            if not target.is_file() or target.stat().st_size <= 0:
+                raise RuntimeError("Edge TTS 未生成有效音频文件。")
+            return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
     except Exception as exc:
         logger.exception("Edge TTS 语音生成失败")
         return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
