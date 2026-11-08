@@ -9,8 +9,50 @@ import unittest
 from core.application import ApplicationRuntime
 from core.async_runtime import AsyncRuntime
 from core.blocking import DaemonExecutor, run_blocking
+from core.coalescing_worker import CoalescingWorker
 from core.event_bus import EventBus
 from core.module_manager import ModuleManager
+
+
+class CoalescingWorkerTests(unittest.TestCase):
+    def test_concurrent_requests_are_coalesced_into_one_follow_up_run(self):
+        started = threading.Event()
+        release = threading.Event()
+        completed = threading.Event()
+        calls = []
+
+        def callback():
+            calls.append(True)
+            if len(calls) == 1:
+                started.set()
+                release.wait(2)
+            else:
+                completed.set()
+
+        worker = CoalescingWorker(callback, name="test-coalescing-worker")
+        self.assertTrue(worker.request())
+        self.assertTrue(started.wait(1))
+        for _ in range(20):
+            self.assertTrue(worker.request())
+
+        release.set()
+        self.assertTrue(completed.wait(1))
+        self.assertTrue(worker.stop(timeout=1))
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(worker.request())
+
+    def test_stop_does_not_wait_longer_than_its_timeout(self):
+        started = threading.Event()
+        release = threading.Event()
+        worker = CoalescingWorker(
+            lambda: (started.set(), release.wait(2)),
+            name="test-stoppable-worker",
+        )
+        self.assertTrue(worker.request())
+        self.assertTrue(started.wait(1))
+        self.assertFalse(worker.stop(timeout=0.01))
+        release.set()
+        self.assertTrue(worker.stop(timeout=1))
 
 
 class DaemonExecutorTests(unittest.TestCase):
