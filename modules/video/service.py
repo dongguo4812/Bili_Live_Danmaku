@@ -189,6 +189,7 @@ async def ensure_video_info(bv):
         title, duration = await asyncio.to_thread(fetch_video_info_sync, bv)
         video_titles[bv] = title
         video_durations[bv] = duration
+        _prune_video_info_cache()
         logger.info("已获取视频信息：%s - %s（%s 秒）", bv, title, duration)
         return title, duration
     except Exception as exc:
@@ -204,6 +205,7 @@ async def ensure_video_title(bv):
         await ensure_video_info(bv)
     except Exception:
         video_titles.setdefault(bv, bv)
+        _prune_video_info_cache()
 
 
 def build_queue_snapshot():
@@ -211,10 +213,8 @@ def build_queue_snapshot():
     active_bvs = set(video_queue)
     if current_bv:
         active_bvs.add(current_bv)
-    # 清理已经不在当前播放或待播队列中的展示元数据，避免长期运行累积。
-    for stale_bv in list(video_requesters):
-        if stale_bv not in active_bvs:
-            video_requesters.pop(stale_bv, None)
+    # 清理失效点播人映射，并限制 BV 标题/时长缓存规模。
+    _prune_video_info_cache()
 
     current = None
     if current_bv:
@@ -1040,7 +1040,51 @@ is_playing = False
 playback_monitor_task = None
 
 # 每位观众的点播冷却时间
-last_order_time = {}
+last_order_time: dict[int, float] = {}
+_LAST_ORDER_PRUNE_INTERVAL = 30.0
+_last_order_prune_at = 0.0
+VIDEO_INFO_CACHE_LIMIT = 300
+
+
+def _prune_last_order_time(now: float | None = None) -> None:
+    global _last_order_prune_at
+    current = time.monotonic() if now is None else now
+    if current - _last_order_prune_at < _LAST_ORDER_PRUNE_INTERVAL:
+        return
+    _last_order_prune_at = current
+    if COOLDOWN_SEC <= 0:
+        last_order_time.clear()
+        return
+    expired = [
+        uid for uid, timestamp in last_order_time.items()
+        if current - timestamp >= COOLDOWN_SEC
+    ]
+    for uid in expired:
+        last_order_time.pop(uid, None)
+
+
+def _prune_video_info_cache() -> None:
+    active_bvs = set(video_queue)
+    if current_bv:
+        active_bvs.add(current_bv)
+    active_bvs.update(pending_video_bvs)
+
+    # 点播人只用于当前/待播展示；不再活跃的 BV 不应长期留在映射中。
+    for stale_bv in list(video_requesters):
+        if stale_bv not in active_bvs:
+            video_requesters.pop(stale_bv, None)
+
+    # 保留所有活跃视频；其余标题/时长缓存最多保留最近插入的 300 条。
+    while len(video_titles) > VIDEO_INFO_CACHE_LIMIT:
+        stale_bv = next((bv for bv in video_titles if bv not in active_bvs), None)
+        if stale_bv is None:
+            break
+        video_titles.pop(stale_bv, None)
+        video_durations.pop(stale_bv, None)
+    for stale_bv in list(video_durations):
+        if stale_bv not in video_titles:
+            video_durations.pop(stale_bv, None)
+
 
 # 播放状态锁
 play_lock = asyncio.Lock()
@@ -1677,9 +1721,10 @@ async def on_dan_mu(msg_json):
                 # 只有确实存在上次点播记录时才检查冷却。
                 # 不可用默认时间 0 计算，否则程序启动后的前 60 秒，
                 # 从未点播过的观众也会被误判为冷却中。
+                now = time.monotonic()
+                _prune_last_order_time(now)
                 previous_time = last_order_time.get(uid)
                 if previous_time is not None:
-                    now = time.monotonic()
                     elapsed = now - previous_time
 
                     if elapsed < COOLDOWN_SEC:
@@ -1754,7 +1799,7 @@ async def on_dan_mu(msg_json):
             video_requesters[bv] = uname
             video_queue.append(bv)
 
-            if not is_admin:
+            if not is_admin and COOLDOWN_SEC > 0:
                 last_order_time[uid] = time.monotonic()
 
             logger.info(
