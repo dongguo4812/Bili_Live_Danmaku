@@ -130,6 +130,16 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
+
+    def test_obs_settings_and_credential_refreshes_use_shared_lock(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        for route_name in ("def save_obs_settings", "def save_obs_credential"):
+            start = main.index(route_name)
+            end = main.find("\n@app.", start + 1)
+            route = main[start:end if end >= 0 else len(main)]
+            self.assertIn("with OBS_DISPLAY_LOCK:", route)
+            self.assertIn("_refresh_obs_browser_sources()", route)
+
     def test_saving_combined_layout_triggers_non_blocking_obs_refresh(self):
         main = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         start = main.index('@app.post("/api/display/layout")')
