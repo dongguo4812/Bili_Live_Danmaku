@@ -2130,7 +2130,7 @@ class VideoModuleFacade:
         await self.close(restore_music=False, cleanup_browser=False)
 
     async def close(self, restore_music: bool = True, cleanup_browser: bool = True):
-        global driver, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
+        global driver, chrome_service, module_enabled, module_paused, is_playing, current_bv, playback_monitor_task, playback_state, current_video_position
         global video_session_generation, video_request_generation
         video_session_generation += 1
         video_request_generation += 1
