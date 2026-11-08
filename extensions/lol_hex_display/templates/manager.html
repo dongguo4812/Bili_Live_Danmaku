@@ -107,8 +107,6 @@
     <p id="clientStatus" style="margin:6px 0 0;font-size:13px;color:#aab4c5">正在识别英雄联盟客户端…</p>
   </div>
   <nav>
-    <button class="danger" id="shutdownBtn" onclick="shutdownProgram()">结束程序</button>
-    <a class="active" href="/">管理页</a>
     <a href="/display" target="_blank">OBS 展示页</a>
   </nav>
 </header>
@@ -281,50 +279,6 @@ async function pollUpdate() {
   } catch (e) {
     document.getElementById('updateBtn').disabled = false;
     document.getElementById('resetUpdateBtn').disabled = false;
-  }
-}
-
-async function shutdownProgram() {
-  const confirmed = confirm(
-    '确定结束 lol_hex_display 程序吗？\n\n' +
-    '程序退出时会清理截图和卡片状态。' +
-    '\nOBS 展示页也将无法继续获取数据。'
-  );
-
-  if (!confirmed) return;
-
-  const button = document.getElementById('shutdownBtn');
-  button.disabled = true;
-  button.textContent = '正在结束…';
-
-  try {
-    const r = await fetch('/api/action', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'shutdown'})
-    });
-
-    const d = await r.json();
-
-    if (!r.ok || !d.ok) {
-      throw new Error(d.message || '关停请求失败');
-    }
-
-    document.getElementById('meta').textContent =
-      d.message || '程序即将退出';
-
-  } catch (e) {
-    setTimeout(async () => {
-      try {
-        await fetch('/api/state', {cache: 'no-store'});
-        button.disabled = false;
-        button.textContent = '结束程序';
-        alert('结束程序请求未能确认，请检查程序窗口。');
-      } catch (_) {
-        document.getElementById('meta').textContent =
-          '程序连接已断开，可能已经退出。';
-      }
-    }, 1200);
   }
 }
 
