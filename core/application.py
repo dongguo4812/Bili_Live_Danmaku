@@ -94,7 +94,7 @@ class ApplicationRuntime:
             self.modules.begin_shutdown()
 
             try:
-                module_timeout = min(32.0, max(0.1, float(timeout) - 5.0))
+                module_timeout = min(32.0, max(0.1, float(timeout) - 8.0))
                 future = self.async_runtime.submit(self._shutdown_async(module_timeout))
                 try:
                     future.result(timeout=module_timeout + 4.0)
@@ -109,6 +109,6 @@ class ApplicationRuntime:
             except Exception:
                 logger.exception("提交业务模块关闭任务失败。")
             finally:
-                self.async_runtime.stop(timeout=min(6.0, max(0.1, float(timeout) - module_timeout)))
+                self.async_runtime.stop(timeout=max(0.1, float(timeout) - module_timeout - 4.0))
                 self._shutdown_complete = True
                 logger.info("统一应用运行时关闭流程结束。")
