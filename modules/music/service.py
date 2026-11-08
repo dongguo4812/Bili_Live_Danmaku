@@ -15,7 +15,7 @@ import urllib.parse
 import uuid
 import webbrowser
 import threading
-from collections import deque
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,9 +32,13 @@ _MUSIC_CONFIG = CONFIG_MANAGER.load("music", {})
 LX_API = str(_MUSIC_CONFIG.get("lx_music", {}).get("base_url", "http://127.0.0.1:23330")).rstrip("/")
 HTTP_TIMEOUT = 8
 MEDAL_CACHE_SECONDS = 60
+MEDAL_CACHE_MAX_ENTRIES = 2048
+MEDAL_CACHE_PRUNE_INTERVAL = 30.0
 ROOM_ID = 0
 COOKIE_DICT: dict[str, str] = {}
-MEDAL_CACHE: dict[int, tuple[float, bool, str]] = {}
+MEDAL_CACHE: OrderedDict[int, tuple[float, bool, str]] = OrderedDict()
+MEDAL_CACHE_LOCK = threading.RLock()
+_MEDAL_CACHE_LAST_PRUNE = 0.0
 ADMIN_UIDS: set[int] = set()
 REQUIRE_FANS_MEDAL = bool(_MUSIC_CONFIG.get("requests", {}).get("require_fans_medal", False))
 COOLDOWN_SECONDS = max(0, int(_MUSIC_CONFIG.get("requests", {}).get("cooldown_seconds", 10)))
@@ -47,6 +51,43 @@ ENABLED_PROVIDERS = tuple(
 ) or DEFAULT_ENABLED_PROVIDERS
 STATUS_TITLE_KEYS = ("name", "title", "song", "songName", "musicName", "trackName", "music_name")
 STATUS_ARTIST_KEYS = ("singer", "artist", "artists", "artistName", "singerName", "author", "musicArtist", "music_artist")
+
+
+
+def _clear_medal_cache() -> None:
+    global _MEDAL_CACHE_LAST_PRUNE
+    with MEDAL_CACHE_LOCK:
+        MEDAL_CACHE.clear()
+        _MEDAL_CACHE_LAST_PRUNE = 0.0
+
+
+def _get_medal_cache(uid: int, now: float) -> tuple[float, bool, str] | None:
+    global _MEDAL_CACHE_LAST_PRUNE
+    with MEDAL_CACHE_LOCK:
+        if now - _MEDAL_CACHE_LAST_PRUNE >= MEDAL_CACHE_PRUNE_INTERVAL:
+            expired = [
+                cached_uid for cached_uid, item in MEDAL_CACHE.items()
+                if now - item[0] >= MEDAL_CACHE_SECONDS
+            ]
+            for cached_uid in expired:
+                MEDAL_CACHE.pop(cached_uid, None)
+            _MEDAL_CACHE_LAST_PRUNE = now
+        cached = MEDAL_CACHE.get(uid)
+        if cached is None:
+            return None
+        if now - cached[0] >= MEDAL_CACHE_SECONDS:
+            MEDAL_CACHE.pop(uid, None)
+            return None
+        MEDAL_CACHE.move_to_end(uid)
+        return cached
+
+
+def _store_medal_cache(uid: int, value: tuple[float, bool, str]) -> None:
+    with MEDAL_CACHE_LOCK:
+        MEDAL_CACHE[uid] = value
+        MEDAL_CACHE.move_to_end(uid)
+        while len(MEDAL_CACHE) > MEDAL_CACHE_MAX_ENTRIES:
+            MEDAL_CACHE.popitem(last=False)
 
 
 def _require_fans_medal(value: Any) -> bool:
@@ -100,13 +141,13 @@ def configure_music_module(config: dict[str, Any], cookie_provider=None, room_id
         "buvid4": str(values.get("buvid4", "")),
         "DedeUserID": str(values.get("dedeuserid", "")),
     }
-    MEDAL_CACHE.clear()
+    _clear_medal_cache()
 
 
 def update_music_room_id(room_id: int) -> None:
     global ROOM_ID
     ROOM_ID = max(0, int(room_id or 0))
-    MEDAL_CACHE.clear()
+    _clear_medal_cache()
 
 
 def _lx_control(action: str, timeout: float | None = None) -> tuple[bool, str]:
@@ -176,8 +217,8 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
     if not COOKIE_DICT.get("SESSDATA"):
         return False, "主程序登录凭据缺少有效的 SESSDATA，无法核验粉丝牌"
     now = time.time()
-    cached = MEDAL_CACHE.get(uid)
-    if cached and now - cached[0] < MEDAL_CACHE_SECONDS:
+    cached = _get_medal_cache(uid, now)
+    if cached:
         return cached[1], cached[2]
     try:
         # 每次查询使用独立 Session；不同观众的粉丝牌核验会在线程池并发执行，
@@ -196,12 +237,12 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
             payload = response.json()
         if not isinstance(payload, dict) or payload.get("code") != 0 or not isinstance(payload.get("data"), dict):
             reason = "粉丝牌接口返回异常，无法确认粉丝牌状态"
-            MEDAL_CACHE[uid] = (now, False, reason)
+            _store_medal_cache(uid, (now, False, reason))
             return False, reason
         medals = _find_medal_list(payload["data"])
         if medals is None:
             reason = "粉丝牌接口缺少完整勋章列表，拒绝点歌"
-            MEDAL_CACHE[uid] = (now, False, reason)
+            _store_medal_cache(uid, (now, False, reason))
             return False, reason
         found_room_medal = False
         found_lit_medal = False
@@ -220,11 +261,11 @@ def check_fan_medal_sync(uid: int) -> tuple[bool, str]:
             result = (now, False, "检测到本直播间粉丝牌，但无法确认其处于点亮状态")
         else:
             result = (now, False, "未找到本直播间粉丝牌")
-        MEDAL_CACHE[uid] = result
+        _store_medal_cache(uid, result)
         return result[1], result[2]
     except Exception as exc:
         reason = f"粉丝牌查询失败：{type(exc).__name__}，拒绝点歌"
-        MEDAL_CACHE[uid] = (now, False, reason)
+        _store_medal_cache(uid, (now, False, reason))
         log.warning("UID %s %s", uid, reason)
         return False, reason
 
@@ -1063,7 +1104,10 @@ class MusicModule:
         self.queue: deque[dict[str, Any]] = deque()
         self.queued_keys: set[tuple[str, str]] = set()
         self.cooldowns: dict[int, float] = {}
-        self._user_request_locks: dict[int, asyncio.Lock] = {}
+        # UID -> (per-user lock, active/waiting caller count); refcount avoids
+        # removing a lock while another request is waiting to acquire it.
+        self._user_request_locks: dict[int, tuple[asyncio.Lock, int]] = {}
+        self._cooldown_prune_at = 0.0
         self.queue_lock = asyncio.Lock()
         self.play_lock = asyncio.Lock()
         # 队列为空时让 worker 保持待命；新请求或模块关闭时唤醒。
@@ -1087,6 +1131,40 @@ class MusicModule:
         self._display_lock = threading.RLock()
         # 每次主程序启动默认开启点歌请求开关，但歌曲模块本身默认关闭。
         self.song_request_enabled = True
+
+
+    def _acquire_user_request_lock(self, uid: int) -> asyncio.Lock:
+        entry = self._user_request_locks.get(uid)
+        if entry is None:
+            lock = asyncio.Lock()
+            self._user_request_locks[uid] = (lock, 1)
+            return lock
+        lock, users = entry
+        self._user_request_locks[uid] = (lock, users + 1)
+        return lock
+
+    def _release_user_request_lock(self, uid: int, lock: asyncio.Lock) -> None:
+        entry = self._user_request_locks.get(uid)
+        if entry is None or entry[0] is not lock:
+            return
+        if entry[1] <= 1:
+            self._user_request_locks.pop(uid, None)
+        else:
+            self._user_request_locks[uid] = (lock, entry[1] - 1)
+
+    def _prune_user_cooldowns(self, now: float) -> None:
+        if now - self._cooldown_prune_at < 30.0:
+            return
+        self._cooldown_prune_at = now
+        if COOLDOWN_SECONDS <= 0:
+            self.cooldowns.clear()
+            return
+        expired = [
+            uid for uid, timestamp in self.cooldowns.items()
+            if now - timestamp >= COOLDOWN_SECONDS
+        ]
+        for uid in expired:
+            self.cooldowns.pop(uid, None)
 
     async def pause_for_video(self) -> bool:
         """视频点播实际播放时暂停洛雪；记录曲目，供视频结束后安全恢复。"""
@@ -1406,22 +1484,27 @@ class MusicModule:
         if uid not in self.admin_uids:
             # 同一 UID 的多条弹幕可能并行进入事件总线；锁住冷却检查与粉丝牌核验，
             # 防止并发请求同时通过冷却窗口并重复点歌。
-            user_lock = self._user_request_locks.setdefault(uid, asyncio.Lock())
-            async with user_lock:
-                now = time.monotonic()
-                last = self.cooldowns.get(uid, 0.0)
-                if now - last < COOLDOWN_SECONDS:
-                    remain = max(1, int(COOLDOWN_SECONDS - (now - last)))
-                    log.info("【%s】点歌被冷却限制，剩余 %s 秒 (UID:%s)", uname, remain, uid)
-                    self.add_display_event(f"【{uname}】点歌失败：请等待 {remain} 秒后再点歌", "failure")
-                    return
-                if self._medal_enabled:
-                    ok, reason = await check_fan_medal(uid)
-                    if not ok:
-                        log.info("【%s】点歌拒绝：%s (UID:%s)", uname, reason, uid)
-                        self.add_display_event(f"【{uname}】点歌失败：{reason}", "failure")
+            user_lock = self._acquire_user_request_lock(uid)
+            try:
+                async with user_lock:
+                    now = time.monotonic()
+                    self._prune_user_cooldowns(now)
+                    last = self.cooldowns.get(uid, 0.0)
+                    if now - last < COOLDOWN_SECONDS:
+                        remain = max(1, int(COOLDOWN_SECONDS - (now - last)))
+                        log.info("【%s】点歌被冷却限制，剩余 %s 秒 (UID:%s)", uname, remain, uid)
+                        self.add_display_event(f"【{uname}】点歌失败：请等待 {remain} 秒后再点歌", "failure")
                         return
-                self.cooldowns[uid] = time.monotonic()
+                    if self._medal_enabled:
+                        ok, reason = await check_fan_medal(uid)
+                        if not ok:
+                            log.info("【%s】点歌拒绝：%s (UID:%s)", uname, reason, uid)
+                            self.add_display_event(f"【{uname}】点歌失败：{reason}", "failure")
+                            return
+                    if COOLDOWN_SECONDS > 0:
+                        self.cooldowns[uid] = time.monotonic()
+            finally:
+                self._release_user_request_lock(uid, user_lock)
         await self.enqueue(title, artist, uname, uid)
 
     async def enqueue(self, title: str, artist: str, uname: str, uid: int) -> None:
