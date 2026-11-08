@@ -889,6 +889,69 @@ def _refresh_obs_browser_sources() -> dict[str, Any]:
                 pass
 
 
+def _set_video_obs_source_visible(visible: bool) -> bool:
+    """由主程序统一控制视频播放器来源显隐，共用 OBS WebSocket 和请求锁。"""
+    config = ConfigManager().load("obs", {})
+    video_config = ConfigManager().load("video", {})
+    video_obs = video_config.get("obs", {}) if isinstance(video_config.get("obs"), dict) else {}
+    source_name = str(config.get("source_name") or video_obs.get("source_name") or "b站视频播放器").strip()
+    obs_connection = CONFIG.get("obs_websocket", {})
+    if not isinstance(obs_connection, dict) or not str(obs_connection.get("host", "")).strip() or not source_name:
+        return False
+
+    ws = None
+    try:
+        with OBS_DISPLAY_LOCK:
+            ws = _open_obs_websocket()
+            scenes = _obs_ws_request(ws, "GetSceneList").get("scenes", [])
+            if not isinstance(scenes, list) or not scenes:
+                logger.warning("控制 OBS 视频来源失败：OBS 未返回任何场景。")
+                return False
+            matched_count = 0
+            changed_count = 0
+            changed_scenes = []
+            for scene in scenes:
+                scene_name = scene.get("sceneName") if isinstance(scene, dict) else None
+                if not scene_name:
+                    continue
+                items = _obs_ws_request(ws, "GetSceneItemList", {"sceneName": scene_name}).get("sceneItems", [])
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict) or item.get("sourceName") != source_name:
+                        continue
+                    item_id = item.get("sceneItemId")
+                    if item_id is None:
+                        continue
+                    matched_count += 1
+                    if item.get("sceneItemEnabled") is not None and bool(item["sceneItemEnabled"]) == bool(visible):
+                        continue
+                    _obs_ws_request(ws, "SetSceneItemEnabled", {
+                        "sceneName": scene_name,
+                        "sceneItemId": int(item_id),
+                        "sceneItemEnabled": bool(visible),
+                    })
+                    changed_count += 1
+                    if scene_name not in changed_scenes:
+                        changed_scenes.append(scene_name)
+            if matched_count == 0:
+                logger.warning("OBS 中未找到名为“%s”的视频来源场景项目。", source_name)
+                return False
+            if changed_count:
+                logger.info("OBS 视频来源已%s：来源=%s；本次修改 %s 个场景项目（场景：%s）",
+                            "显示" if visible else "隐藏", source_name, changed_count, "、".join(changed_scenes))
+            return True
+    except Exception as exc:
+        logger.warning("控制 OBS 视频来源失败：source=%s；错误类型=%s。", source_name, type(exc).__name__)
+        return False
+    finally:
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+
 
 # OBS WebSocket 连接后只刷新综合展示源，不改变任何场景项的可见状态。
 OBS_DISPLAY_LOCK = threading.RLock()
@@ -1538,6 +1601,7 @@ VIDEO_MODULE = VideoModuleFacade(
     cookie_provider=_music_cookie_provider,
     room_id=int(_load_user_settings()["bilibili"]["room_id"]),
     music_module=MUSIC_MODULE.bot,
+    obs_visibility_callback=_set_video_obs_source_visible,
 )
 APPLICATION_RUNTIME.register_module("video", VIDEO_MODULE)
 
@@ -2765,7 +2829,6 @@ def save_obs_settings():
         CONFIG["obs_websocket"] = {
             "host": host, "port": port, "timeout": timeout,
         }
-        VIDEO_MODULE.reload_obs_settings()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 普通配置已保存。"})
@@ -2781,7 +2844,6 @@ def save_obs_credential():
         return jsonify({"ok": False, "error": "OBS WebSocket 密码不能为空。"}), 400
     try:
         CredentialStore().save("obs", {"password": password})
-        VIDEO_MODULE.reload_obs_settings()
         with OBS_DISPLAY_LOCK:
             _refresh_obs_browser_sources()
         return jsonify({"ok": True, "message": "OBS 密码已加密保存，不会回显密码原文。"})
