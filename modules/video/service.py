@@ -679,15 +679,12 @@ def _browser_process_alive_sync(browser) -> bool:
     return False
 
 
-def _force_terminate_browser_sync(browser, service=None) -> bool:
-    """Selenium quit 超时或锁被卡住时，按 WebDriver/Service PID 清理专属进程树。"""
-    if os.name != "nt":
+def _force_terminate_browser_sync(browser) -> bool:
+    """Selenium quit 超时或锁被卡住时，按该 WebDriver 的进程 ID 兜底关闭专属 Chrome。"""
+    if browser is None or os.name != "nt":
         return False
 
     pids = _browser_process_ids(browser)
-    service_pid = _service_process_id(service)
-    if service_pid and service_pid not in pids:
-        pids.insert(0, service_pid)
     if not pids:
         return False
 
@@ -779,7 +776,7 @@ def emergency_close_browser_sync() -> bool:
         # 即使 webdriver.Chrome() 尚未返回、全局 driver 仍为 None 也能执行。
         service_closed = _force_terminate_service_sync(service) if service is not None else False
         if browser is not None and not service_closed:
-            _force_terminate_browser_sync(browser, service)
+            _force_terminate_browser_sync(browser)
         roots, remaining = _terminate_chrome_profile_processes_sync()
         if remaining:
             # Profile 查询仍发现残留时，再执行一次定向清理并回查。
@@ -821,6 +818,7 @@ def create_browser():
             raise RuntimeError("程序正在退出，已拒绝登记新的视频浏览器。")
         return browser
     except Exception:
+        logger.exception("创建视频点播 Chrome 会话失败，正在清理 ChromeDriver 与专用 Profile。")
         # 即使 WebDriver 会话尚未建立，全局 Service 也已登记，可直接按 PID
         # 回收 ChromeDriver 及其子进程；专用 Profile 扫描继续作为兜底。
         if not cleaned_for_shutdown:
@@ -2173,7 +2171,7 @@ class VideoModuleFacade:
                 still_alive = await run_blocking(_browser_process_alive_sync, old_driver)
                 if still_alive:
                     logger.warning("Selenium quit 已返回，但检测到 Chrome 进程仍存在，执行进程树兜底清理。")
-                    closed = await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                    closed = await run_blocking(_force_terminate_browser_sync, old_driver)
                     if not closed and old_service is not None:
                         closed = await run_blocking(_force_terminate_service_sync, old_service)
                     if not closed:
@@ -2182,7 +2180,7 @@ class VideoModuleFacade:
                     logger.info("Selenium Chrome 会话已关闭，继续核验专用 Profile 是否有残留进程。")
             except Exception as exc:
                 logger.warning("Selenium 关闭 Chrome 未完成（%s），继续按专用 Profile 清理。", type(exc).__name__)
-                closed = await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                closed = await run_blocking(_force_terminate_browser_sync, old_driver)
                 if not closed and old_service is not None:
                     closed = await run_blocking(_force_terminate_service_sync, old_service)
                 if not closed:
@@ -2202,7 +2200,7 @@ class VideoModuleFacade:
                     "专用 Profile 清理未完整确认（匹配主进程=%s，残留=%s），再按 WebDriver PID 兜底。",
                     roots, remaining,
                 )
-                await run_blocking(_force_terminate_browser_sync, old_driver, old_service)
+                await run_blocking(_force_terminate_browser_sync, old_driver)
                 if old_service is not None:
                     await run_blocking(_force_terminate_service_sync, old_service)
                 roots, remaining = await run_blocking(_terminate_chrome_profile_processes_sync)
