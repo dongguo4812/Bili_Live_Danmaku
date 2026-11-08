@@ -645,6 +645,7 @@ def synthesize_tts():
         return jsonify({"ok": False, "error": "TTS 合成超时，已跳过当前语音。"}), 504
 
     target: Path | None = None
+    completed = False
     try:
         import edge_tts
 
@@ -667,6 +668,7 @@ def synthesize_tts():
         asyncio.run(generate())
         if not target.is_file() or target.stat().st_size <= 0:
             raise RuntimeError("Edge TTS 未生成有效音频文件。")
+        completed = True
         return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
     except asyncio.TimeoutError:
         logger.warning("Edge TTS 合成超过 %.1f 秒，已跳过当前语音。", TTS_SYNTHESIS_TIMEOUT_SECONDS)
@@ -675,7 +677,7 @@ def synthesize_tts():
         logger.exception("Edge TTS 语音生成失败")
         return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
     finally:
-        if target is not None:
+        if target is not None and not completed:
             try:
                 target.unlink(missing_ok=True)
             except OSError:
