@@ -453,8 +453,6 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
         import asyncio
 
         video_service.module_enabled = True
-        # Keep the newly accepted request queued while asserting reservation ownership.
-        video_service.is_playing = True
         # close() intentionally retains cooldown history; isolate this test from
         # any prior request state so the restarted request is eligible.
         video_service.last_order_time.pop(1001, None)
@@ -499,6 +497,8 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(video_service.pending_video_bvs)
 
             await self.module.start()
+            # close() resets playback state; hold the queue so this test isolates reservation ownership.
+            video_service.is_playing = True
             new_task = asyncio.create_task(video_service.on_dan_mu(event))
             await asyncio.wait_for(new_entered.wait(), timeout=3)
 
