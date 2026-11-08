@@ -19,7 +19,7 @@
 	main:has(#barAdminPanel) {
 	  width: 1549px !important;
 	  max-width: calc(100vw - 32px) !important;
-	  margin: 18px 0 !important;
+	  margin: 18px auto !important;
 	  box-sizing: border-box;
 	  overflow: visible !important;
 	}
@@ -64,6 +64,11 @@
 .toolbar .toolbar-row > span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* 带操作按钮的行：说明文字靠左，按钮组贴齐工具栏最右侧。 */
+.toolbar .toolbar-row:has(> div) {
+  justify-content: space-between;
 }
 
 .toolbar .toolbar-row > div {
