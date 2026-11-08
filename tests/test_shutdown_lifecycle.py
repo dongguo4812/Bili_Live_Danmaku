@@ -260,10 +260,6 @@ class ModuleManagerShutdownTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manager.list_status()["first"]["state"], "stopped")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OBSConnectionMonitorContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -307,3 +303,7 @@ class OBSConnectionMonitorContractTests(unittest.TestCase):
         console_source = self.function_source("_shutdown_application_for_console_close")
         self.assertIn("OBS_CONNECTION_MONITOR_STOP.set()", console_source)
         self.assertIn("OBS_CONNECTION_MONITOR_WAKE.set()", console_source)
+
+
+if __name__ == "__main__":
+    unittest.main()
