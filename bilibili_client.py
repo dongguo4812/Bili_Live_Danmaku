@@ -40,6 +40,15 @@ class BilibiliClientError(RuntimeError):
     pass
 
 
+def _close_http_session(session: requests.Session | None) -> None:
+    if session is None:
+        return
+    try:
+        session.close()
+    except Exception:
+        logger.debug("关闭 B 站 HTTP Session 时发生异常", exc_info=True)
+
+
 def _cookie_values(session: requests.Session) -> dict[str, str]:
     cookies = session.cookies.get_dict()
     return {
@@ -141,7 +150,7 @@ def validate_cookie_file(path: Path) -> tuple[bool, str, dict[str, str] | None]:
         logger.warning("验证 B 站登录凭据失败：%s", exc)
         return False, f"无法验证登录凭据：{exc}", None
     finally:
-        session.close()
+        _close_http_session(session)
 
 
 class QRLogin:
@@ -172,7 +181,7 @@ class QRLogin:
             self.expires_at = 0.0
             close_old_session = old_session is not None and old_session is not self._active_poll_session
         if close_old_session:
-            old_session.close()
+            old__close_http_session(session)
         try:
             session = requests.Session()
             session.headers.update({
@@ -193,7 +202,7 @@ class QRLogin:
             image.save(buffer, format="PNG")
         except Exception as exc:
             if "session" in locals():
-                session.close()
+                _close_http_session(session)
             with self.lock:
                 if generation == self._generation:
                     self.state = "error"
@@ -201,7 +210,7 @@ class QRLogin:
             raise
         with self.lock:
             if generation != self._generation:
-                session.close()
+                _close_http_session(session)
                 return {"ok": False, "error": "二维码申请已被新的请求替代，请使用最新二维码。"}
             self.session = session
             self.qrcode_key = str(key)
@@ -239,7 +248,7 @@ class QRLogin:
                         self.qrcode_key = ""
                     close_session = active_session
             if close_session is not None:
-                close_session.close()
+                close__close_http_session(session)
             self._poll_lock.release()
 
     def _poll_once(self) -> dict[str, Any]:
