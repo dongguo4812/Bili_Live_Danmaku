@@ -92,9 +92,14 @@ class PlaybackPauseContractTests(unittest.TestCase):
         self.assertIn("await run_blocking(_terminate_chrome_profile_processes_sync)", video)
         self.assertIn("run_blocking(emergency_close_browser_sync)", video)
         self.assertIn("timeout=9.0", video)
+        video_begin_shutdown_body = video[video.index("def begin_shutdown(self):", video.index("class VideoModuleFacade")):]
+        video_begin_shutdown_body = video_begin_shutdown_body[:video_begin_shutdown_body.index("\n    async def shutdown", 1)]
+        self.assertLess(video_begin_shutdown_body.index("VIDEO_SHUTDOWN_REQUESTED.set()"), video_begin_shutdown_body.index("target=emergency_close_browser_sync"))
+        self.assertIn("module_enabled = False", video_begin_shutdown_body)
         video_shutdown_body = video[video.index("async def shutdown(self):", video.index("class VideoModuleFacade")):]
         video_shutdown_body = video_shutdown_body[:video_shutdown_body.index("\n    async def close", 1)]
-        self.assertLess(video_shutdown_body.index("module_enabled = False"), video_shutdown_body.index("emergency_close_browser_sync"))
+        self.assertIn("cleanup_thread.join, 9.0", video_shutdown_body)
+        self.assertIn("await self.close(restore_music=False, cleanup_browser=False)", video_shutdown_body)
         self.assertIn("if cleanup_browser else ([], [])", video)
         video_close_body = video[video.index("async def close(self, restore_music: bool = True, cleanup_browser: bool = True):", video.index("class VideoModuleFacade")):]
         video_close_body = video_close_body[:video_close_body.index("\n    def update_room_id", 1)]
