@@ -125,7 +125,7 @@ class CombinedDisplayContractTests(unittest.TestCase):
         self.assertNotIn("SetSceneItemEnabled", refresh_flow)
         self.assertIn("result.get(\"voice_engine\")", main)
         self.assertIn("ensure_voice_engine=False", main)
-        self.assertIn("final_refresh_thread.join(timeout=5.0)", main)
+        self.assertIn("final_refresh_thread.join(timeout=remaining_budget(5.0))", main)
         self.assertNotIn("OBS_DISPLAY_SHOWN", main)
         self.assertNotIn('BILIBILI_STATE["connection_state"]', main[main.index("def _obs_combined_display_refresh_watchdog"):main.index("def _available_models")])
 
