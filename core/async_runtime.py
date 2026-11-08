@@ -100,11 +100,11 @@ class AsyncRuntime:
         with self._lock:
             loop = self._loop
             thread = self._thread
-            if loop is None or thread is None:
+            if thread is None:
                 return
-            if not loop.is_closed():
+            if loop is not None and not loop.is_closed():
                 loop.call_soon_threadsafe(loop.stop)
         if thread.is_alive():
-            thread.join(timeout)
+            thread.join(max(0.0, timeout))
         if thread.is_alive():
             logger.warning("统一异步运行时未能在 %.1f 秒内退出。", timeout)
