@@ -41,7 +41,34 @@
 	  box-sizing: border-box !important;
 	}
 
-	/* 海克斯卡片列表 */
+	.toolbar .toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.toolbar .toolbar-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toolbar .toolbar-row > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  .toolbar .toolbar-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* 海克斯卡片列表 */
 	main:has(#barAdminPanel) > #cards {
 	  width: 100% !important;
 	  max-width: none !important;
