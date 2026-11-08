@@ -44,6 +44,7 @@ DISPLAY_WIDGET_TYPES = {"live2d", "voice", "music", "music_widget", "video", "da
 TTS_CACHE_DIR = Path(tempfile.gettempdir()) / "bili_live_danmaku_tts"
 TTS_CACHE_MAX_AGE_SECONDS = 3600
 TTS_CACHE_MAX_FILES = 300
+TTS_CACHE_LOCK = threading.RLock()
 DEFAULT_MODEL = "live_uu"
 TTS_VOICES = [
     "zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural", "zh-CN-YunjianNeural",
@@ -638,23 +639,26 @@ def synthesize_tts():
     try:
         import edge_tts
 
-        _cleanup_tts_cache(reserve_slots=1)
-        filename = uuid.uuid4().hex + ".mp3"
-        target = TTS_CACHE_DIR / filename
+        # 合成过程也持有锁：并发请求必须先看到前一个请求创建的文件，
+        # 否则多个请求同时预留名额可能突破缓存数量上限。
+        with TTS_CACHE_LOCK:
+            _cleanup_tts_cache(reserve_slots=1)
+            filename = uuid.uuid4().hex + ".mp3"
+            target = TTS_CACHE_DIR / filename
 
-        async def generate() -> None:
-            communicate = edge_tts.Communicate(
-                text,
-                preferences["voice"],
-                rate=f'{preferences["rate"]:+d}%',
-                volume=f'{preferences["volume"]:+d}%',
-            )
-            await communicate.save(str(target))
+            async def generate() -> None:
+                communicate = edge_tts.Communicate(
+                    text,
+                    preferences["voice"],
+                    rate=f'{preferences["rate"]:+d}%',
+                    volume=f'{preferences["volume"]:+d}%',
+                )
+                await communicate.save(str(target))
 
-        asyncio.run(generate())
-        if not target.is_file() or target.stat().st_size <= 0:
-            raise RuntimeError("Edge TTS 未生成有效音频文件。")
-        return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
+            asyncio.run(generate())
+            if not target.is_file() or target.stat().st_size <= 0:
+                raise RuntimeError("Edge TTS 未生成有效音频文件。")
+            return jsonify({"ok": True, "url": f"/api/voice/tts/audio/{filename}"})
     except Exception as exc:
         logger.exception("Edge TTS 语音生成失败")
         return jsonify({"ok": False, "error": f"语音生成失败：{exc}"}), 502
