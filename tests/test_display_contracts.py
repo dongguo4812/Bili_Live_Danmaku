@@ -134,10 +134,14 @@ class CombinedDisplayContractTests(unittest.TestCase):
         end = main.index('\n\n@app.get("/api/danmaku")', start)
         route = main[start:end]
         self.assertIn("_save_display_layout_store(store)", route)
-        self.assertIn('target=_refresh_obs_combined_display_sources', route)
-        self.assertIn('name="obs-layout-save-refresh"', route)
-        self.assertIn("daemon=True", route)
-        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("target=_refresh_obs_combined_display_sources"))
+        self.assertIn('_start_obs_refresh_thread("obs-layout-save-refresh")', route)
+        helper_start = main.index("def _start_obs_refresh_thread")
+        helper_end = main.index("def _obs_combined_display_refresh_watchdog", helper_start)
+        helper = main[helper_start:helper_end]
+        self.assertIn("target=_refresh_obs_combined_display_sources", helper)
+        self.assertIn("name=name", helper)
+        self.assertIn("daemon=True", helper)
+        self.assertLess(route.index("_save_display_layout_store(store)"), route.index("_start_obs_refresh_thread"))
 
 
     def test_combined_layout_editor_is_standalone_and_opens_in_new_tab(self):
