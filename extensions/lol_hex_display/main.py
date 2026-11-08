@@ -2517,10 +2517,16 @@ def main():
         screenshot_folder = screenshot_dir()
         cleanup_legacy_processed_directory()
         log.info('lol_hex_display 启动；截图目录：%s', screenshot_folder)
-        threading.Thread(target=screenshot_watcher, daemon=True, name='ScreenshotWatcher').start()
-        threading.Thread(target=asset_worker, daemon=True, name='AssetUpdater').start()
-        threading.Thread(target=lcu_recognition_worker, daemon=True, name='LcuRecognition').start()
-        threading.Thread(target=gameflow_worker, daemon=True, name='GameflowWatcher').start()
+        background_threads = []
+        for target, name in (
+            (screenshot_watcher, 'ScreenshotWatcher'),
+            (asset_worker, 'AssetUpdater'),
+            (lcu_recognition_worker, 'LcuRecognition'),
+            (gameflow_worker, 'GameflowWatcher'),
+        ):
+            thread = threading.Thread(target=target, daemon=True, name=name)
+            thread.start()
+            background_threads.append(thread)
 
         if os.name == 'nt' and not start_hotkey():
             log.critical('F1 截图热键未能注册，LOL Hex 不会以不完整状态启动：%s', F1_HOTKEY_ERROR)
@@ -2541,15 +2547,26 @@ def main():
         # 无论初始化、热键注册、端口绑定还是服务运行阶段发生异常，都统一回收已启动资源。
         # 先停止 Hex 自身的后台任务，再通知战绩条线程退出，避免关闭等待期间继续产生新状态。
         stop_event.set()
-        try:
-            stop_bar_worker()
-        except Exception:
-            log.exception('停止战绩条后台线程失败')
 
         try:
             selector.cancel()
         except Exception:
             log.exception('取消截图选择器失败')
+
+        # 后台任务均为守护线程；只给一个共享的极短收尾窗口，不逐线程累加等待。
+        shutdown_deadline = time.monotonic() + 0.25
+        for thread in background_threads if 'background_threads' in locals() else ():
+            if thread is threading.current_thread() or not thread.is_alive():
+                continue
+            remaining = shutdown_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
+
+        try:
+            stop_bar_worker()
+        except Exception:
+            log.exception('停止战绩条后台线程失败')
 
         if os.name == 'nt' and F1_HOTKEY_HANDLE is not None:
             try:
