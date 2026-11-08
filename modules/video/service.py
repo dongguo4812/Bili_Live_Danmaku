@@ -21,14 +21,8 @@ from selenium.common.exceptions import NoSuchWindowException, InvalidSessionIdEx
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service as ChromeService
 
-try:
-    import obsws_python
-except ImportError:
-    obsws_python = None
-
 from core.config_manager import ConfigManager
 from core.paths import get_base_dir
-from core.credential_store import CredentialStore
 from core.blocking import run_blocking
 
 logger = logging.getLogger("bili_live_danmaku.video")
@@ -71,7 +65,7 @@ OPERATION_MESSAGE_LIMIT = 10
 # 防止同一观众绕过冷却、重复 BV 入队或并发请求突破队列上限。
 pending_video_uids: set[int] = set()
 pending_video_bvs: set[str] = set()
-OBS_CONFIG: dict[str, Any] = {"enabled": False}
+OBS_VISIBILITY_CALLBACK = None
 
 
 def load_cookie_values_for_api():
@@ -81,36 +75,11 @@ def load_cookie_values_for_api():
     return dict(COOKIE_VALUES)
 
 
-def load_obs_config() -> dict[str, Any]:
-    config = CONFIG_MANAGER.load("obs", {})
-    try:
-        secret = CredentialStore().load("obs") or {}
-    except Exception as exc:
-        logger.warning("读取 OBS 凭据失败：%s", type(exc).__name__)
-        secret = {}
-    host = str(config.get("host", "")).strip()
-    video_obs = VIDEO_CONFIG.get("obs", {}) if isinstance(VIDEO_CONFIG.get("obs"), dict) else {}
-    source_name = str(config.get("source_name") or video_obs.get("source_name", "b站视频播放器")).strip()
-    try:
-        port = int(config.get("port", 4455))
-    except (TypeError, ValueError):
-        port = 0
-    password = str(secret.get("password", "") or "")
-    return {
-        "host": host,
-        "port": port,
-        "password": password,
-        "source_name": source_name,
-        "enabled": bool(host and 1 <= port <= 65535 and source_name and password),
-        "timeout": float(config.get("timeout", 2.5) or 2.5),
-    }
-
-
 def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id: int | None = None) -> None:
     """由主程序注入统一 Cookie 和普通模块配置；不创建第二个登录或连接。"""
     global VIDEO_CONFIG, roomid, REQUIRE_FAN_MEDAL, MAX_VIDEO_DURATION_SEC
     global COOLDOWN_SEC, MAX_QUEUE_SIZE, PAGE_LOAD_TIMEOUT, CHROME_PROFILE
-    global COOKIE_VALUES, ADMIN_UIDS, OBS_CONFIG, chrome_options
+    global COOKIE_VALUES, ADMIN_UIDS, chrome_options
     VIDEO_CONFIG = dict(config or {})
     requests_config = VIDEO_CONFIG.get("requests", {}) if isinstance(VIDEO_CONFIG.get("requests"), dict) else {}
     chrome_config = VIDEO_CONFIG.get("chrome", {}) if isinstance(VIDEO_CONFIG.get("chrome"), dict) else {}
@@ -143,9 +112,6 @@ def configure_video_module(config: dict[str, Any], cookie_provider=None, room_id
     binary_path = str(chrome_config.get("binary_path", "") or "").strip()
     if binary_path and Path(binary_path).is_file():
         chrome_options.binary_location = binary_path
-    OBS_CONFIG = load_obs_config()
-
-
 def add_operation_message(message, kind=""):
     operation_messages.append({
         "time": time.strftime("%H:%M:%S"),
@@ -243,143 +209,16 @@ def build_queue_snapshot():
     }
 
 
-def set_obs_source_visible(visible):
-    """控制所有场景中同名来源的可见性，只修改实际状态不一致的场景项目。"""
-    visible = bool(visible)
-
-    # 配置无效时完全跳过 WebSocket 请求。
-    if not OBS_CONFIG or not OBS_CONFIG.get("enabled", False):
-        return False
-
-    if obsws_python is None:
-        logger.error(
-            "缺少 obsws-python 依赖，无法控制 OBS。"
-            "请安装：python -m pip install obsws-python"
-        )
-        return False
-
-    client = None
-    try:
-        client = obsws_python.ReqClient(
-            host=OBS_CONFIG["host"],
-            port=OBS_CONFIG["port"],
-            password=OBS_CONFIG["password"],
-            timeout=3,
-        )
-
-        scene_response = client.get_scene_list()
-        scenes = getattr(scene_response, "scenes", None)
-        if scenes is None and isinstance(scene_response, dict):
-            scenes = scene_response.get("scenes", [])
-        if not scenes:
-            logger.warning("控制 OBS 来源失败：OBS 未返回任何场景。")
-            return False
-
-        target_name = OBS_CONFIG["source_name"]
-        matched_count = 0
-        changed_count = 0
-        changed_scenes = []
-
-        for scene in scenes:
-            if isinstance(scene, dict):
-                scene_name = (
-                    scene.get("sceneName")
-                    or scene.get("scene_name")
-                    or scene.get("name")
-                )
-            else:
-                scene_name = (
-                    getattr(scene, "scene_name", None)
-                    or getattr(scene, "sceneName", None)
-                    or getattr(scene, "name", None)
-                )
-
-            if not scene_name:
-                continue
-
-            item_response = client.get_scene_item_list(scene_name)
-            items = getattr(item_response, "scene_items", None)
-            if items is None and isinstance(item_response, dict):
-                items = item_response.get(
-                    "sceneItems", item_response.get("scene_items", [])
-                )
-            if not items:
-                continue
-
-            for item in items:
-                if isinstance(item, dict):
-                    item_name = item.get("sourceName") or item.get("source_name")
-                    item_id = item.get("sceneItemId")
-                    if item_id is None:
-                        item_id = item.get("scene_item_id")
-                    item_enabled = item.get("sceneItemEnabled")
-                    if item_enabled is None:
-                        item_enabled = item.get("scene_item_enabled")
-                else:
-                    item_name = (
-                        getattr(item, "source_name", None)
-                        or getattr(item, "sourceName", None)
-                    )
-                    item_id = getattr(item, "scene_item_id", None)
-                    if item_id is None:
-                        item_id = getattr(item, "sceneItemId", None)
-                    item_enabled = getattr(item, "scene_item_enabled", None)
-                    if item_enabled is None:
-                        item_enabled = getattr(item, "sceneItemEnabled", None)
-
-                if item_name != target_name or item_id is None:
-                    continue
-
-                matched_count += 1
-
-                # 只有读取到状态且与目标状态不同，才跳过/执行设置。
-                # 如果此版本返回对象不含 enabled 字段，则保守地执行设置请求。
-                if item_enabled is not None and bool(item_enabled) == visible:
-                    continue
-
-                client.set_scene_item_enabled(scene_name, int(item_id), visible)
-                changed_count += 1
-                if scene_name not in changed_scenes:
-                    changed_scenes.append(scene_name)
-
-        if matched_count == 0:
-            logger.warning(
-                "OBS 中未找到名为“%s”的来源场景项目；"
-                "请检查所有场景中的来源名称是否完全一致。",
-                target_name,
-            )
-            return False
-
-        # 状态已符合要求时，不重复发送设置请求，也不重复打印显隐日志。
-        if changed_count == 0:
-            return True
-
-        logger.info(
-            "OBS 来源已%s：来源=%s；本次修改 %s 个场景项目（场景：%s）",
-            "显示" if visible else "隐藏",
-            target_name,
-            changed_count,
-            "、".join(changed_scenes),
-        )
-        return True
-
-    except Exception as exc:
-        logger.warning(
-            "控制 OBS 来源失败：source=%s；错误类型=%s。请检查 OBS WebSocket 配置。",
-            OBS_CONFIG.get("source_name"), type(exc).__name__,
-        )
-        return False
-    finally:
-        if client is not None:
-            try:
-                client.disconnect()
-            except Exception:
-                pass
-
-
 async def set_obs_visibility_async(visible):
-    """在线程中执行 OBS 请求，避免阻塞弹幕事件循环。"""
-    return await run_blocking(set_obs_source_visible, visible)
+    """通过主程序注入的回调控制 OBS；视频模块不持有 OBS 连接或凭据。"""
+    callback = OBS_VISIBILITY_CALLBACK
+    if not callable(callback):
+        return False
+    try:
+        return await run_blocking(callback, bool(visible))
+    except Exception as exc:
+        logger.warning("请求主程序控制 OBS 视频来源失败：%s", type(exc).__name__)
+        return False
 
 
 def fetch_streamer_uid_sync():
@@ -2047,9 +1886,10 @@ async def on_dan_mu(msg_json):
 class VideoModuleFacade:
     """视频模块生命周期与统一事件总线适配器。"""
 
-    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None):
-        global music_controller
+    def __init__(self, event_bus, config: dict[str, Any], cookie_provider=None, room_id: int = 0, music_module=None, obs_visibility_callback=None):
+        global music_controller, OBS_VISIBILITY_CALLBACK
         self.event_bus = event_bus
+        OBS_VISIBILITY_CALLBACK = obs_visibility_callback
         music_controller = music_module
         self.config = dict(config)
         self.cookie_provider = cookie_provider
@@ -2290,10 +2130,6 @@ class VideoModuleFacade:
             raise RuntimeError("请先关闭视频模块，再修改视频配置。")
         self.config = dict(config)
         configure_video_module(self.config, None, self.room_id)
-
-    def reload_obs_settings(self) -> None:
-        global OBS_CONFIG
-        OBS_CONFIG = load_obs_config()
 
     async def queue_snapshot(self) -> dict[str, Any]:
         # Flask 线程通过 ApplicationRuntime 调用本方法；快照在修改队列的
