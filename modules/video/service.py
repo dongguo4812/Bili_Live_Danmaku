@@ -210,9 +210,6 @@ async def ensure_video_title(bv):
 
 def build_queue_snapshot():
     """生成供 OBS 网页读取的只读展示快照。"""
-    active_bvs = set(video_queue)
-    if current_bv:
-        active_bvs.add(current_bv)
     # 清理失效点播人映射，并限制 BV 标题/时长缓存规模。
     _prune_video_info_cache()
 
