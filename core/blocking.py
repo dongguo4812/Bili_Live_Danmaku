@@ -50,10 +50,14 @@ class DaemonExecutor(concurrent.futures.Executor):
 
     def _worker(self) -> None:
         while True:
-            item = self._queue.get()
             try:
-                if item is None:
-                    return
+                item = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                with self._lock:
+                    if self._shutdown:
+                        return
+                continue
+            try:
                 future, fn, args, kwargs = item
                 if not future.set_running_or_notify_cancel():
                     continue
@@ -81,8 +85,6 @@ class DaemonExecutor(concurrent.futures.Executor):
                                 item[0].cancel()
                         finally:
                             self._queue.task_done()
-                for _ in self._threads:
-                    self._queue.put_nowait(None)
             threads = tuple(self._threads)
         if wait:
             for thread in threads:
