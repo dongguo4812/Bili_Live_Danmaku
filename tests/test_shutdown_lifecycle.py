@@ -71,6 +71,28 @@ class EventBusShutdownTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ModuleManagerShutdownTests(unittest.IsolatedAsyncioTestCase):
+    async def test_begin_shutdown_rejects_queued_manual_close(self):
+        manager = ModuleManager()
+        closed = []
+
+        class FakeModule:
+            async def start(self):
+                pass
+
+            async def pause(self):
+                pass
+
+            async def resume(self):
+                pass
+
+            async def close(self):
+                closed.append(True)
+
+        manager.register("music", FakeModule(), initial_state="running")
+        manager.begin_shutdown()
+        await manager.close("music")
+        self.assertEqual(closed, [])
+
     async def test_one_stuck_module_does_not_block_later_cleanup(self):
         manager = ModuleManager()
         blocker_started = asyncio.Event()
