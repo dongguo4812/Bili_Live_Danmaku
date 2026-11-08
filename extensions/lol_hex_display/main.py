@@ -2555,7 +2555,14 @@ def main():
 
         # 后台任务均为守护线程；只给一个共享的极短收尾窗口，不逐线程累加等待。
         shutdown_deadline = time.monotonic() + 0.25
-        for thread in background_threads if 'background_threads' in locals() else ():
+        threads_to_join = list(
+            background_threads if 'background_threads' in locals() else ()
+        )
+        selector_thread = getattr(selector, 'thread', None)
+        if selector_thread is not None:
+            threads_to_join.append(selector_thread)
+
+        for thread in threads_to_join:
             if thread is threading.current_thread() or not thread.is_alive():
                 continue
             remaining = shutdown_deadline - time.monotonic()
