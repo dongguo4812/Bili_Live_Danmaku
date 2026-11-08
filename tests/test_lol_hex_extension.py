@@ -120,16 +120,25 @@ class LolHexExtensionManagerTests(unittest.TestCase):
             self.assertTrue(state["external"])
             self.assertFalse(state["owned"])
 
-    def test_can_stop_an_independently_running_extension_on_explicit_request(self):
+    def test_can_stop_an_independently_running_extension_when_worker_identity_is_available(self):
         with tempfile.TemporaryDirectory() as directory:
             manager = LolHexExtensionManager(Path(directory), logging.getLogger("test"))
-            health = iter([True, False])
+            manager.pid_file.parent.mkdir(parents=True, exist_ok=True)
+            manager.pid_file.write_text(
+                json.dumps({"pid": 987654321, "creation_time": 123}),
+                encoding="utf-8",
+            )
+            process_states = iter(["running", "exited"])
             calls = []
-            manager._is_healthy = lambda: next(health, False)
+            manager._is_healthy = lambda: False
+            manager._process_identity_state = lambda pid, creation_time=None: next(process_states, "exited")
             manager._request = lambda path, payload=None, timeout=1.0: calls.append((path, payload)) or {}
+
             state = manager.stop()
-            self.assertEqual(calls[0], ("/api/action", {"action": "shutdown"}))
+
+            self.assertEqual(calls, [("/api/action", {"action": "shutdown"})])
             self.assertFalse(state["running"])
+            self.assertFalse(manager.pid_file.exists())
 
 
 class LolHexIntegrationContractTests(unittest.TestCase):
@@ -155,9 +164,10 @@ class LolHexIntegrationContractTests(unittest.TestCase):
         launcher = (root / "extensions" / "lol_hex_display" / "launcher.py").read_text(encoding="utf-8")
         self.assertIn('self.extension_dir / "launcher.py"', manager)
         self.assertIn("import main as hex_main", launcher)
-        self.assertIn("traceback.format_exc()", launcher)
-        self.assertIn('root / "logs" / "startup-error.log"', launcher)
-        self.assertIn("code not in (None, 0, 17)", launcher)
+        self.assertIn("hex_main.check_admin_privileges()", launcher)
+        self.assertIn("result = hex_main.main()", launcher)
+        self.assertIn("return int(result or 0)", launcher)
+        self.assertIn("raise SystemExit(main())", launcher)
         self.assertIn("GetExitCodeProcess", manager)
         self.assertIn("self._launcher_process_state() == \"exited\"", manager)
         self.assertIn("if os.name == 'nt' and not start_hotkey():", hex_main)
