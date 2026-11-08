@@ -103,11 +103,11 @@
 <header>
   <div>
     <h1>LOL 海克斯卡片管理</h1>
-    <p id="meta">正在连接本地服务…</p>
+    <p id="meta" aria-live="polite" style="display:none">正在连接本地服务…</p>
     <p id="clientStatus" style="margin:6px 0 0;font-size:13px;color:#aab4c5">正在识别英雄联盟客户端…</p>
   </div>
   <nav>
-    <a href="/display" target="_blank">OBS 展示页</a>
+    <a href="/display" target="_blank">海克斯展示页</a>
   </nav>
 </header>
 
@@ -152,16 +152,21 @@
   </section>
 
   <section class="toolbar">
-    <div>
+    <div class="toolbar-row">
       <b>截图与数据管理</b>
       <span>游戏中按 F1 冻结画面并框选；再次按 F1 或按 ESC 取消。</span>
     </div>
 
-    <div class="toolbar-button-groups">
+    <div class="toolbar-row">
+      <span id="assetCount">海克斯索引：读取中…</span>
       <div id="assetDataActions">
         <button id="updateBtn" onclick="updateAssets()">检查并更新海克斯索引</button>
         <button id="resetUpdateBtn" class="danger" onclick="resetAndUpdateAssets()">重置海克斯索引</button>
       </div>
+    </div>
+
+    <div class="toolbar-row">
+      <span id="screenshotDir">截图目录：读取中…</span>
       <div id="cardScreenshotActions">
         <button class="danger" onclick="act('clear')">清空卡片和截图</button>
       </div>
@@ -318,8 +323,10 @@ async function load() {
   try {
     const d = await (await fetch('/api/state', {cache: 'no-store'})).json();
 
-    document.getElementById('meta').textContent =
-      `截图目录：${d.screenshot_dir}　｜　海克斯索引：${d.asset_count} 条`;
+    document.getElementById('screenshotDir').textContent =
+      `截图目录：${d.screenshot_dir}`;
+    document.getElementById('assetCount').textContent =
+      `海克斯索引：${d.asset_count} 条`;
 
     if (lastRenderedAt !== null && d.updated_at === lastRenderedAt) return;
     lastRenderedAt = d.updated_at;
