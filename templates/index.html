@@ -464,7 +464,23 @@
     }
     $("live2d-version").addEventListener("change", event => setLive2DVersion(event.target.value));
 
+    let musicQueueTimer = null;
+    let musicQueueRefreshing = false;
+
+    function syncMusicQueuePolling() {
+      const shouldPoll = ["running", "paused"].includes(moduleStates.music);
+      if (shouldPoll && musicQueueTimer === null) {
+        refreshMusicQueue();
+        musicQueueTimer = setInterval(refreshMusicQueue, 2500);
+      } else if (!shouldPoll && musicQueueTimer !== null) {
+        clearInterval(musicQueueTimer);
+        musicQueueTimer = null;
+      }
+    }
+
     async function refreshMusicQueue() {
+      if (!["running", "paused"].includes(moduleStates.music) || musicQueueRefreshing) return;
+      musicQueueRefreshing = true;
       try {
         const data = await api("/api/music/queue");
         const current = data.current;
@@ -477,6 +493,8 @@
         renderModuleOperations();
       } catch (error) {
         $("music-message").textContent = "读取歌曲队列失败：" + error.message;
+      } finally {
+        musicQueueRefreshing = false;
       }
     }
 
@@ -549,6 +567,7 @@
         const live2d = (data.modules || {}).live2d || { state: "stopped" };
         const voice = (data.modules || {}).voice || { state: "stopped" };
         moduleStates.music = music.state || "stopped";
+        syncMusicQueuePolling();
         moduleStates.video = video.state || "stopped";
         moduleStates.voice = voice.state || "stopped";
         $("music-state").textContent = moduleStateLabels[music.state] || "状态未知";
@@ -674,11 +693,9 @@
     renderModuleOperations();
     refreshLolHexControl();
     refreshStatus();
-    refreshMusicQueue();
     refreshVideoQueue();
     setInterval(refreshLolHexControl, 3000);
     setInterval(refreshStatus, 3000);
-    setInterval(refreshMusicQueue, 2500);
     setInterval(refreshVideoQueue, 2500);
   </script>
 </body>
