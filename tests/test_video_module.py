@@ -110,6 +110,39 @@ class VideoModuleTests(unittest.IsolatedAsyncioTestCase):
             video_service.driver = original_driver
             video_service.chrome_service = original_service
 
+    async def test_create_browser_has_30_second_hard_startup_timeout(self):
+        import time
+
+        class FakeService:
+            process = None
+
+        class FakeBrowser:
+            def set_page_load_timeout(self, timeout):
+                pass
+
+        fake_service = FakeService()
+        original_driver = video_service.driver
+        original_service = video_service.chrome_service
+
+        def delayed_create_driver(*, service, options):
+            time.sleep(0.05)
+            return FakeBrowser()
+
+        try:
+            with patch.object(video_service, "BROWSER_STARTUP_TIMEOUT", 0.01), \
+                 patch.object(video_service, "ManagedChromeService", return_value=fake_service), \
+                 patch.object(video_service.webdriver, "Chrome", side_effect=delayed_create_driver), \
+                 patch.object(video_service, "_force_terminate_service_sync", return_value=True) as kill, \
+                 patch.object(video_service, "_terminate_chrome_profile_processes_sync", return_value=([], [])):
+                with self.assertRaisesRegex(TimeoutError, "超过 0.01 秒"):
+                    video_service.create_browser()
+                self.assertGreaterEqual(kill.call_count, 1)
+                self.assertIsNone(video_service.driver)
+                self.assertIsNone(video_service.chrome_service)
+        finally:
+            video_service.driver = original_driver
+            video_service.chrome_service = original_service
+
     async def test_emergency_cleanup_can_find_service_before_driver_exists(self):
         class FakeProcess:
             pid = 43210
