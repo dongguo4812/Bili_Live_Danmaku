@@ -355,10 +355,27 @@ def compact_music_name(value: str) -> str:
     return value.casefold()
 
 
-def is_bad_version(item: dict[str, Any]) -> bool:
-    title = str(item.get("title", ""))
+def is_bad_version(item: dict[str, Any], requested_title: str = "") -> bool:
+    """过滤非目标版本；用户明确指定的版本标记不应被过滤。"""
+    candidate_title = str(item.get("title", ""))
     artist = str(item.get("artist", ""))
-    return bool(BAD_VERSION_PATTERN.search(title) or BAD_VERSION_PATTERN.search(artist))
+
+    requested_markers = {
+        compact_music_name(match.group(0))
+        for match in BAD_VERSION_PATTERN.finditer(str(requested_title or ""))
+    }
+    normalized_candidate_title = compact_music_name(candidate_title)
+    # 仅当候选歌名也包含用户明确指定的版本标记时豁免；
+    # 不因歌手名称中偶然出现该标记而放行其他不合适版本。
+    if requested_markers and any(
+        marker in normalized_candidate_title for marker in requested_markers
+    ):
+        return False
+
+    return bool(
+        BAD_VERSION_PATTERN.search(candidate_title)
+        or BAD_VERSION_PATTERN.search(artist)
+    )
 
 
 def _music_get_json(
@@ -745,14 +762,19 @@ def match_candidates(
     for item in candidates:
         candidate_title = compact_music_name(str(item.get("title", "")))
         candidate_artist = compact_music_name(str(item.get("artist", "")))
-        if not candidate_title or is_bad_version(item):
+        if not candidate_title:
             continue
 
+        # 先确认歌名完全匹配或候选歌名包含点播歌名，再过滤不合适版本。
+        # 歌名包含属于合法匹配，不应被误当成版本不匹配。
         if candidate_title == wanted_title:
             title_group = "exact"
         elif wanted_title in candidate_title:
             title_group = "contains"
         else:
+            continue
+
+        if is_bad_version(item, title):
             continue
 
         if not wanted_artist or candidate_artist == wanted_artist:
