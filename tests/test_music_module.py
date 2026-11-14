@@ -21,6 +21,25 @@ class MusicMatchingTests(unittest.TestCase):
         self.assertEqual(exact[0]["artist"], "周杰伦")
         self.assertEqual(fallback[0]["artist"], "周杰伦、乐队")
 
+    def test_exact_title_precedes_contains_title_even_when_artist_is_less_exact(self):
+        candidates = [
+            {"title": "晴天之后", "artist": "周杰伦"},
+            {"title": "晴天", "artist": "周杰伦、乐队"},
+        ]
+        exact_title, contains_title = match_candidates(candidates, "晴天", "周杰伦")
+        self.assertEqual(exact_title[0]["title"], "晴天")
+        self.assertEqual(exact_title[0]["artist"], "周杰伦、乐队")
+        self.assertEqual(contains_title[0]["title"], "晴天之后")
+
+    def test_contains_title_is_only_candidate_title_containing_request(self):
+        candidates = [
+            {"title": "晴", "artist": "周杰伦"},
+            {"title": "晴天之后", "artist": "周杰伦"},
+        ]
+        exact_title, contains_title = match_candidates(candidates, "晴天", "周杰伦")
+        self.assertEqual(exact_title, [])
+        self.assertEqual([item["title"] for item in contains_title], ["晴天之后"])
+
     def test_bad_versions_are_filtered(self):
         candidates = [
             {"title": "晴天", "artist": "周杰伦"},
