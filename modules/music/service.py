@@ -364,18 +364,15 @@ def is_bad_version(item: dict[str, Any], requested_title: str = "") -> bool:
         compact_music_name(match.group(0))
         for match in BAD_VERSION_PATTERN.finditer(str(requested_title or ""))
     }
-    normalized_candidate_title = compact_music_name(candidate_title)
-    # 仅当候选歌名也包含用户明确指定的版本标记时豁免；
-    # 不因歌手名称中偶然出现该标记而放行其他不合适版本。
-    if requested_markers and any(
-        marker in normalized_candidate_title for marker in requested_markers
-    ):
-        return False
-
-    return bool(
-        BAD_VERSION_PATTERN.search(candidate_title)
-        or BAD_VERSION_PATTERN.search(artist)
-    )
+    candidate_markers = {
+        compact_music_name(match.group(0))
+        for match in BAD_VERSION_PATTERN.finditer(candidate_title)
+    }
+    # 用户明确指定的版本标记可以保留，但候选中其他未指定的禁用版本标记
+    # 仍然过滤；歌手名称命中禁用词也不会因歌名中的指定版本而豁免。
+    if candidate_markers - requested_markers:
+        return True
+    return bool(BAD_VERSION_PATTERN.search(artist))
 
 
 def _music_get_json(
