@@ -1022,10 +1022,11 @@ def verify_requested_song(
             except (TypeError, ValueError):
                 current_progress = None
 
+            # 与搜索阶段 match_candidates 保持同一方向：
+            # 实际曲目名/歌手可以包含请求文本，但不能反向用请求文本包含实际结果来放行。
             title_matches = bool(actual_title and requested_title) and (
                 actual_title == requested_title
                 or requested_title in actual_title
-                or actual_title in requested_title
             )
 
             artist_matches = True
@@ -1033,7 +1034,6 @@ def verify_requested_song(
                 artist_matches = bool(actual_artist) and (
                     actual_artist == requested_artist
                     or requested_artist in actual_artist
-                    or actual_artist in requested_artist
                 )
 
             # 判断是否出现了新的播放变化。
