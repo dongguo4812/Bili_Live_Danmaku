@@ -725,24 +725,51 @@ PROVIDERS = (
 def match_candidates(
     candidates: list[dict[str, Any]], title: str, artist: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """先按歌名匹配等级分组，再在组内优先选择歌手完全匹配项。
+
+    返回值第一组为歌名完全匹配候选，第二组为候选歌名包含点播歌名的候选。
+    每组内部均按歌手完全匹配优先排序；不接受点播歌名包含候选歌名的反向匹配。
+    """
     wanted_title = compact_music_name(title)
     wanted_artist = compact_music_name(artist)
-    stage_one: list[dict[str, Any]] = []
-    stage_two: list[dict[str, Any]] = []
+    exact_title: list[dict[str, Any]] = []
+    contains_title: list[dict[str, Any]] = []
     if not wanted_title:
-        return stage_one, stage_two
+        return exact_title, contains_title
+
+    exact_artist_exact_title: list[dict[str, Any]] = []
+    contains_artist_exact_title: list[dict[str, Any]] = []
+    exact_artist_contains_title: list[dict[str, Any]] = []
+    contains_artist_contains_title: list[dict[str, Any]] = []
+
     for item in candidates:
         candidate_title = compact_music_name(str(item.get("title", "")))
         candidate_artist = compact_music_name(str(item.get("artist", "")))
-        if candidate_title != wanted_title or is_bad_version(item):
+        if not candidate_title or is_bad_version(item):
             continue
-        if not wanted_artist:
-            stage_one.append(item)
-        elif candidate_artist == wanted_artist:
-            stage_one.append(item)
+
+        if candidate_title == wanted_title:
+            title_group = "exact"
+        elif wanted_title in candidate_title:
+            title_group = "contains"
+        else:
+            continue
+
+        if not wanted_artist or candidate_artist == wanted_artist:
+            artist_exact = True
         elif wanted_artist in candidate_artist:
-            stage_two.append(item)
-    return stage_one, stage_two
+            artist_exact = False
+        else:
+            continue
+
+        if title_group == "exact":
+            (exact_artist_exact_title if artist_exact else contains_artist_exact_title).append(item)
+        else:
+            (exact_artist_contains_title if artist_exact else contains_artist_contains_title).append(item)
+
+    exact_title = exact_artist_exact_title + contains_artist_exact_title
+    contains_title = exact_artist_contains_title + contains_artist_contains_title
+    return exact_title, contains_title
 
 
 def find_matching_songs(
@@ -774,9 +801,9 @@ def find_matching_songs(
         try:
             candidates = search_func(keyword)
             total_candidates += len(candidates)
-            exact_matches, contains_matches = match_candidates(candidates, title, artist)
-            selected = exact_matches[0] if exact_matches else (
-                contains_matches[0] if contains_matches else None
+            exact_title_matches, contains_title_matches = match_candidates(candidates, title, artist)
+            selected = exact_title_matches[0] if exact_title_matches else (
+                contains_title_matches[0] if contains_title_matches else None
             )
         except Exception as exc:
             # 完整关键词可能被上游接口拒绝（例如带空格的组合词）。
@@ -790,11 +817,11 @@ def find_matching_songs(
                 try:
                     fallback_candidates = search_func(fallback_title)
                     total_candidates += len(fallback_candidates)
-                    fallback_exact, fallback_contains = match_candidates(
+                    fallback_exact_title, fallback_contains_title = match_candidates(
                         fallback_candidates, fallback_title, fallback_artist
                     )
-                    selected = fallback_exact[0] if fallback_exact else (
-                        fallback_contains[0] if fallback_contains else None
+                    selected = fallback_exact_title[0] if fallback_exact_title else (
+                        fallback_contains_title[0] if fallback_contains_title else None
                     )
                 except Exception as exc:
                     errors.append(f"{source}(拆分搜索):{type(exc).__name__}: {exc}")
