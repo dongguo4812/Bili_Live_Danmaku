@@ -978,10 +978,8 @@ def verify_requested_song(
     abort_event: Any = None,
 ) -> tuple[bool, str]:
     """核对洛雪实际播放结果，必须确认本次请求产生了新的播放变化。"""
-    # 核验必须以观众最初点播内容为准，不能用搜索候选覆盖原始请求。
-    # 否则候选若误选为“太空”，核验也会把“太空”当作目标而错误放行。
-    requested_title = normalize_name(str(song.get("requested_title") or song.get("title", "")))
-    requested_artist = normalize_name(str(song.get("requested_artist") or song.get("artist", "")))
+    requested_title = normalize_name(str(song.get("title", "")))
+    requested_artist = normalize_name(str(song.get("artist", "")))
 
     if not before_status:
         return False, "点歌前无法读取洛雪状态，不能确认本次播放是否成功，已拒绝本次点歌"
